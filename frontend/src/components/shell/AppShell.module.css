@@ -1,0 +1,214 @@
+/* App shell — top nav (56px) + collapsible left sidebar (240px) + content.
+   Constants from @atlaskit/page-layout: DEFAULT_TOP_NAVIGATION_HEIGHT = 56,
+   DEFAULT_LEFT_SIDEBAR_WIDTH = 240, COLLAPSED_LEFT_SIDEBAR_WIDTH = 20. */
+
+.shell {
+  display: grid;
+  grid-template-rows: var(--ds-topnav-height) 1fr;
+  height: 100%;
+  background: var(--ds-surface);
+}
+
+/* ---------- top nav ---------- */
+
+.topnav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-100);
+  height: var(--ds-topnav-height);
+  padding-inline: var(--ds-space-150);
+  background: var(--ds-surface);
+  border-block-end: var(--ds-border-width) solid var(--ds-border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-100);
+  padding-inline: var(--ds-space-050);
+  color: var(--ds-text);
+  text-decoration: none;
+  font: var(--ds-font-heading-xsmall);
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.brandMark {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.topnavSpacer {
+  flex: 1;
+}
+
+/* Search sits at the nav's centre-left in Jira and is the primary way in. */
+.search {
+  flex: 0 1 360px;
+  min-width: 120px;
+}
+
+.topnavActions {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-050);
+}
+
+/* ---------- body ---------- */
+
+.body {
+  display: flex;
+  min-height: 0;
+}
+
+/* ---------- side nav ---------- */
+
+/* Positioning context for the edge toggle, which straddles the sidebar's border. */
+.sidenavWrap {
+  position: relative;
+  display: flex;
+}
+
+.sidenav {
+  position: relative;
+  flex: none;
+  width: var(--ds-sidenav-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-050);
+  padding: var(--ds-space-100) var(--ds-space-100) var(--ds-space-200);
+  background: var(--ds-surface);
+  border-inline-end: var(--ds-border-width) solid var(--ds-border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width var(--ds-duration-medium) var(--ds-easing-inout-bold);
+}
+
+/* Collapsed is a 20px strip, exactly as in ADS — the toggle stays on the edge so the
+   sidebar is always recoverable. */
+.sidenav[data-collapsed='true'] {
+  width: var(--ds-sidenav-collapsed-width);
+  padding-inline: 0;
+  overflow: visible;
+}
+
+.sidenav[data-collapsed='true'] .sidenavContents {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidenavContents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-050);
+  min-width: calc(var(--ds-sidenav-width) - var(--ds-space-200));
+  transition: opacity var(--ds-duration-xshort) var(--ds-easing-out-practical);
+}
+
+.sidenavSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-025);
+}
+
+.sidenavHeading {
+  padding: var(--ds-space-100) var(--ds-space-100) var(--ds-space-050);
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-bold);
+  color: var(--ds-text-subtlest);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ~32px rows: min-height 24px + 6px block padding, per @atlaskit/menu density. */
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-100);
+  min-height: 24px;
+  padding: var(--ds-space-075) var(--ds-space-100);
+  border-radius: var(--ds-radius-small);
+  color: var(--ds-text-subtle);
+  font: var(--ds-font-body);
+  text-decoration: none;
+  white-space: nowrap;
+  /* 50ms — ADS's listitem.hovered recipe, notably faster than a button's 150ms. */
+  transition: background-color var(--ds-duration-xxshort) var(--ds-easing-out-practical);
+}
+
+.item:hover {
+  background: var(--ds-background-neutral-subtle-hovered);
+  text-decoration: none;
+}
+
+.item:active {
+  background: var(--ds-background-neutral-subtle-pressed);
+}
+
+.item[aria-disabled='true'] {
+  color: var(--ds-text-disabled);
+  cursor: not-allowed;
+}
+
+.item[aria-disabled='true']:hover {
+  background: var(--ds-background-neutral-subtle);
+}
+
+.item[aria-current='page'] {
+  background: var(--ds-background-selected);
+  color: var(--ds-text-selected);
+  font-weight: var(--ds-font-weight-medium);
+}
+
+.itemIcon {
+  display: flex;
+  flex: none;
+  color: currentColor;
+}
+
+/* Toggle pinned to the sidebar's trailing edge, straddling the divider — Jira's pattern. */
+.sidenavToggle {
+  position: absolute;
+  top: var(--ds-space-150);
+  inset-inline-end: -12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-surface-overlay);
+  color: var(--ds-icon-subtle);
+  box-shadow: var(--ds-shadow-overlay);
+  cursor: pointer;
+  transition:
+    background-color var(--ds-duration-xxshort) var(--ds-easing-out-practical),
+    transform var(--ds-duration-medium) var(--ds-easing-inout-bold);
+}
+
+.sidenavToggle:hover {
+  background: var(--ds-surface-overlay-hovered);
+  color: var(--ds-icon);
+}
+
+.sidenavToggle[data-collapsed='true'] {
+  transform: rotate(180deg);
+}
+
+/* ---------- content ---------- */
+
+.content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: var(--ds-surface);
+}

@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "useDefineForClassFields": true,
+
+    /* Vite owns emit; tsc is a type checker only. */
+    "noEmit": true,
+    "isolatedModules": true,
+    "allowJs": true,
+    "checkJs": false,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+
+    /* Strictness. exactOptionalPropertyTypes + noUncheckedIndexedAccess are the two
+       that actually catch bugs in this codebase; verbatimModuleSyntax keeps import
+       elision explicit, which isolatedModules/Rolldown require. */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* `paths` without `baseUrl` resolves relative to this file. */
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts", "vitest.config.ts", "eslint.config.js", "scripts"]
+}

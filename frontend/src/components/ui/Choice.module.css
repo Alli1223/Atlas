@@ -1,0 +1,114 @@
+/* Checkbox + Radio. The native input is kept (a11y, form semantics, keyboard) and
+   restyled via appearance:none rather than being hidden behind a fake control. */
+
+.wrapper {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--ds-space-100);
+  cursor: pointer;
+}
+
+.wrapper:has(.input:disabled) {
+  cursor: not-allowed;
+}
+
+.input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  /* Optical centring against the 20px body line-height. */
+  margin: 2px 0 0;
+  appearance: none;
+  background: var(--ds-background-input);
+  border: var(--ds-border-width-selected) solid var(--ds-border-input);
+  cursor: inherit;
+  transition:
+    background-color var(--ds-duration-short) var(--ds-easing-out-practical),
+    border-color var(--ds-duration-short) var(--ds-easing-out-practical);
+}
+
+.checkbox {
+  border-radius: var(--ds-radius-xsmall);
+}
+
+.radio {
+  border-radius: var(--ds-radius-full);
+}
+
+.input:hover:not(:disabled) {
+  background: var(--ds-background-input-hovered);
+  border-color: var(--ds-border-bold);
+}
+
+.input:checked,
+.input:indeterminate {
+  background: var(--ds-background-selected-bold);
+  border-color: var(--ds-background-selected-bold);
+}
+
+.input:checked:hover:not(:disabled),
+.input:indeterminate:hover:not(:disabled) {
+  background: var(--ds-background-brand-bold-hovered);
+  border-color: var(--ds-background-brand-bold-hovered);
+}
+
+/* Checkmark: drawn with a masked SVG so it inherits the inverse text token and stays
+   crisp at 16px, rather than relying on a border-rotate hack. */
+.checkbox:checked {
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path fill="none" stroke="white" stroke-width="2" stroke-linecap="square" d="M2.5 6.2 4.8 8.5 9.5 3.8"/></svg>');
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.checkbox:indeterminate {
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path fill="none" stroke="white" stroke-width="2" stroke-linecap="square" d="M3 6h6"/></svg>');
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.radio:checked {
+  /* Inner dot via an inset ring — no pseudo-element needed on a replaced element. */
+  box-shadow: inset 0 0 0 3px var(--ds-background-input);
+}
+
+.input:disabled {
+  background: var(--ds-background-disabled);
+  border-color: var(--ds-border-disabled);
+}
+
+.input:checked:disabled,
+.input:indeterminate:disabled {
+  background: var(--ds-background-neutral-pressed);
+  border-color: transparent;
+}
+
+.invalid:not(:checked) {
+  border-color: var(--ds-border-danger);
+}
+
+.label {
+  font: var(--ds-font-body);
+  color: var(--ds-text);
+}
+
+.input:disabled ~ .label {
+  color: var(--ds-text-disabled);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-050);
+  border: none;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+}
+
+.groupLabel {
+  padding: 0;
+  margin-block-end: var(--ds-space-050);
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-bold);
+  color: var(--ds-text-subtle);
+}

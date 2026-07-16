@@ -1,0 +1,83 @@
+/* Tag / label chip — @atlaskit/tag geometry: body.small 12px/16px,
+   padding 2px/4px (space.025 / space.050), radius.small. */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-050);
+  max-width: 200px;
+  padding: var(--ds-space-025) var(--ds-space-050);
+  border-radius: var(--ds-radius-small);
+  font: var(--ds-font-body-small);
+  background: var(--atlas-accent-grey-bg);
+  color: var(--atlas-accent-grey-text);
+}
+
+.rounded {
+  border-radius: var(--ds-radius-full);
+  padding-inline: var(--ds-space-075);
+}
+
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A linked tag (filter by this tag) keeps the chip colour rather than turning link-blue. */
+.link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+/* Colours. Every pair comes from the --atlas-accent-* tokens, which are derived from the
+   verified ADS ramps by ADS's own rule (light: ramp-100 bg / ramp-800 text; dark:
+   ramp-1000 bg / ramp-300 text), so they hold up in both themes. */
+
+.standard,
+.grey {
+  background: var(--atlas-accent-grey-bg);
+  color: var(--atlas-accent-grey-text);
+}
+
+.blue { background: var(--atlas-accent-blue-bg); color: var(--atlas-accent-blue-text); }
+.teal { background: var(--atlas-accent-teal-bg); color: var(--atlas-accent-teal-text); }
+.green { background: var(--atlas-accent-green-bg); color: var(--atlas-accent-green-text); }
+.lime { background: var(--atlas-accent-lime-bg); color: var(--atlas-accent-lime-text); }
+.yellow { background: var(--atlas-accent-yellow-bg); color: var(--atlas-accent-yellow-text); }
+.orange { background: var(--atlas-accent-orange-bg); color: var(--atlas-accent-orange-text); }
+.red { background: var(--atlas-accent-red-bg); color: var(--atlas-accent-red-text); }
+.magenta { background: var(--atlas-accent-magenta-bg); color: var(--atlas-accent-magenta-text); }
+.purple { background: var(--atlas-accent-purple-bg); color: var(--atlas-accent-purple-text); }
+
+/* Remove button — 16px hit target inside a 16px-tall chip, so it must stay tight. */
+.remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: -2px;
+  padding: 0;
+  border: none;
+  border-radius: var(--ds-radius-full);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition:
+    opacity var(--ds-duration-xxshort) var(--ds-easing-out-practical),
+    background-color var(--ds-duration-xxshort) var(--ds-easing-out-practical);
+}
+
+.remove:hover {
+  opacity: 1;
+  background: var(--ds-background-danger);
+  color: var(--ds-text-danger);
+}

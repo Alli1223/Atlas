@@ -1,0 +1,133 @@
+/* Button — geometry from @atlaskit/button@24.3.3 compiled CSS:
+   32px default / 24px compact, padding-inline space.150, gap space.050,
+   radius.small, body font at weight 500. */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding-inline: var(--ds-space-150);
+  column-gap: var(--ds-space-050);
+  border: none;
+  border-radius: var(--ds-radius-small);
+  font: var(--ds-font-body);
+  font-weight: var(--ds-font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  /* 150ms out-practical on background-color — ADS's verified button motion recipe. */
+  transition: background-color var(--ds-duration-short) var(--ds-easing-out-practical);
+}
+
+.compact {
+  height: 24px;
+  padding-inline: var(--ds-space-075);
+}
+
+/* Icon-only: square, and the label collapses to an aria-label. */
+.iconOnly {
+  width: 32px;
+  padding-inline: var(--ds-space-075);
+}
+
+.iconOnly.compact {
+  width: 24px;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+/* ---- appearances ---- */
+
+.default {
+  background: var(--ds-background-neutral);
+  color: var(--ds-text);
+}
+.default:hover:not(:disabled) { background: var(--ds-background-neutral-hovered); }
+.default:active:not(:disabled) { background: var(--ds-background-neutral-pressed); }
+
+.primary {
+  background: var(--ds-background-brand-bold);
+  color: var(--ds-text-inverse);
+}
+.primary:hover:not(:disabled) { background: var(--ds-background-brand-bold-hovered); }
+.primary:active:not(:disabled) { background: var(--ds-background-brand-bold-pressed); }
+
+.subtle {
+  background: var(--ds-background-neutral-subtle);
+  color: var(--ds-text-subtle);
+}
+.subtle:hover:not(:disabled) { background: var(--ds-background-neutral-subtle-hovered); }
+.subtle:active:not(:disabled) { background: var(--ds-background-neutral-subtle-pressed); }
+
+.danger {
+  background: var(--ds-background-danger-bold);
+  color: var(--ds-text-inverse);
+}
+.danger:hover:not(:disabled) { background: var(--ds-background-danger-bold-hovered); }
+.danger:active:not(:disabled) { background: var(--ds-background-danger-bold-pressed); }
+
+/* Yellow needs DARK text — hence text-warning-inverse rather than text-inverse. */
+.warning {
+  background: var(--ds-background-warning-bold);
+  color: var(--ds-text-warning-inverse);
+}
+.warning:hover:not(:disabled) { background: var(--ds-background-warning-bold-hovered); }
+.warning:active:not(:disabled) { background: var(--ds-background-warning-bold-pressed); }
+
+.link {
+  height: auto;
+  padding-inline: 0;
+  background: none;
+  color: var(--ds-link);
+}
+.link:hover:not(:disabled) { text-decoration: underline; }
+.link:active:not(:disabled) { color: var(--ds-link-pressed); }
+
+/* ---- states ---- */
+
+.button:disabled {
+  background: var(--ds-background-disabled);
+  color: var(--ds-text-disabled);
+  cursor: not-allowed;
+}
+
+.link:disabled {
+  background: none;
+  text-decoration: none;
+}
+
+/* Loading keeps the label in flow so the button does not resize mid-click — the
+   spinner is overlaid rather than swapped in. */
+.loading {
+  position: relative;
+  cursor: progress;
+}
+
+/* The label + icons live in their own flex row so the loading spinner can be overlaid
+   without disturbing their layout. */
+.contents {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: var(--ds-space-050);
+}
+
+.loadingLabel {
+  visibility: hidden;
+}
+
+.spinnerSlot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}

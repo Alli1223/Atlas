@@ -1,0 +1,38 @@
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  /* ADS caps empty-state prose narrow; a full-width paragraph reads as a page, not a state. */
+  max-width: 400px;
+  margin-inline: auto;
+  padding: var(--ds-space-400) var(--ds-space-200);
+  gap: var(--ds-space-100);
+}
+
+.narrow {
+  padding-block: var(--ds-space-300);
+}
+
+.image {
+  margin-block-end: var(--ds-space-100);
+  color: var(--ds-icon-subtlest);
+}
+
+.header {
+  font: var(--ds-font-heading-small);
+  color: var(--ds-text);
+}
+
+.description {
+  font: var(--ds-font-body);
+  color: var(--ds-text-subtle);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-100);
+  margin-block-start: var(--ds-space-100);
+}

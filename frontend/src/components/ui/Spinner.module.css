@@ -1,0 +1,43 @@
+/* Spinner — inherits currentColor so it works on any button appearance or surface. */
+
+.spinner {
+  display: inline-block;
+  flex: none;
+  color: inherit;
+  /* Two composed animations: the whole ring rotates while the dash grows and shrinks,
+     which is what stops it reading as a mechanical, evenly-spinning wheel. */
+  animation: spinner-rotate 1.2s linear infinite;
+}
+
+.track {
+  stroke: currentColor;
+  opacity: 0.2;
+}
+
+.head {
+  stroke: currentColor;
+  stroke-linecap: round;
+  transform-origin: center;
+  animation: spinner-dash 1.4s var(--ds-easing-inout-bold) infinite;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spinner-dash {
+  0% {
+    stroke-dasharray: 1, 64;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 44, 64;
+    stroke-dashoffset: -8;
+  }
+  100% {
+    stroke-dasharray: 1, 64;
+    stroke-dashoffset: -60;
+  }
+}

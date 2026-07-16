@@ -1,0 +1,60 @@
+/* Avatar — exact sizes from @atlaskit/avatar: xsmall 16, small 24, medium 32,
+   large 40, xlarge 96, xxlarge 128. Border width 2px. 16/24 are the dense-context
+   sizes (cards, rows); 32 is the default elsewhere. */
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  overflow: hidden;
+  background: var(--ds-background-neutral);
+  color: var(--ds-text);
+  font-family: var(--ds-font-family-body);
+  font-weight: var(--ds-font-weight-bold);
+  line-height: 1;
+  user-select: none;
+}
+
+.circle {
+  border-radius: var(--ds-radius-full);
+}
+
+/* radius.tile (25%) exists precisely for square avatars and issue-type tiles. */
+.square {
+  border-radius: var(--ds-radius-tile);
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.xsmall { width: 16px; height: 16px; font-size: 8px; }
+.small { width: 24px; height: 24px; font-size: 10px; }
+.medium { width: 32px; height: 32px; font-size: 12px; }
+.large { width: 40px; height: 40px; font-size: 14px; }
+.xlarge { width: 96px; height: 96px; font-size: 32px; }
+.xxlarge { width: 128px; height: 128px; font-size: 42px; }
+
+/* Stacked avatars punch a hole in the neighbour using the page surface colour. */
+.stacked {
+  border: 2px solid var(--ds-surface);
+}
+
+.button {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+}
+
+.group > * + * {
+  margin-inline-start: -6px;
+}
