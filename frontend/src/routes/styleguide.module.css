@@ -1,0 +1,268 @@
+.page {
+  padding: var(--ds-space-300);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-300);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-100);
+  max-width: 720px;
+}
+
+.lede {
+  font: var(--ds-font-body-large);
+  color: var(--ds-text-subtle);
+}
+
+.note {
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-subtlest);
+}
+
+/* Both themes, side by side. Each pane is an island with its own data-theme, which works
+   because the theme blocks in tokens.css are matched on any element, not just :root. */
+.panes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--ds-space-200);
+  align-items: start;
+}
+
+.pane {
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-large);
+  overflow: hidden;
+}
+
+.paneHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-100);
+  padding: var(--ds-space-100) var(--ds-space-200);
+  background: var(--ds-surface-sunken);
+  border-block-end: var(--ds-border-width) solid var(--ds-border);
+  font: var(--ds-font-heading-xxsmall);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ds-text-subtlest);
+}
+
+.paneBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-300);
+  padding: var(--ds-space-200);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-100);
+}
+
+.sectionTitle {
+  font: var(--ds-font-heading-xsmall);
+  color: var(--ds-text);
+}
+
+.sectionNote {
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-subtlest);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-100);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-150);
+}
+
+/* ---- swatches ---- */
+
+.ramp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-025);
+}
+
+.rampLabel {
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-bold);
+  color: var(--ds-text-subtle);
+  text-transform: capitalize;
+}
+
+.rampRow {
+  display: flex;
+  border-radius: var(--ds-radius-small);
+  overflow: hidden;
+}
+
+.swatch {
+  flex: 1;
+  height: 32px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-block-end: 2px;
+  font-size: 8px;
+  font-family: var(--ds-font-family-code);
+  color: #ffffff;
+  mix-blend-mode: normal;
+}
+
+.swatchDarkText {
+  color: #292a2e;
+}
+
+/* ---- type scale ---- */
+
+.typeRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-200);
+  padding-block: var(--ds-space-050);
+  border-block-end: var(--ds-border-width) solid var(--ds-border);
+}
+
+.typeToken {
+  flex: none;
+  width: 132px;
+  font: var(--ds-font-body-small);
+  font-family: var(--ds-font-family-code);
+  color: var(--ds-text-subtlest);
+}
+
+/* ---- spacing ---- */
+
+.spaceRow {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-100);
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-subtlest);
+}
+
+.spaceBar {
+  height: 12px;
+  background: var(--ds-background-brand-bold);
+  border-radius: var(--ds-radius-xsmall);
+}
+
+.spaceToken {
+  flex: none;
+  width: 96px;
+  font-family: var(--ds-font-family-code);
+}
+
+/* ---- elevation ---- */
+
+.elevationGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--ds-space-150);
+}
+
+.elevationTile {
+  padding: var(--ds-space-150);
+  border-radius: var(--ds-radius-medium);
+  font: var(--ds-font-body-small);
+  text-align: center;
+}
+
+.sunken {
+  background: var(--ds-surface-sunken);
+}
+
+.raised {
+  background: var(--ds-surface-raised);
+  box-shadow: var(--ds-shadow-raised);
+}
+
+.overlay {
+  background: var(--ds-surface-overlay);
+  box-shadow: var(--ds-shadow-overlay);
+}
+
+/* ---- a sample Jira card, to sanity-check density ---- */
+
+.boardColumn {
+  /* 250px, radius.xlarge, space.100 padding — from Atlassian's own
+     pragmatic-drag-and-drop board example, not guessed. */
+  width: 250px;
+  padding: var(--ds-space-100);
+  background: var(--ds-surface-sunken);
+  border-radius: var(--ds-radius-xlarge);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-100);
+}
+
+.boardColumnHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--ds-space-050) var(--ds-space-050) 0;
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ds-text-subtlest);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-100);
+  padding: var(--ds-space-100);
+  background: var(--ds-surface);
+  border-radius: var(--ds-radius-large);
+  box-shadow: var(--ds-shadow-raised);
+  cursor: pointer;
+  transition: background-color var(--ds-duration-xxshort) var(--ds-easing-out-practical);
+}
+
+.card:hover {
+  background: var(--ds-surface-hovered);
+}
+
+.cardTitle {
+  font: var(--ds-font-body);
+  color: var(--ds-text);
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-100);
+}
+
+.cardKey {
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-subtlest);
+  letter-spacing: 0.02em;
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-050);
+}
+
+.fieldGrid {
+  display: grid;
+  gap: var(--ds-space-150);
+}

@@ -1,0 +1,45 @@
+/* Skeleton — a shimmer over the neutral background token, so it reads correctly on
+   both themes without a second colour set. */
+
+.skeleton {
+  display: block;
+  flex: none;
+  background: var(--ds-background-neutral);
+  border-radius: var(--ds-radius-small);
+  /* Masks the text that would otherwise be selectable/announced. */
+  color: transparent;
+  user-select: none;
+}
+
+.circle {
+  border-radius: var(--ds-radius-full);
+}
+
+.shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ds-background-neutral-hovered) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-shimmer 1.4s var(--ds-easing-inout-bold) infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: -100% 0;
+  }
+  to {
+    background-position: 100% 0;
+  }
+}
+
+/* Unlike the Spinner, a frozen skeleton still communicates "loading" via its shape,
+   so it honours the global reduced-motion freeze rather than opting out. */
+
+.text {
+  height: 12px;
+  margin-block: 4px;
+}

@@ -1,0 +1,115 @@
+/* Shared text-control styling for Input / Textarea / Select.
+   32px control height matches the 32px button — the two sit on a row together
+   constantly in Jira, and a mismatch there is instantly visible. */
+
+.control {
+  width: 100%;
+  min-width: 0;
+  padding-inline: var(--ds-space-075);
+  background: var(--ds-background-input);
+  color: var(--ds-text);
+  border: var(--ds-border-width) solid var(--ds-border-input);
+  border-radius: var(--ds-radius-small);
+  font: var(--ds-font-body);
+  transition:
+    background-color var(--ds-duration-short) var(--ds-easing-out-practical),
+    border-color var(--ds-duration-short) var(--ds-easing-out-practical);
+}
+
+.control::placeholder {
+  color: var(--ds-text-subtlest);
+}
+
+.control:hover:not(:disabled):not(:focus) {
+  background: var(--ds-background-input-hovered);
+}
+
+.control:focus {
+  background: var(--ds-background-input-pressed);
+  border-color: var(--ds-border-focused);
+}
+
+.control:disabled {
+  background: var(--ds-background-disabled);
+  color: var(--ds-text-disabled);
+  border-color: var(--ds-border-disabled);
+  cursor: not-allowed;
+}
+
+.invalid,
+.invalid:hover:not(:disabled) {
+  border-color: var(--ds-border-danger);
+}
+
+.input {
+  height: 32px;
+}
+
+.compact {
+  height: 24px;
+}
+
+.textarea {
+  display: block;
+  min-height: 80px;
+  padding-block: var(--ds-space-075);
+  resize: vertical;
+}
+
+.select {
+  height: 32px;
+  /* Room for the chevron; the native arrow is replaced so the control matches ADS. */
+  padding-inline-end: var(--ds-space-400);
+  appearance: none;
+  cursor: pointer;
+}
+
+.selectWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.selectChevron {
+  position: absolute;
+  inset-inline-end: var(--ds-space-075);
+  display: flex;
+  color: var(--ds-icon-subtle);
+  pointer-events: none;
+}
+
+.select:disabled + .selectChevron {
+  color: var(--ds-icon-disabled);
+}
+
+/* ---- label / help / error ---- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-050);
+}
+
+.label {
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-bold);
+  color: var(--ds-text-subtle);
+}
+
+.required {
+  color: var(--ds-text-danger);
+  padding-inline-start: var(--ds-space-025);
+}
+
+.message {
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-subtlest);
+}
+
+.errorMessage {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-050);
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-danger);
+}

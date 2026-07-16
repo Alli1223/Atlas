@@ -1,0 +1,47 @@
+/* Banner — the full-bleed bar that sits under the top nav.
+   @atlaskit/page-layout's DEFAULT_BANNER_HEIGHT is 56px, but that is the *slot* height;
+   the bar itself is content-height with space.100 padding so a wrapped message grows. */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-100);
+  width: 100%;
+  min-height: 38px;
+  padding: var(--ds-space-100) var(--ds-space-200);
+  font: var(--ds-font-body);
+  font-weight: var(--ds-font-weight-medium);
+}
+
+.icon {
+  display: flex;
+  flex: none;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-100);
+}
+
+.announcement {
+  background: var(--ds-background-neutral-bold);
+  color: var(--ds-text-inverse);
+}
+
+.error {
+  background: var(--ds-background-danger-bold);
+  color: var(--ds-text-inverse);
+}
+
+/* Yellow demands dark text — text-warning-inverse, not text-inverse. */
+.warning {
+  background: var(--ds-background-warning-bold);
+  color: var(--ds-text-warning-inverse);
+}

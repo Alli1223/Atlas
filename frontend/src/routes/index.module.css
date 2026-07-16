@@ -1,0 +1,57 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-200);
+  padding: var(--ds-space-300);
+  max-width: 1024px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-050);
+}
+
+.lede {
+  font: var(--ds-font-body-large);
+  color: var(--ds-text-subtle);
+}
+
+/* A raised panel on a sunken page is the elevation pairing ADS prescribes. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-150);
+  padding: var(--ds-space-200);
+  background: var(--ds-surface-raised);
+  border-radius: var(--ds-radius-large);
+  box-shadow: var(--ds-shadow-raised);
+}
+
+.panelTitle {
+  font: var(--ds-font-heading-small);
+}
+
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-100);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checklistItem {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-100);
+  font: var(--ds-font-body);
+  color: var(--ds-text-subtle);
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-100);
+  flex-wrap: wrap;
+}

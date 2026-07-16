@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="/atlas.svg" />
+    <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <title>Atlas</title>
+    <script>
+      // No-FOUC theme. Runs before first paint and before the bundle loads, so a
+      // dark-themed reload never flashes white. Deliberately inline and dependency-free.
+      //
+      // The 'atlas-theme' key is shared with src/stores/ui.ts (THEME_STORAGE_KEY) and
+      // ThemeProvider.test.tsx asserts this script and that constant agree.
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('atlas-theme')
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          var resolved =
+            stored === 'light' || stored === 'dark' ? stored : prefersDark ? 'dark' : 'light'
+          document.documentElement.dataset.theme = resolved
+        } catch (e) {
+          // localStorage can throw (private mode). The prefers-color-scheme block in
+          // tokens.css still applies, so this degrades to the OS preference.
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

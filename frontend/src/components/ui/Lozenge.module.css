@@ -1,0 +1,86 @@
+/* Lozenge — the classic Jira status pill. Values verbatim from @atlaskit/lozenge@14.1.2:
+   11px/16px, UPPERCASE, weight 653, padding-inline 4px, radius.small, 200px max with
+   ellipsis. Tiny and shouty; this is one of the strongest "is this Jira?" signals. */
+
+.lozenge {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  padding-inline: var(--ds-space-050);
+  border-radius: var(--ds-radius-small);
+  font-family: var(--ds-font-family-body);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: var(--ds-font-weight-bold); /* 653 — a real Inter Variable axis position */
+  text-transform: uppercase;
+}
+
+/* Subtle (default) appearances. The status-category mapping is defined in ADS code as
+   {default:'neutral', inprogress:'information', removed:'danger', new:'discovery',
+   moved:'warning'} plus success — so To Do = grey, In Progress = BLUE, Done = LIME. */
+
+.default {
+  background: var(--ds-background-neutral);
+  color: var(--ds-text);
+}
+
+.inprogress {
+  background: var(--ds-background-information);
+  color: var(--ds-text-information);
+}
+
+.success {
+  background: var(--ds-background-success);
+  color: var(--ds-text-success);
+}
+
+.removed {
+  background: var(--ds-background-danger);
+  color: var(--ds-text-danger);
+}
+
+.new {
+  background: var(--ds-background-discovery);
+  color: var(--ds-text-discovery);
+}
+
+.moved {
+  background: var(--ds-background-warning);
+  color: var(--ds-text-warning);
+}
+
+/* Bold appearances. */
+
+.bold.default {
+  background: var(--ds-background-neutral-bold);
+  color: var(--ds-text-inverse);
+}
+
+.bold.inprogress {
+  background: var(--ds-background-information-bold);
+  color: var(--ds-text-inverse);
+}
+
+.bold.success {
+  background: var(--ds-background-success-bold);
+  color: var(--ds-text-inverse);
+}
+
+.bold.removed {
+  background: var(--ds-background-danger-bold);
+  color: var(--ds-text-inverse);
+}
+
+.bold.new {
+  background: var(--ds-background-discovery-bold);
+  color: var(--ds-text-inverse);
+}
+
+/* Yellow again needs dark text. */
+.bold.moved {
+  background: var(--ds-background-warning-bold);
+  color: var(--ds-text-warning-inverse);
+}
