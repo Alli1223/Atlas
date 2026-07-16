@@ -1,0 +1,26 @@
+# Proper nouns that `clippy::doc_markdown` mistakes for un-backticked code
+# identifiers. `..` extends clippy's built-in list rather than replacing it, so
+# the defaults (TypeScript, WebGL, ...) still apply.
+doc-valid-idents = [
+  "..",
+  "AEAD",
+  "Argon2id",
+  "Atlassian",
+  "GitHub",
+  "Kubernetes",
+  "OpenAPI",
+  "SQLite",
+  "SQLx",
+  "XChaCha20",
+]
+
+# The MSRV clippy should assume when suggesting newer std APIs.
+msrv = "1.94"
+
+# `unwrap_used` is a real rule for the server — a panic in a handler is an
+# outage — but in a test an unwrap *is* the assertion, and threading Results
+# through test bodies obscures what is being tested. Scope the lint to
+# production code rather than turning it off outright.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
