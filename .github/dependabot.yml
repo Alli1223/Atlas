@@ -1,0 +1,58 @@
+version: 2
+
+# Minor and patch bumps arrive as one grouped PR per ecosystem, so routine
+# maintenance is a single review rather than a dozen. Majors stay ungrouped —
+# each one is a real decision and deserves its own PR and its own CI run.
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Pinned deliberately: TypeScript `latest` is 7.x (the Go port), but
+      # typescript-eslint peer-caps below 6.1, so 7.x silently breaks type-aware
+      # linting. See docs/research/react-stack.md. Unpin when typescript-eslint
+      # ships TS7 support.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch

@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to the same branch makes the in-flight run obsolete. Cancel it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Phase 0 builds the repo tree in parallel, so backend/ and frontend/ do not
+  # exist on every commit yet. Probing for them keeps the very first pushes green
+  # instead of hard-failing on `npm ci` with no lockfile.
+  #
+  # TODO: once backend/, frontend/package-lock.json and .sqlx/ are all committed and
+  # stable, delete this job and the `if:` guards it feeds — the real jobs should then
+  # fail loudly rather than skip silently.
+  detect:
+    name: Detect trees
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.probe.outputs.backend }}
+      frontend: ${{ steps.probe.outputs.frontend }}
+      cargo_lock: ${{ steps.probe.outputs.cargo_lock }}
+      sqlx: ${{ steps.probe.outputs.sqlx }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: probe
+        run: |
+          exists() { if [ -e "$1" ]; then echo true; else echo false; fi; }
+          {
+            echo "backend=$(exists Cargo.toml)"
+            echo "frontend=$(exists frontend/package-lock.json)"
+            echo "cargo_lock=$(exists Cargo.lock)"
+            echo "sqlx=$(exists .sqlx)"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  backend:
+    name: Backend
+    needs: detect
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    env:
+      # The runner has no database, so the sqlx query macros must compile against
+      # the committed .sqlx/ metadata instead of a live connection.
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      # A stale .sqlx/ passes locally (live DB) and fails in CI, or vice versa —
+      # so it has to be checked, not trusted. `prepare --check` regenerates the
+      # metadata and diffs it, which needs a real database; for SQLite that is
+      # just a file, so there is no service container to stand up.
+      - name: Verify offline SQLx metadata is current
+        if: needs.detect.outputs.sqlx == 'true'
+        env:
+          SQLX_OFFLINE: "false"
+          DATABASE_URL: sqlite://./ci.db?mode=rwc
+        run: |
+          # No --locked: sqlx 0.9 removed Cargo.lock from the published crate.
+          cargo install sqlx-cli --version 0.9.0 --no-default-features --features sqlite
+          sqlx database create
+          sqlx migrate run --source backend/migrations
+          cargo sqlx prepare --workspace --check -- --all-targets
+
+  frontend:
+    name: Frontend
+    needs: detect
+    if: needs.detect.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      # Local dev runs Node 26; CI pins 22 on purpose. If a bleeding-edge API
+      # sneaks in, it fails here rather than on a contributor's older machine.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --run
+
+      - name: Build
+        run: npm run build
+
+  # Non-blocking for now: advisories land on someone else's schedule, and a fresh
+  # RUSTSEC entry should not wall off an unrelated PR at 2am. Tighten this by
+  # removing the continue-on-error lines once the dependency tree has settled and
+  # the backlog of advisories is at zero.
+  security:
+    name: Security audit
+    needs: detect
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: cargo audit
+        if: needs.detect.outputs.cargo_lock == 'true'
+        continue-on-error: true
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: npm audit
+        if: needs.detect.outputs.frontend == 'true'
+        continue-on-error: true
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+  # Single required status check for branch protection. Without this, a guarded job
+  # that *skips* reads as "not failing", and protection would let the PR through.
+  # This gate distinguishes skipped (fine, tree absent) from failed (not fine).
+  ci:
+    name: CI
+    if: always()
+    needs: [detect, backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          echo "detect:   ${{ needs.detect.result }}"
+          echo "backend:  ${{ needs.backend.result }}"
+          echo "frontend: ${{ needs.frontend.result }}"
+
+          # detect gates the other two, so it must actually succeed — if it failed,
+          # they skipped, and reading those skips as "fine" would pass the gate on
+          # a broken run.
+          if [ "${{ needs.detect.result }}" != "success" ]; then
+            echo "::error::detect did not succeed; downstream results are meaningless."
+            exit 1
+          fi
+
+          # skipped is legitimate here and only here: the tree does not exist yet.
+          for result in "${{ needs.backend.result }}" "${{ needs.frontend.result }}"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::A required job did not pass."; exit 1 ;;
+            esac
+          done

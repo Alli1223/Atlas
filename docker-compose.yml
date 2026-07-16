@@ -1,0 +1,75 @@
+# Atlas — one-command run.
+#
+#   cp .env.example .env    # then edit it
+#   docker compose up -d
+#   open http://localhost:8080     # first login: Admin / Admin, reset forced
+#
+# This is the deploy path, not the dev path. For development use `just dev`,
+# which gives you Vite HMR and a fast cargo rebuild loop.
+#
+# No `version:` key — it has been obsolete since Compose v2 and current versions
+# warn about it.
+
+services:
+  atlas:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: atlas:latest
+    container_name: atlas
+    restart: unless-stopped
+
+    ports:
+      - "${ATLAS_PORT:-8080}:8080"
+
+    # Everything in .env lands in the container. Secrets (GitHub PAT, Gemini key,
+    # SMTP password) are entered through the UI and stored encrypted in the
+    # database — .env only needs to carry ATLAS_MASTER_KEY, the key that
+    # encrypts them. Losing that key means losing every stored credential.
+    env_file:
+      - .env
+
+    # Only ATLAS_-prefixed names are read (figment::Env::prefixed("ATLAS_")).
+    # Anything else is silently ignored rather than rejected, so a typo here
+    # degrades to "the default was used" instead of a startup error. The URL is
+    # absolute so the database lands on the mounted volume below.
+    environment:
+      ATLAS_DATABASE_URL: sqlite:///data/atlas.db?mode=rwc
+      ATLAS_BIND_ADDR: 0.0.0.0:8080
+      ATLAS_DATA_DIR: /data
+      ATLAS_WORKSPACE_DIR: /workspaces
+      RUST_LOG: ${RUST_LOG:-info}
+
+    volumes:
+      # The database and its WAL/SHM sidecars. Without this mount every card in
+      # the system dies with the container.
+      #
+      # A bind mount, not a named volume, and deliberately: a SQLite deployment's
+      # single best property is that a backup is a file copy. `./data/atlas.db`
+      # on the host keeps that true. The tradeoff is uid alignment — the
+      # container runs as uid 10001, so ./data must be writable by it:
+      #   mkdir -p data workspaces && sudo chown -R 10001:10001 data workspaces
+      - ./data:/data
+
+      # Repositories the Claude Code agent clones and works in. Persisted so a
+      # restart does not re-clone every linked repo.
+      - ./workspaces:/workspaces
+
+      # The agent inherits the host's Claude OAuth credentials, read-only. Note
+      # that setting ANTHROPIC_API_KEY in .env silently overrides this and bills
+      # the API instead of the Max subscription — see docs/research/claude-code-cli.md.
+      # Comment this out if you are not using the agent runner.
+      - ${HOME}/.claude/.credentials.json:/home/atlas/.claude/.credentials.json:ro
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+
+    # SQLite is not a network database and Atlas is a single-writer application:
+    # there is exactly one node. Do not scale this service to 2 — two containers
+    # over one database file is corruption, not high availability.
+    deploy:
+      replicas: 1
