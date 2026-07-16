@@ -1,0 +1,65 @@
+# ---- Rust / backend ----
+/target/
+backend/target/
+**/*.rs.bk
+*.pdb
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+dist-ssr/
+build/
+.vite/
+*.local
+.eslintcache
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# ---- Atlas runtime data ----
+# The SQLite database and its WAL/SHM sidecars are runtime state, never committed.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+/data/
+atlas.db*
+
+# Cloned repositories and agent workspaces
+/workspaces/
+.atlas/
+
+# Generated project images / uploads
+/uploads/
+/attachments/
+
+# ---- Secrets ----
+# Atlas stores API keys encrypted in the DB, but local dev env files must never land in git.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!**/testdata/**/*.key
+secrets.toml
+master.key
+
+# ---- Editors / OS ----
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ---- Logs ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
