@@ -1,0 +1,91 @@
+[workspace]
+members = ["backend"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+authors = ["Alastair Rayner"]
+repository = "https://github.com/alastairrayner/atlas"
+publish = false
+
+# ---------------------------------------------------------------------------
+# Every third-party version lives here and is referenced from member crates as
+# `dep.workspace = true`. Versions were verified against crates.io on
+# 2026-07-16 — see docs/research/rust-stack.md. Do not bump casually: sqlx 0.9
+# and axum 0.8 both carry breaking changes that most published examples predate.
+# ---------------------------------------------------------------------------
+[workspace.dependencies]
+axum = { version = "0.8.9", features = ["macros", "ws"] }
+axum-extra = { version = "0.12.6", features = [
+  "cookie",
+  "cookie-private",
+  "typed-header",
+] }
+tokio = { version = "1.52.4", features = ["full"] }
+tower = "0.5.3"
+tower-http = { version = "0.7.0", features = [
+  "trace",
+  "cors",
+  "request-id",
+  "timeout",
+  "limit",
+  "compression-gzip",
+  "catch-panic",
+  "fs",
+] }
+# `sqlite-bundled`, NOT `sqlite`: in 0.9 the `sqlite` feature also pulls
+# sqlite-load-extension / sqlite-deserialize / sqlite-unlock-notify, which drag
+# in unsafe extension loading we have no use for.
+sqlx = { version = "0.9.0", default-features = false, features = [
+  "runtime-tokio",
+  "tls-none",
+  "sqlite-bundled",
+  "macros",
+  "migrate",
+  "chrono",
+  "uuid",
+] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+thiserror = "2.0.18"
+anyhow = "1.0.103"
+uuid = { version = "1.24.0", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-axum = "0.2.0"
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+garde = { version = "0.23.0", features = ["derive"] }
+fractional_index = { version = "2.0.2", features = ["serde"] }
+figment = { version = "0.10", features = ["env", "toml"] }
+proptest = "1.8"
+
+# ---------------------------------------------------------------------------
+# Lints. Inherited by members via `[lints] workspace = true`.
+# Kept pragmatic: this must pass `cargo clippy --all-targets -- -D warnings`.
+# ---------------------------------------------------------------------------
+[workspace.lints.rust]
+unsafe_code = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Deny the footguns that matter for a server that must not panic on user input.
+unwrap_used = "warn"
+# Noise from pedantic that costs more than it catches.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
