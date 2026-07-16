@@ -1,0 +1,50 @@
+# The Dockerfile does `COPY . .` for cargo-chef, so anything not excluded here is
+# sent to the daemon and busts the build cache on every change.
+
+.git/
+.github/
+
+# Build outputs — rebuilt inside the image; copying host artefacts in would also
+# risk a glibc mismatch against the builder image.
+target/
+backend/target/
+frontend/node_modules/
+frontend/dist/
+node_modules/
+dist/
+
+# Runtime state. Never bake a database or agent clones into an image.
+data/
+workspaces/
+uploads/
+attachments/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Secrets. .env is compose's business at run time, not the image's at build time.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.toml
+master.key
+
+# Docs and local noise — no effect on the build.
+docs/
+README.md
+TODO.md
+CLAUDE.md
+Dockerfile
+.dockerignore
+docker-compose.yml
+coverage/
+playwright-report/
+test-results/
+*.log
+.DS_Store
+.vscode/
+.idea/
