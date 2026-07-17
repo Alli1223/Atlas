@@ -1,0 +1,29 @@
+.centre {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-200);
+  min-height: 100%;
+  padding: var(--ds-space-400) var(--ds-space-200);
+  background: var(--ds-surface-sunken);
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-100);
+  max-width: 440px;
+  text-align: center;
+}
+
+.title {
+  font: var(--ds-font-heading-small);
+  color: var(--ds-text);
+}
+
+.detail {
+  font: var(--ds-font-body);
+  color: var(--ds-text-subtle);
+}

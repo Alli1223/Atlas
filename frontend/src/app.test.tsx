@@ -1,36 +1,26 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { ThemeProvider } from '@/providers/ThemeProvider'
-import { createAppRouter } from '@/router'
+import { ADMIN, jsonResponse, renderApp, stubFetch } from '@/features/auth/test-support'
 import { useUI } from '@/stores/ui'
 
 /**
  * Integration smoke tests. The unit tests cover each primitive in isolation; these mount
  * the real route tree, root route, shell and pages through the same factory main.tsx uses
  * — which is the only place a broken provider chain or a bad route definition shows up.
+ *
+ * Every route now sits behind `AuthGate`, so mounting the app at all means answering
+ * `/me` first: without a session these tests would render the login screen, which is the
+ * guard working rather than the shell breaking. `renderApp` is shared with the auth tests
+ * so there is one definition of "mount the real app".
  */
-function renderApp(initialPath = '/') {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-  const router = createAppRouter(queryClient, createMemoryHistory({ initialEntries: [initialPath] }))
-
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <RouterProvider router={router} />
-      </ThemeProvider>
-    </QueryClientProvider>,
-  )
-}
 
 // The zustand store is module-level and outlives a single test.
 beforeEach(() => {
   useUI.setState({ theme: 'system', isSidebarCollapsed: false })
+  // Signed in and past the forced-reset gate — the state every test below assumes.
+  stubFetch({ 'GET /api/v1/auth/me': () => jsonResponse(ADMIN) })
 })
 
 describe('app shell', () => {
