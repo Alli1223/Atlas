@@ -9,6 +9,9 @@
 //! - [`events`] — the auth audit log.
 //! - [`extract`] — [`extract::CurrentUser`] and the role guards.
 //! - [`middleware`] — the origin check, session loading, and the forced-reset gate.
+//! - [`project_access`] — the per-project gate: which project a route is about,
+//!   and the least role that may call it. The rules and rows it consults live in
+//!   [`crate::domain::member`].
 //! - [`seed`] — the default `Admin` account.
 //! - [`problem`] — problem documents for the two conditions [`crate::error::AppError`]'s
 //!   taxonomy cannot express.
@@ -42,6 +45,7 @@ pub mod lockout;
 pub mod middleware;
 pub mod password;
 pub mod problem;
+pub mod project_access;
 pub mod role;
 pub mod seed;
 pub mod session;

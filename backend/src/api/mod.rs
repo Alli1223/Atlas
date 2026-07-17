@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod cards;
 pub mod comments;
+pub mod members;
 pub mod middleware;
 pub mod project_config;
 pub mod projects;
@@ -73,6 +74,7 @@ impl AppState {
         (name = "auth", description = "Sign-in, sign-out, password change, and sessions"),
         (name = "users", description = "User administration. Admin only"),
         (name = "projects", description = "Projects and their lifecycle"),
+        (name = "project-members", description = "Per-project access: who may do what, and where"),
         (name = "project-config", description = "Per-project hierarchy, card types, statuses, priorities and resolutions"),
         (name = "cards", description = "Cards, the board, the hierarchy, and the changelog"),
         (name = "comments", description = "Comments on cards"),
@@ -127,10 +129,12 @@ async fn not_found() -> crate::error::AppError {
 
 /// The `/api/v1` surface.
 ///
-/// # The two layers, and why they are here rather than on each route
+/// # The three layers, and why they are here rather than on each route
 ///
-/// Both wrap the *whole* `/api/v1` tree, which is what makes them impossible for
-/// a new route to miss:
+/// All three wrap the *whole* `/api/v1` tree, which is what makes them impossible
+/// for a new route to miss. `.layer` applies outside-in in reverse, so the order
+/// below reads bottom-to-top: `verify_origin`, then `authenticate`, then
+/// `authorise`.
 ///
 /// - **`verify_origin`** is outermost, so a cross-site write is refused before
 ///   it can touch the database or spend any CPU.
@@ -139,19 +143,30 @@ async fn not_found() -> crate::error::AppError {
 ///   forced-reset gate. It does not itself require a session — that decision
 ///   belongs in each handler's signature, which is why `POST /auth/login` can
 ///   live under the same layer.
+/// - **`authorise`** is innermost, because it needs the `CurrentUser` the layer
+///   above it produced. It decides which project the route is about and whether
+///   the caller may reach it. **It refuses any route not classified in
+///   [`crate::auth::project_access::SCOPES`]**, so a project-scoped route added
+///   in Phase 8 that nobody classified returns 500 on its first request rather
+///   than silently serving every project to everyone.
 ///
-/// Anything mounted here is gated by default. That is the property worth having:
-/// forgetting the gate on a new route in Phase 8 should be impossible, not
-/// merely discouraged.
+/// Anything mounted here is gated by default, three times over. That is the
+/// property worth having: forgetting a gate on a new route should be impossible,
+/// not merely discouraged.
 fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .merge(auth::routes())
         .merge(users::routes())
         .merge(projects::routes())
+        .merge(members::routes())
         .merge(project_config::routes())
         .merge(cards::routes())
         .merge(comments::routes())
         .merge(tags::routes())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::project_access::authorise,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::auth::middleware::authenticate,
@@ -163,11 +178,34 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
 }
 
 /// Assembles the complete application.
+///
+/// # Panics
+///
+/// If any route under [`API_V1_PREFIX`] has no entry in
+/// [`crate::auth::project_access::SCOPES`], or vice versa — see
+/// [`crate::auth::project_access::assert_scopes_match_routes`].
+///
+/// A panic here means the binary does not boot and every test that builds a
+/// router fails on its first line, which is the point: a route whose access
+/// rules nobody wrote down must be impossible to *ship*, not merely refused at
+/// runtime. It is checked here because this is the first moment both halves
+/// exist — the route set and the table — and it cannot be checked any later
+/// without the answer being "some requests already happened".
 pub fn router(state: AppState) -> Router {
     let (router, openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(healthz))
         .nest(API_V1_PREFIX, api_v1(&state))
         .split_for_parts();
+
+    // The OpenAPI document is generated from the routes themselves by
+    // `utoipa_axum::routes!`, so it is the router's own account of its surface
+    // rather than a second list that could drift from it.
+    //
+    // Two assertions, because there are two ways to ship an unguarded route:
+    // mount it inside the nest and forget to classify it, or mount it outside the
+    // nest, where there is nothing to forget because nothing applies.
+    crate::auth::project_access::assert_scopes_match_routes(&openapi);
+    crate::auth::project_access::assert_no_route_escapes_the_gate(&openapi);
 
     let router = router
         .merge(SwaggerUi::new(DOCS_PATH).url(OPENAPI_JSON_PATH, openapi))

@@ -573,15 +573,57 @@ async fn one_user_cannot_revoke_another_users_session() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn a_viewer_cannot_write_anything_in_the_domain() {
     // Viewer is read-only across projects, cards, comments and tags. One test
-    // over the whole write surface, because the guard is per-handler and the
-    // failure mode is one handler that forgot.
+    // over the whole write surface, because the failure mode is one route that
+    // forgot.
+    //
+    // The viewer is made an **owner** of the project on purpose, and that is
+    // what makes this test worth more than it looks. Since per-project access
+    // landed, a viewer with no grant is refused with 404 — they cannot see the
+    // project, so every answer below would be "not found" and the test would
+    // prove nothing about writing. Granting them the *most* privileged project
+    // role available strips that away and leaves exactly one question: does the
+    // instance role still stop them?
+    //
+    // It must. The instance role is a ceiling, not a floor
+    // (`domain::member::ProjectRole::capped_by`): an `owner` row held by an
+    // instance Viewer resolves to `viewer`, so every write below is 403 — from
+    // the project role, on a project they can see perfectly well.
     let app = App::new().await;
     let admin = admin_past_the_gate(&app).await;
     let (project_key, type_id) = project(&app, &admin, "ATLAS").await;
     let key = card(&app, &admin, &project_key, &type_id, "Card").await;
-    let (_, viewer) = user_past_the_gate(&app, &admin, "readonly", "viewer").await;
+    let (viewer_id, viewer) = user_past_the_gate(&app, &admin, "readonly", "viewer").await;
+
+    let reply = app
+        .send(post(
+            &format!("/api/v1/projects/{project_key}/members"),
+            Some(&admin),
+            json!({ "userId": viewer_id, "role": "owner" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    assert_eq!(
+        reply.json()["effectiveRole"],
+        "viewer",
+        "an instance viewer was granted `owner` and the API says they are one: {}",
+        reply.raw_body
+    );
+
+    // ...and they really can read it, so a 403 below is about the write and not
+    // about visibility.
+    assert_eq!(
+        app.send(get(
+            &format!("/api/v1/projects/{project_key}"),
+            Some(&viewer)
+        ))
+        .await
+        .status,
+        StatusCode::OK,
+        "the project owner cannot see their own project"
+    );
 
     let attacks = [
         (
