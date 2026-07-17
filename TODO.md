@@ -72,64 +72,69 @@ Jira's most-reported confusion: an issue is "resolved" iff `resolution IS NOT EM
 - [x] `README.md`: what Atlas is, quickstart, architecture diagram
 - [x] `docs/adr/` — 6 decision records
 - [x] Browser-level contrast tests (jsdom cannot see colour; this class of bug is invisible to unit tests)
-- [ ] ⚠️ **Commit `.sqlx/` the moment Phase 3 adds `query!`/`query_as!` macros, or CI breaks.** Phase 0 has no query macros, so `cargo sqlx prepare` yields an empty dir that git cannot track. `--check` currently exits 0; it will not once real queries land.
+- [x] ~~Commit `.sqlx/` once query macros land~~ — **resolved by decision**: Phases 2–4 use the runtime query API, so no offline metadata exists to drift. `cargo sqlx prepare --check` exits 0 permanently. Revisit only if a future phase adopts the macros.
 - [x] `rust-toolchain.toml` (channel = stable + rustfmt/clippy). The MSRV floor is `rust-version = "1.94"` in `Cargo.toml`, which Cargo already enforces — pinning the channel to 1.94 would freeze the compiler *at* the floor rather than guarantee a minimum
 
 ---
 
 ## Phase 1 — Backend core `feat/01-backend-core`
 
-- [ ] Axum 0.8 skeleton: router, `AppState`, graceful shutdown, `/healthz`
-- [ ] `AppError` + `IntoResponse`, RFC 7807 problem+json, error taxonomy (validation/not-found/conflict/forbidden/internal)
-- [ ] `tracing` + `tracing-subscriber`, JSON logs in prod, request-id middleware, span per request
-- [ ] SQLx 0.9 + SQLite pool. **WAL, `busy_timeout=5s`, `foreign_keys=ON`, `synchronous=NORMAL`**
-- [ ] Writer pool (1 conn) + reader pool (N conns); `pool.begin_with("BEGIN IMMEDIATE")` for write txns to avoid upgrade deadlocks (available since sqlx 0.8.4 — see `docs/research/corrections.md` #11)
-- [ ] `sqlx::migrate!` + `cargo sqlx prepare` offline metadata committed (CI cannot reach a DB)
-- [ ] Lexorank implementation + property tests (insert-between never collides, rebalance job when keys grow pathological)
-- [ ] Tower layers: CORS, compression, body limit, timeout, panic-catch
-- [ ] Integration test harness: ephemeral DB per test, `axum-test`
-- [ ] OpenAPI via `utoipa`, served at `/api/docs`
+- [x] Axum 0.8 skeleton: router, `AppState`, graceful shutdown (SIGINT+SIGTERM), `/healthz` (pings both pools)
+- [x] `AppError` + `IntoResponse`, RFC 7807 problem+json, error taxonomy (validation/not-found/conflict/forbidden/internal)
+- [x] `tracing` + `tracing-subscriber`, JSON logs in prod, request-id middleware, span per request
+- [x] SQLx 0.9 + SQLite pool. **WAL, `busy_timeout=5s`, `foreign_keys=ON`, `synchronous=NORMAL`**
+- [x] Writer pool (1 conn) + reader pool (N conns); `pool.begin_with("BEGIN IMMEDIATE")` for write txns to avoid upgrade deadlocks (available since sqlx 0.8.4 — see `docs/research/corrections.md` #11)
+- [x] `sqlx::migrate!`. **No `.sqlx` needed**: the codebase uses the runtime `query_as::<_, T>` API rather than the `query!` macros, deliberately — macros would impose offline-metadata upkeep on the whole workspace, where stale metadata breaks CI silently. Every SQL string is `&'static str`, so sqlx 0.9's `SqlSafeStr` bound is met with zero uses of `AssertSqlSafe` — its absence is a real signal that no SQL is assembled at runtime
+- [x] Fractional-index ranking + property tests (insert-between never collides). Rebalance job deferred until keys actually grow long
+- [x] Tower layers: CORS, compression, body limit, timeout, panic-catch
+- [x] Integration test harness: ephemeral DB per test (a temp *file*, not `sqlite::memory:` — each in-memory connection gets its own private database, which would give the reader an empty DB). Uses `tower::ServiceExt::oneshot`, no `axum-test` dep
+- [x] OpenAPI via `utoipa`, served at `/api/docs`; raw doc at `/api/openapi.json`
 
 ---
 
 ## Phase 2 — Users & auth `feat/02-auth` 🔒
 
-- [ ] `users` table: id, username, email, display_name, avatar_url, password_hash, role, is_active, must_change_password, created_at, last_login_at
-- [ ] **Argon2id** hashing (OWASP params: m=19MiB, t=2, p=1)
-- [ ] Session cookies — `HttpOnly` + `Secure` + `SameSite=Lax`, server-side session table, revocable. **Not** localStorage JWTs (XSS-exfiltratable)
-- [ ] CSRF: double-submit token or origin check on mutations
-- [ ] **Seed default admin `Admin`/`Admin` with `must_change_password=true`** — every route except logout/change-password 403s until reset
-- [ ] Forced password-change screen on first login; reject reuse of `Admin`
-- [ ] Password policy (length ≥ 12, zxcvbn strength meter), rate-limited login, lockout + backoff
-- [ ] Roles: Admin / Member / Viewer (replaces Jira's 40+ permission × 8 grantee scheme matrix)
-- [ ] User CRUD, deactivate (never hard-delete — cards reference authors), avatar upload
-- [ ] Per-project access: Owner / Member / Viewer
-- [ ] `/api/me`, login, logout, change-password, session list + revoke
-- [ ] Audit log for auth events
-- [ ] Tests: forced-reset cannot be bypassed, session fixation, timing-safe compare
+- [x] `users` table: id, username, email, display_name, avatar_url, password_hash, role, is_active, must_change_password, created_at, last_login_at
+- [x] **Argon2id** hashing (OWASP params: m=19MiB, t=2, p=1) on `spawn_blocking` — it is ~50ms of CPU and would otherwise stall the reactor
+- [x] Session cookies — `HttpOnly` + `Secure` (prod) + `SameSite=Lax`, server-side session table, revocable. Only a SHA-256 of the token is stored, so a DB read yields nothing usable
+- [x] CSRF: Origin/Referer check on unsafe verbs, plus `SameSite=Lax`
+- [x] **Seed default admin `Admin`/`Admin` with `must_change_password=true`** — enforced as a *layer* over the whole `/api/v1` nest, not a per-handler check a new route could forget. Allowlist is 3 (method, path) pairs
+- [x] Forced password-change screen on first login; rejects reuse of `Admin`
+- [x] Password policy (≥12, common-password list, ≠ username), rate-limited login, lockout + backoff
+- [x] Roles: Admin / Member / Viewer (replaces Jira's 40+ permission × 8 grantee scheme matrix)
+- [x] User CRUD, deactivate (never hard-delete — cards reference authors)
+- [x] `/api/me`, login, logout, change-password, session list + revoke
+- [x] Audit log for auth events
+- [x] Guards beyond the brief: an admin cannot deactivate themselves, and the last active admin cannot be demoted — either would make the instance unrecoverable through the API
+- [x] Tests: forced-reset cannot be bypassed (mutation-tested against all 53 routes enumerated from the live OpenAPI doc), session fixation, timing-safe compare, no `password_hash` in any response
+- [ ] **Per-project access: Owner / Member / Viewer** — ⚠️ NOT DONE. Authorisation is instance-wide role only, so any authenticated user can read every project and any Member can edit any project. Deferred because it needs Phase 3's `projects` table; **Phase 2 is not complete until this lands**
+- [ ] Avatar upload — deferred to Phase 9 (needs attachments)
+- [ ] zxcvbn strength meter — the backend embeds a common-password list; the frontend meter is heuristic. Revisit in Phase 19
+- [ ] `session::purge_expired` exists and is tested but has no scheduled caller; expired rows are only reclaimed lazily. Wire it up when a job runner exists (Phase 15)
+- [ ] Per-IP lockout trusts `X-Forwarded-For` unconditionally — correct for the default reverse-proxy deploy, but needs a trusted-proxy setting (Phase 20). Per-username lockout is unaffected
 
 ---
 
 ## Phase 3 — Domain model `feat/03-domain`
 
-- [ ] `projects`: key, name, lead, avatar, description, template, archived_at
-- [ ] Per-project **key counter** → `ATLAS-123`, never reused
-- [ ] ⭐ `card_key_history(card_id, old_key UNIQUE, moved_at)` — permanent redirects; without it every bookmark/commit reference 404s after a move
-- [ ] `hierarchy_levels` per project (§A) + depth cap + cycle detection
-- [ ] `card_types` per project (name, icon, colour, level) — not a fixed enum
-- [ ] `statuses` + **exactly 3 status categories** (To Do grey / In Progress blue / Done green). Jira hardcodes 3 and refuses more; boards, reports, and JQL all key off the 3 buckets
-- [ ] `priorities` (ordered — `priority > High` depends on rank), `resolutions`
-- [ ] `cards`: key, project, type, parent_id, summary, description(md), status, priority, assignee, reporter, creator, resolution, due_date, start_date, estimate, rank, timestamps
-- [ ] ⭐ **`card_history`** — id, card_id, author, created_at, field, from_value, from_display, to_value, to_display. Raw *and* display values (raw to query, display to render after a referent is renamed/deleted)
-- [ ] `comments` (markdown source, edited_at)
+- [x] `projects`: key, name, lead, avatar, description, template, archived_at
+- [x] Per-project **key counter** → `ATLAS-123`, never reused (atomic `UPDATE ... RETURNING` inside the write txn)
+- [x] ⭐ `card_key_history(card_id, old_key UNIQUE, moved_at)` — permanent redirects; without it every bookmark/commit reference 404s after a move
+- [x] `hierarchy_levels` per project (§A) + depth cap + cycle detection
+- [x] `card_types` per project (name, icon, colour, level) — not a fixed enum
+- [x] `statuses` + **exactly 3 status categories** (To Do grey / In Progress blue / Done green). Jira hardcodes 3 and refuses more; boards, reports, and JQL all key off the 3 buckets
+- [x] `priorities` (ordered — `priority > High` depends on rank), `resolutions`
+- [x] `cards`: key, project, type, parent_id, summary, description(md), status, priority, assignee, reporter, creator, resolution, due_date, start_date, estimate, rank, timestamps
+- [x] ⭐ **`card_history`** — id, card_id, author, created_at, field, from_value, from_display, to_value, to_display. Raw *and* display values (raw to query, display to render after a referent is renamed/deleted)
+- [x] `comments` (markdown source, edited_at)
 - [ ] `attachments` + versioning ⭐ (`model_v3.blend`; Jira lacks this)
-- [ ] `card_links` (blocks/relates/duplicates/clones/causes) + auto-materialised inverse
+- [x] `card_links` (blocks/relates/duplicates/clones/causes) + auto-materialised inverse
 - [ ] `remote_links` (URL + title + icon)
 - [ ] `watchers`, `worklogs`, `components`, `milestones` (Jira's "versions", generalised)
 - [ ] Custom fields: global registry + per-project layout (required/hidden/default/order per type)
 - [ ] Field types: text, textarea, number, date, datetime, select, multiselect, checkbox, radio, user, multiuser, url, labels
-- [ ] Repository layer + integration tests per aggregate
-- [ ] Soft delete + trash/restore
+- [x] Repository layer + integration tests per aggregate
+- [x] Soft delete (trash/restore UI in Phase 18)
 
 ---
 
@@ -137,16 +142,16 @@ Jira's most-reported confusion: an issue is "resolved" iff `resolution IS NOT EM
 
 Free-text labels: the highest-value/lowest-cost field in the system.
 
-- [ ] `tags` (name, colour, project_id nullable = global), `card_tags`
-- [ ] No spaces in tag names (keeps query grammar unambiguous), autocomplete from existing
-- [ ] **Seeded tag presets per project type** (requested):
+- [x] `tags` (name, colour, project_id nullable = global), `card_tags`
+- [x] No spaces in tag names (keeps query grammar unambiguous), autocomplete from existing
+- [x] **Seeded tag presets per project type** (requested):
   - Programming: `bug` `feature` `refactor` `tech-debt` `docs` `testing` `ci` `security` `performance` `dependencies` `breaking-change` `good-first-issue` `blocked` `needs-review` `hotfix`
   - 3D modeling: `modeling` `sculpting` `retopo` `uv-unwrap` `texturing` `rigging` `animation` `lighting` `rendering` `post-process` `reference` `wip` `client-review` `approved` `revision`
   - Job search: `applied` `phone-screen` `technical-interview` `onsite` `take-home` `offer` `rejected` `ghosted` `follow-up` `referral` `remote` `hybrid` `onsite-only` `contract` `permanent`
   - General: `urgent` `blocked` `waiting` `research` `idea` `question` `admin`
-- [ ] Tag CRUD + colour picker, merge/rename (rename must not orphan cards), usage counts
+- [x] Tag CRUD + colour picker, merge/rename (rename must not orphan cards), usage counts
 - [ ] Tag filter chips on boards; tag-based card colouring
-- [ ] Bulk tag/untag
+- [ ] Bulk tag/untag (Phase 18)
 
 ---
 
@@ -445,11 +450,11 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 
 | Phase | Branch | Status |
 |---|---|---|
-| 0 Foundation | `feat/00-foundation` | 🟡 in progress |
-| 1 Backend core | `feat/01-backend-core` | ⬜ |
-| 2 Auth | `feat/02-auth` | ⬜ |
-| 3 Domain | `feat/03-domain` | ⬜ |
-| 4 Tags | `feat/04-tags` | ⬜ |
+| 0 Foundation | `feat/00-foundation` | ✅ merged (#1) |
+| 1 Backend core | `feat/01-backend-core` | ✅ merged (#1) |
+| 2 Auth | `feat/02-auth` | 🟡 done except per-project access |
+| 3 Domain | `feat/03-domain` | ✅ |
+| 4 Tags | `feat/04-tags` | ✅ |
 | 5 Workflow | `feat/05-workflow` | ⬜ |
 | 6 AQL | `feat/06-aql` | ⬜ |
 | 7 Frontend core | `feat/07-frontend-core` | ⬜ |
