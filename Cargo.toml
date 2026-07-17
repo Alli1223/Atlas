@@ -53,6 +53,19 @@ thiserror = "2.0.18"
 anyhow = "1.0.103"
 uuid = { version = "1.24.0", features = ["v4", "v7", "serde"] }
 chrono = { version = "0.4.45", features = ["serde"] }
+# 0.5.3 is the current STABLE; 0.6 is still an RC. Note the transitive
+# consequence: 0.5.3 pulls password-hash 0.5, whose rand_core is 0.6 — so
+# `SaltString::generate` needs `argon2::password_hash::rand_core::OsRng`, which
+# is a DIFFERENT type from rand 0.9/0.10's OsRng. See docs/research/rust-stack.md.
+argon2 = { version = "0.5.3", features = ["std"] }
+# SHA-256 for session-token digests. Session ids are hashed before storage.
+sha2 = "0.10"
+# Constant-time equality for anything derived from a secret.
+subtle = "2"
+base64 = "0.22.1"
+# Only for cookie `Max-Age`: `cookie` 0.18 (via axum-extra) speaks time::Duration,
+# not std::time::Duration. Cargo unifies this with axum-extra's own copy.
+time = "0.3.53"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }

@@ -1,9 +1,11 @@
 //! The `atlas` binary.
 
+use std::net::SocketAddr;
 use std::process::ExitCode;
 
 use anyhow::Context;
 use atlas::api::{self, AppState};
+use atlas::auth::seed;
 use atlas::config::Config;
 use atlas::db::{self, Db};
 use atlas::telemetry;
@@ -55,6 +57,14 @@ async fn serve(config: Config) -> anyhow::Result<()> {
     // half-migrated schema fails in ways that are very hard to read.
     db::migrate::run(&db).await?;
 
+    // Seed the default administrator, but only into a completely empty
+    // instance. Idempotent, so this is safe on every boot — see
+    // `auth::seed::ensure_default_admin` for why the condition is "no users"
+    // rather than "no account called Admin".
+    seed::ensure_default_admin(&db)
+        .await
+        .context("failed to seed the default administrator")?;
+
     let listener = TcpListener::bind(config.bind_addr)
         .await
         .with_context(|| format!("failed to bind {}", config.bind_addr))?;
@@ -66,10 +76,17 @@ async fn serve(config: Config) -> anyhow::Result<()> {
 
     let app = api::router(AppState::new(db.clone(), config));
 
-    let result = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("server error");
+    // `into_make_service_with_connect_info` rather than the bare service: it is
+    // what puts the peer address in the request extensions, and without it the
+    // per-IP login lockout has no address to count against and silently degrades
+    // to per-username only. See `auth::extract::ClientInfo`.
+    let result = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("server error");
 
     // Close the pools explicitly so WAL checkpointing and `PRAGMA optimize` get
     // a chance to run. Dropping the pool does not await that.

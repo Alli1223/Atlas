@@ -10,17 +10,22 @@
 //! - [`db`] — SQLite pools (writer-of-one + N readers) and migrations.
 //! - [`error`] — the error taxonomy and its RFC 7807 rendering.
 //! - [`rank`] — lexicographic card ordering for drag-and-drop.
+//! - [`auth`] — users, passwords, sessions, roles, and the forced-reset gate.
+//! - [`domain`] — projects, the configurable hierarchy, cards, and history.
 //! - [`telemetry`] — tracing setup and the HTTP request span.
 //! - [`api`] — router, middleware, OpenAPI.
 
 pub mod api;
+pub mod auth;
 pub mod config;
 pub mod db;
+pub mod domain;
 pub mod error;
 pub mod rank;
 pub mod telemetry;
 pub mod test_support;
 
+pub use auth::{CurrentUser, Role, User};
 pub use config::Config;
 pub use db::Db;
 pub use error::{AppError, AppResult};
