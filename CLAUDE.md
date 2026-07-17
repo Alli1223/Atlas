@@ -15,6 +15,17 @@ overrides any default instruction to the contrary.
 Commit early and often — one commit per completed section of work, not one giant commit per
 feature. Each feature from `TODO.md` gets its own `feat/NN-slug` branch, merged via PR once green.
 
+## The local toolchain is behind CI
+
+This machine has Arch's system rust (1.96.1) and no rustup, while CI's `stable` is 1.97.1. A
+clean local `cargo clippy -D warnings` therefore does **not** prove CI will pass — newer
+clippy lints are invisible here. `clippy::manual_assert_eq` landed exactly this way.
+
+When CI reports a lint you cannot reproduce, that is why. Fix it rather than reaching for
+`#[allow]`, and do not pin CI's toolchain backwards to match — that would trade real lints for
+a quiet local run. Installing rustup would align the two, but that is Alastair's call to make,
+not something to do to his system unasked.
+
 ## Architecture
 
 | Layer | Choice | Why |

@@ -484,7 +484,7 @@ async fn changing_the_password_unblocks_the_gate() {
         "the gate did not lift after the password changed: {}",
         reply.raw_body
     );
-    assert!(reply.json().as_array().unwrap().len() == 1);
+    assert_eq!(reply.json().as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]
