@@ -1,0 +1,23 @@
+/* A row of tag chips. Geometry from the ADS spacing scale — space.050 = 4px gap, which is
+   what @atlaskit/tag uses between chips. */
+
+.list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-050);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.empty {
+  margin: 0;
+  color: var(--ds-text-subtlest);
+  font: var(--ds-font-body-small);
+}
