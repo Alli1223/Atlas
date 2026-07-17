@@ -1,0 +1,87 @@
+/* The signed-out chrome: one card, centred on a sunken page.
+
+   Deliberately the *only* thing on screen. There is no nav, no search, no avatar — not
+   because they would not fit, but because none of them work yet: every one of them needs a
+   session. Rendering a shell full of controls that 401 is worse than rendering nothing. */
+
+.page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  /* Vertical padding is larger than horizontal so a short card sits slightly above centre —
+     optical centring, which reads as composed where true centring reads as low. */
+  padding: var(--ds-space-500) var(--ds-space-200);
+  background: var(--ds-surface-sunken);
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-300);
+  width: 100%;
+  /* 400px: Atlassian's own sign-in card. Wider fields do not help — nobody's password
+     benefits from a 600px input — and a narrow column reads as calm. */
+  max-width: 400px;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-100);
+}
+
+.brandMark {
+  width: 32px;
+  height: 32px;
+}
+
+.brandName {
+  font: var(--ds-font-heading-medium);
+  color: var(--ds-text);
+}
+
+/* Raised card on a sunken page — the elevation pairing ADS prescribes, and the reason the
+   page background is sunken rather than plain surface. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-200);
+  width: 100%;
+  padding: var(--ds-space-400) var(--ds-space-300);
+  background: var(--ds-surface-raised);
+  border-radius: var(--ds-radius-large);
+  box-shadow: var(--ds-shadow-overlay);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-100);
+  text-align: center;
+}
+
+.title {
+  font: var(--ds-font-heading-small);
+  color: var(--ds-text);
+}
+
+.lede {
+  font: var(--ds-font-body);
+  color: var(--ds-text-subtle);
+}
+
+.footer {
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-subtlest);
+  text-align: center;
+}
+
+/* The error banner is full-bleed inside the card: it spans the padding so it reads as a
+   status bar on the card rather than another form row. */
+.banner {
+  margin-inline: calc(-1 * var(--ds-space-300));
+  border-radius: 0;
+}

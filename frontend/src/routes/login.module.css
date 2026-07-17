@@ -1,0 +1,27 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-200);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-150);
+}
+
+/* The seeded-credentials hint. Dev convenience with a real purpose: a first-run operator
+   who cannot find the default password cannot start. It disappears the moment a real
+   password exists, because the backend stops seeding once there is any user. */
+.hint {
+  padding: var(--ds-space-100) var(--ds-space-150);
+  background: var(--ds-background-information);
+  border-radius: var(--ds-radius-small);
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-information);
+}
+
+.hint code {
+  font: var(--ds-font-code);
+  font-weight: var(--ds-font-weight-bold);
+}
