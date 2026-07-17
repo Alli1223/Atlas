@@ -1,0 +1,148 @@
+/* Tag picker — a combobox over a project's tags.
+
+   Density is calibrated to Jira (TODO.md Phase 7): this list is usually 15 seeded presets,
+   and an airy 40px row would put two-thirds of them below the fold. 24px rows with 4px
+   gaps is what @atlaskit's own pickers use. */
+
+.picker {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-050);
+}
+
+.label {
+  color: var(--ds-text-subtle);
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-semibold);
+}
+
+/* The chips and the input share one box, so the whole thing reads as a single field. */
+.control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-050);
+  min-height: 32px;
+  padding: var(--ds-space-050);
+  border: 1px solid var(--ds-border-input);
+  border-radius: var(--ds-radius-small);
+  background: var(--ds-background-input);
+  cursor: text;
+  transition: border-color var(--ds-duration-xxshort) var(--ds-easing-out-practical);
+}
+
+.control:focus-within {
+  border-color: var(--ds-border-focused);
+  box-shadow: 0 0 0 1px var(--ds-border-focused);
+}
+
+.chips {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.input {
+  flex: 1 1 6rem;
+  min-width: 6rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ds-text);
+  font: var(--ds-font-body);
+}
+
+.input:focus {
+  /* The ring is on .control — two rings inside each other would be noise. */
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--ds-text-subtlest);
+}
+
+.error {
+  margin: 0;
+  color: var(--ds-text-danger);
+  font: var(--ds-font-body-small);
+}
+
+/* The suggestion list. Absolute so it overlays whatever is below rather than shoving the
+   card's fields down every time someone focuses the field. */
+.listbox {
+  position: absolute;
+  z-index: 10;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: var(--ds-space-050) 0 0;
+  padding: var(--ds-space-050);
+  max-height: calc(var(--visible-options, 8) * 28px);
+  overflow-y: auto;
+  list-style: none;
+  border-radius: var(--ds-radius-small);
+  background: var(--ds-surface-overlay);
+  box-shadow: var(--ds-shadow-overlay);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-075);
+  padding: var(--ds-space-050) var(--ds-space-075);
+  border-radius: var(--ds-radius-small);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* One class for hover and keyboard-active. Focus never leaves the input (the combobox
+   uses aria-activedescendant), so :hover alone would leave a keyboard user with no idea
+   which row Enter would take. */
+.active {
+  background: var(--ds-background-neutral-subtle-hovered);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--ds-text-subtle);
+}
+
+.count {
+  margin-inline-start: auto;
+  color: var(--ds-text-subtlest);
+  font: var(--ds-font-body-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.create {
+  color: var(--ds-text);
+}
+
+.createLabel {
+  overflow: hidden;
+  font: var(--ds-font-body-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint {
+  color: var(--ds-text-subtlest);
+}
+
+.emptyRow {
+  padding: var(--ds-space-050) var(--ds-space-075);
+  color: var(--ds-text-subtlest);
+  font: var(--ds-font-body-small);
+}
