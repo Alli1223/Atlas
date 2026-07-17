@@ -16,9 +16,10 @@ use utoipa_axum::routes;
 use crate::api::AppState;
 use crate::api::serde_ext::double_option;
 use crate::auth::extract::{RequireAdmin, RequireMember};
-use crate::auth::now;
+use crate::auth::{now, user};
 use crate::db::Db;
 use crate::domain::EstimationUnit;
+use crate::domain::member::{self, ProjectRole};
 use crate::domain::project::{self, Project, ProjectDto, ProjectPatch};
 use crate::domain::template::{self, Template};
 use crate::error::{AppError, AppResult, Problem};
@@ -110,23 +111,39 @@ pub struct TemplateDto {
     pub statuses: Vec<String>,
 }
 
-/// Every project.
+/// Every project the caller can reach.
+///
+/// # This filters; it does not refuse
+///
+/// A project the caller has no access to is simply **absent**, and this is the
+/// one route [`crate::auth::project_access`] classifies `SelfFiltered` for
+/// exactly that reason. A 403 on a list would be a bug twice over: it would turn
+/// "here is your work" into "you are not allowed to have work", and it would
+/// confirm to an outsider that there is something there to be refused.
+///
+/// The filtering is [`project::list_for`], which takes the viewer and has no
+/// unscoped sibling that could be called by mistake.
 #[utoipa::path(
     get,
     path = "/projects",
     tag = "projects",
     params(ListProjectsQuery),
     responses(
-        (status = 200, description = "Every project, by name", body = Vec<ProjectDto>),
+        (status = 200, description = "Every project the caller can reach, by name", body = Vec<ProjectDto>),
         (status = 401, description = "Not signed in", body = Problem),
     )
 )]
 async fn list_projects(
     State(state): State<AppState>,
-    _current: crate::auth::CurrentUser,
+    current: crate::auth::CurrentUser,
     Query(query): Query<ListProjectsQuery>,
 ) -> AppResult<Json<Vec<ProjectDto>>> {
-    let projects = project::list(&state.db, query.include_archived.unwrap_or(false)).await?;
+    let projects = project::list_for(
+        &state.db,
+        &current.user,
+        query.include_archived.unwrap_or(false),
+    )
+    .await?;
     Ok(Json(projects.iter().map(ProjectDto::from).collect()))
 }
 
@@ -205,6 +222,22 @@ async fn create_project(
         )));
     }
 
+    // Checked rather than left to the foreign key: `projects.lead_id` REFERENCES
+    // users (id), so an id naming nobody is a "FOREIGN KEY constraint failed"
+    // that reaches the caller as a 500 they can do nothing with. The FK is still
+    // the guarantee; this is the same argument `members::add_member` makes about
+    // its own `userId`, and the two routes take the same kind of input.
+    let lead_id = match body.lead_id.as_deref() {
+        Some(id) => {
+            user::find_by_id_tx(&mut tx, id)
+                .await?
+                .ok_or_else(|| AppError::Validation(format!("No user with id {id:?}.")))?
+                .id
+        }
+        None => member.0.id().to_owned(),
+    };
+    let lead_id = lead_id.as_str();
+
     // The project and all ~25 of its config rows, or none of them. A project
     // with no statuses is a project no card can be created in.
     let created = template::create_project(
@@ -213,7 +246,36 @@ async fn create_project(
         &key,
         &name,
         description.as_deref(),
-        body.lead_id.as_deref().or(Some(member.0.id())),
+        Some(lead_id),
+        now,
+    )
+    .await?;
+
+    // The creator owns what they created — in the same transaction, because a
+    // project whose owner row failed to land is a project its own creator cannot
+    // reach. Default deny means there is no second chance here: nothing but an
+    // instance admin could repair it.
+    //
+    // The lead gets a row too. They are an implicit owner via `projects.lead_id`
+    // regardless (rule 2 of `domain::member::resolve`), so this grants nothing
+    // new — it makes the member list *honest*, so that `GET .../members` shows
+    // the person running the project rather than an empty list with a footnote.
+    // `insert_or_ignore` because the two are the same person in the common case.
+    member::insert_or_ignore(
+        &mut tx,
+        &created.id,
+        member.0.id(),
+        ProjectRole::Owner,
+        Some(member.0.id()),
+        now,
+    )
+    .await?;
+    member::insert_or_ignore(
+        &mut tx,
+        &created.id,
+        lead_id,
+        ProjectRole::Owner,
+        Some(member.0.id()),
         now,
     )
     .await?;
@@ -260,7 +322,7 @@ async fn get_project(
 )]
 async fn update_project(
     State(state): State<AppState>,
-    _member: RequireMember,
+    member: RequireMember,
     Path(key): Path<String>,
     Json(body): Json<UpdateProjectRequest>,
 ) -> AppResult<Json<ProjectDto>> {
@@ -294,7 +356,42 @@ async fn update_project(
         .await?
         .ok_or(AppError::NotFound)?;
 
+    // Naming a lead **is** a grant of ownership — rule 2 of `member::resolve`
+    // makes the lead an owner with no row at all. So it gets the same treatment
+    // the same act gets in `create_project`: the user is checked (a bad id is a
+    // 422, not the foreign key's 500), and they are written an explicit row.
+    let new_lead = match patch.lead_id.as_ref().and_then(Option::as_ref) {
+        Some(id) => Some(
+            user::find_by_id_tx(&mut tx, id)
+                .await?
+                .ok_or_else(|| AppError::Validation(format!("No user with id {id:?}.")))?,
+        ),
+        None => None,
+    };
+
     project::apply_patch(&mut tx, &target.id, &patch, now).await?;
+
+    // Why the row, when the lead is already an owner by rule: because
+    // `member::list` lists *rows*, so without it the member list — the one place
+    // an owner audits who can reach the project — would not mention the person
+    // who just became its owner. `create_project` writes this row for exactly
+    // that reason ("it makes the member list honest"), and an act that grants
+    // ownership must not be honest in one route and silent in the other.
+    //
+    // `insert_or_ignore`, because the new lead is very often already a member:
+    // promoting them is the owner's business, and this must not quietly demote a
+    // grant somebody made on purpose, nor fail because one exists.
+    if let Some(lead) = &new_lead {
+        member::insert_or_ignore(
+            &mut tx,
+            &target.id,
+            &lead.id,
+            ProjectRole::Owner,
+            Some(member.0.id()),
+            now,
+        )
+        .await?;
+    }
 
     let updated = project::find_by_id_tx(&mut tx, &target.id)
         .await?

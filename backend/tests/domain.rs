@@ -1984,6 +1984,19 @@ async fn viewers_can_read_the_board_but_change_nothing() {
         ))
         .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    let viewer_id = reply.id();
+
+    // Since per-project access landed, reading a project takes a grant on it —
+    // "authenticated" is not "entitled". Without this the reads below would all
+    // be 404 and the test would be about visibility rather than about writing.
+    let reply = app
+        .send(post(
+            "/api/v1/projects/ATLAS/members",
+            Some(&admin),
+            json!({ "userId": viewer_id, "role": "viewer" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
 
     let reply = app
         .send(post(
@@ -2057,7 +2070,10 @@ async fn viewers_can_read_the_board_but_change_nothing() {
 
 #[tokio::test]
 async fn only_an_admin_can_permanently_delete_a_project() {
-    // Archive is reversible and belongs to members; delete is not and does not.
+    // Archive is reversible and belongs to a project's owners; delete is not and
+    // does not — it is the only hard delete in Atlas, so it stays with the
+    // instance admins even for someone who owns the project outright. The
+    // difference between the two is not permission, it is reversibility.
     let app = App::new().await;
     let admin = admin_past_the_gate(&app).await;
     let project = project(&app, &admin, "ATLAS", "programming").await;
@@ -2076,6 +2092,19 @@ async fn only_an_admin_can_permanently_delete_a_project() {
         ))
         .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    let member_id = reply.id();
+
+    // Owner, not member: archiving is a project-owner capability. That is also
+    // what sharpens the delete half below — this account owns the project and
+    // still cannot destroy it.
+    let reply = app
+        .send(post(
+            "/api/v1/projects/ATLAS/members",
+            Some(&admin),
+            json!({ "userId": member_id, "role": "owner" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
 
     let member = app
         .send(post(
@@ -2087,7 +2116,7 @@ async fn only_an_admin_can_permanently_delete_a_project() {
         .session_cookie()
         .expect("login must set a cookie");
 
-    // A member may archive...
+    // A project owner may archive...
     let reply = app
         .send(post_empty("/api/v1/projects/ATLAS/archive", Some(&member)))
         .await;

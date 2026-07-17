@@ -13,8 +13,9 @@ use crate::api::serde_ext::double_option;
 use crate::auth::events::{self, Kind};
 use crate::auth::extract::{ClientInfo, RequireAdmin};
 use crate::auth::role::Role;
-use crate::auth::user::{NewUser, UserDto, UserPatch};
+use crate::auth::user::{NewUser, User, UserDto, UserPatch};
 use crate::auth::{now, password, session, user};
+use crate::domain::member::{self, ProjectRole};
 use crate::error::{AppError, AppResult, Problem};
 
 /// Longest accepted username, in characters.
@@ -301,6 +302,18 @@ async fn update_user(
         }
     }
 
+    // The same refusal one level down, for the projects this account is the only
+    // owner of. Checked *after* the instance-wide guard so that an admin who is
+    // both the last admin and a project's last owner is told the more serious of
+    // the two things first. Both are inside the transaction, so the counts they
+    // read cannot move under them.
+    let after = User {
+        role: patch.role.unwrap_or(target.role),
+        is_active: patch.is_active.unwrap_or(target.is_active),
+        ..target.clone()
+    };
+    guard_sole_project_ownership(&mut tx, &target, &after).await?;
+
     user::apply_patch(&mut tx, &id, &patch, now).await?;
 
     // Deactivation has to take effect now, not when the session happens to
@@ -385,6 +398,16 @@ async fn deactivate_user(
         ));
     }
 
+    guard_sole_project_ownership(
+        &mut tx,
+        &target,
+        &User {
+            is_active: false,
+            ..target.clone()
+        },
+    )
+    .await?;
+
     user::deactivate(&mut tx, &id, now).await?;
     let revoked = session::delete_all_for_user(&mut tx, &id).await?;
 
@@ -408,6 +431,58 @@ async fn deactivate_user(
     .await;
 
     Ok(Json(UserDto::from(&updated)))
+}
+
+/// Refuses to strip a project of its last owner by way of that owner's account.
+///
+/// # Why this lives here and not only in `api::members`
+///
+/// [`crate::api::members::guard_last_owner`] refuses to leave a project's member
+/// list with nobody in it who can manage it. These two routes reach the very same
+/// state from a direction that never mentions a project:
+///
+/// - **deactivating** an account — it cannot make a request, so every `owner` row
+///   it holds grants nothing to anybody;
+/// - **demoting it to instance Viewer** — the instance role is a *ceiling*, so
+///   every `owner` row it holds is silently capped to `viewer`.
+///
+/// A guard on one door is not a guard. This is the same argument as the
+/// last-active-admin check directly above it, one level down: refusing to remove
+/// the last admin is worth little if the last *owner* can be swept away by a
+/// route that never says the word "project". [`member::grants_ownership`] is the
+/// single definition of what an `owner` row is worth, and both guards go through
+/// it, so they cannot disagree about who counts.
+///
+/// # Why the transition and not the state
+///
+/// It fires only when the change takes ownership *away* — `before` could own and
+/// `after` cannot. Editing an already-deactivated sole owner, or reactivating
+/// one, must never be refused: those accounts are already not owners, so the edit
+/// takes nothing further away, and refusing would make the account unrepairable.
+/// That is the lockout this exists to prevent, arrived at from the other side.
+async fn guard_sole_project_ownership(
+    tx: &mut sqlx::SqliteConnection,
+    before: &User,
+    after: &User,
+) -> AppResult<()> {
+    if !member::grants_ownership(ProjectRole::Owner, before)
+        || member::grants_ownership(ProjectRole::Owner, after)
+    {
+        return Ok(());
+    }
+
+    let orphaned = member::projects_solely_owned_by(&mut *tx, before).await?;
+    if orphaned.is_empty() {
+        return Ok(());
+    }
+
+    Err(AppError::Conflict(format!(
+        "{:?} is the only owner of {}. Make someone else an owner there first, or nobody will be \
+         able to manage {}.",
+        before.username,
+        orphaned.join(", "),
+        if orphaned.len() == 1 { "it" } else { "them" }
+    )))
 }
 
 fn validate_username(username: &str) -> AppResult<String> {

@@ -3,6 +3,8 @@
 //! ## Shape
 //!
 //! - [`project`] — the `projects` row, and the atomic card-key counter.
+//! - [`member`] — `project_members`, and the rules deciding what one person may
+//!   do on one project. Enforced by [`crate::auth::project_access`].
 //! - [`config`] — hierarchy levels, card types, statuses, priorities, resolutions.
 //!   Flat and per-project; there are no schemes (docs/adr/0003).
 //! - [`hierarchy`] — ancestor/descendant walks, the depth cap, cycle detection.
@@ -39,6 +41,7 @@ pub mod comment;
 pub mod config;
 pub mod hierarchy;
 pub mod history;
+pub mod member;
 pub mod project;
 pub mod tag;
 pub mod template;

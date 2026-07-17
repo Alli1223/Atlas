@@ -32,6 +32,7 @@ use crate::domain::card::{
     self, Card, CardDto, CardFilter, CardPatch, Drop, KeyLookup, NewCard, ParentFilter, Placement,
 };
 use crate::domain::history::{self, HistoryEntry};
+use crate::domain::member::{self, ProjectRole};
 use crate::domain::project;
 use crate::error::{AppError, AppResult, Problem};
 
@@ -445,6 +446,26 @@ async fn update_card(
         let destination = project::find_by_key_tx(&mut tx, project_key)
             .await?
             .ok_or_else(|| AppError::Validation(format!("No project with key {project_key:?}.")))?;
+
+        // **The one access check in Atlas that is not in the layer**, and the
+        // reason is structural rather than an oversight:
+        // `crate::auth::project_access` decides on the project named by the
+        // *path*, and this destination is named by the *body*. A layer that read
+        // request bodies would have to buffer and re-deserialise every one of
+        // them, guess at each route's schema, and stay in step with it forever.
+        //
+        // So it is here — and it is the whole of why this route is worth
+        // attention: `PATCH /cards/{key}` with a `projectKey` is a write to a
+        // project the caller never named in the URL. Without this, project
+        // Member on any one project would be a licence to inject cards into
+        // every other one.
+        //
+        // 404 for no access, 403 for not enough of it, exactly as
+        // `member::require` does everywhere else — a caller who cannot see the
+        // destination must not learn it exists by being told they may not write
+        // to it.
+        member::require(&state.db, &destination, &member.0.user, ProjectRole::Member).await?;
+
         target =
             card::move_to_project(&mut tx, &target, &destination, Some(member.0.id()), now).await?;
     }

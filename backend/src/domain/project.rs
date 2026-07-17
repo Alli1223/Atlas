@@ -6,7 +6,9 @@ use sqlx::FromRow;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::auth::role::Role;
 use crate::auth::to_sql_timestamp;
+use crate::auth::user::User;
 use crate::db::Db;
 use crate::domain::EstimationUnit;
 use crate::error::{AppError, AppResult};
@@ -299,6 +301,18 @@ pub async fn find_by_key_tx(
     .await?)
 }
 
+/// Finds a project by id.
+pub async fn find_by_id(db: &Db, id: &str) -> AppResult<Option<Project>> {
+    Ok(sqlx::query_as::<_, Project>(concat!(
+        "SELECT ",
+        project_columns!(),
+        " FROM projects WHERE id = ?"
+    ))
+    .bind(id)
+    .fetch_optional(db.reader())
+    .await?)
+}
+
 /// Finds a project by id inside an open transaction.
 pub async fn find_by_id_tx(
     tx: &mut sqlx::SqliteConnection,
@@ -314,14 +328,56 @@ pub async fn find_by_id_tx(
     .await?)
 }
 
-/// Every project, newest first, optionally including archived ones.
-pub async fn list(db: &Db, include_archived: bool) -> AppResult<Vec<Project>> {
+/// Every project `viewer` may see, by name, optionally including archived ones.
+///
+/// # Why there is no unscoped `list`
+///
+/// There was one, and it was the bug: `GET /projects` called it and handed every
+/// project to every authenticated user. It is gone rather than kept-and-not-used,
+/// because a `list(&db, false)` sitting in this module is a loaded gun — the next
+/// person to write a project list reaches for the shortest name that compiles,
+/// and nothing about it says "this one skips authorisation".
+///
+/// So the only way to list projects is to say who is asking. This is the one
+/// place Atlas pushes access control down into the domain query rather than
+/// leaving it to [`crate::auth::project_access`], and the reason is that a list
+/// is the one shape the layer cannot help with: **a list must filter, not
+/// refuse.** A 403 on `GET /projects` would be a bug — an inaccessible project is
+/// not an error, it is simply not yours, and it should be absent rather than
+/// announced.
+///
+/// # The predicate
+///
+/// The same three rules as [`crate::domain::member::resolve`], in SQL:
+///
+/// - an instance admin sees everything (rule 1);
+/// - the lead sees their project with no row (rule 2);
+/// - anyone else sees exactly what `project_members` grants them (rules 3 and 4).
+///
+/// The instance-role *ceiling* is deliberately not applied here: it can narrow
+/// what someone may do with a project, never whether they can see it at all. An
+/// instance Viewer with a grant still gets the project in their list — capped to
+/// `viewer`, which is what a Viewer was always going to be.
+pub async fn list_for(db: &Db, viewer: &User, include_archived: bool) -> AppResult<Vec<Project>> {
     Ok(sqlx::query_as::<_, Project>(concat!(
         "SELECT ",
         project_columns!(),
-        " FROM projects WHERE (? OR archived_at IS NULL) ORDER BY name, key"
+        " FROM projects \
+          WHERE (? OR archived_at IS NULL) \
+            AND ( \
+                  ? \
+               OR lead_id = ? \
+               OR EXISTS ( \
+                    SELECT 1 FROM project_members m \
+                     WHERE m.project_id = projects.id AND m.user_id = ? \
+                  ) \
+            ) \
+          ORDER BY name, key"
     ))
     .bind(include_archived)
+    .bind(viewer.role == Role::Admin)
+    .bind(&viewer.id)
+    .bind(&viewer.id)
     .fetch_all(db.reader())
     .await?)
 }
@@ -514,6 +570,30 @@ mod tests {
         (db, temp)
     }
 
+    /// An instance admin, who by rule 1 of `member::resolve` can see every
+    /// project — so `list_for` with this viewer isolates whatever the test is
+    /// actually about from per-project access, which `tests/project_access.rs`
+    /// covers in full.
+    async fn admin(db: &Db) -> User {
+        let mut tx = db.begin_write().await.unwrap();
+        let user = crate::auth::user::insert(
+            &mut tx,
+            &crate::auth::user::NewUser {
+                username: "admin".to_owned(),
+                email: None,
+                display_name: "Admin".to_owned(),
+                password_hash: "x".to_owned(),
+                role: Role::Admin,
+                must_change_password: false,
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        user
+    }
+
     async fn insert_project(db: &Db, key: &str) -> Project {
         let mut tx = db.begin_write().await.unwrap();
         let project = insert(
@@ -653,6 +733,7 @@ mod tests {
     #[tokio::test]
     async fn archiving_hides_a_project_from_the_default_listing() {
         let (db, _temp) = db().await;
+        let viewer = admin(&db).await;
         let live = insert_project(&db, "LIVE").await;
         let gone = insert_project(&db, "GONE").await;
 
@@ -662,7 +743,7 @@ mod tests {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let keys: Vec<String> = list(&db, false)
+        let keys: Vec<String> = list_for(&db, &viewer, false)
             .await
             .unwrap()
             .into_iter()
@@ -670,7 +751,7 @@ mod tests {
             .collect();
         assert_eq!(keys, ["LIVE"]);
 
-        let keys: Vec<String> = list(&db, true)
+        let keys: Vec<String> = list_for(&db, &viewer, true)
             .await
             .unwrap()
             .into_iter()
@@ -684,7 +765,7 @@ mod tests {
             .await
             .unwrap();
         tx.commit().await.unwrap();
-        assert_eq!(list(&db, false).await.unwrap().len(), 2);
+        assert_eq!(list_for(&db, &viewer, false).await.unwrap().len(), 2);
 
         let _ = live;
         db.close().await;
