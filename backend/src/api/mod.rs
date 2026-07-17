@@ -1,6 +1,14 @@
 //! HTTP surface: router assembly, health check, and the OpenAPI document.
 
+pub mod auth;
+pub mod cards;
+pub mod comments;
 pub mod middleware;
+pub mod project_config;
+pub mod projects;
+pub mod serde_ext;
+pub mod tags;
+pub mod users;
 
 use std::sync::Arc;
 
@@ -61,7 +69,14 @@ impl AppState {
         license(name = "AGPL-3.0-or-later")
     ),
     tags(
-        (name = "system", description = "Health and service metadata")
+        (name = "system", description = "Health and service metadata"),
+        (name = "auth", description = "Sign-in, sign-out, password change, and sessions"),
+        (name = "users", description = "User administration. Admin only"),
+        (name = "projects", description = "Projects and their lifecycle"),
+        (name = "project-config", description = "Per-project hierarchy, card types, statuses, priorities and resolutions"),
+        (name = "cards", description = "Cards, the board, the hierarchy, and the changelog"),
+        (name = "comments", description = "Comments on cards"),
+        (name = "tags", description = "Free-text labels on cards, their presets, and merging")
     )
 )]
 struct ApiDoc;
@@ -110,16 +125,48 @@ async fn not_found() -> crate::error::AppError {
     crate::error::AppError::NotFound
 }
 
-/// The `/api/v1` surface. Populated from Phase 2 onwards.
-fn api_v1() -> OpenApiRouter<AppState> {
+/// The `/api/v1` surface.
+///
+/// # The two layers, and why they are here rather than on each route
+///
+/// Both wrap the *whole* `/api/v1` tree, which is what makes them impossible for
+/// a new route to miss:
+///
+/// - **`verify_origin`** is outermost, so a cross-site write is refused before
+///   it can touch the database or spend any CPU.
+/// - **`authenticate`** turns the session cookie into a
+///   [`crate::auth::CurrentUser`] in the request extensions, and enforces the
+///   forced-reset gate. It does not itself require a session — that decision
+///   belongs in each handler's signature, which is why `POST /auth/login` can
+///   live under the same layer.
+///
+/// Anything mounted here is gated by default. That is the property worth having:
+/// forgetting the gate on a new route in Phase 8 should be impossible, not
+/// merely discouraged.
+fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
+        .merge(auth::routes())
+        .merge(users::routes())
+        .merge(projects::routes())
+        .merge(project_config::routes())
+        .merge(cards::routes())
+        .merge(comments::routes())
+        .merge(tags::routes())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::middleware::authenticate,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::middleware::verify_origin,
+        ))
 }
 
 /// Assembles the complete application.
 pub fn router(state: AppState) -> Router {
     let (router, openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(healthz))
-        .nest(API_V1_PREFIX, api_v1())
+        .nest(API_V1_PREFIX, api_v1(&state))
         .split_for_parts();
 
     let router = router
