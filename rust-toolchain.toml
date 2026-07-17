@@ -1,0 +1,10 @@
+# Everyone builds on stable with the same components, so `cargo fmt`/`cargo clippy` behave
+# identically locally and in CI.
+#
+# The MSRV *floor* is not set here — it lives in Cargo.toml's `rust-version = "1.94"`
+# (sqlx 0.9's minimum), which Cargo enforces at build time with a clear message. Pinning a
+# specific channel here instead would freeze the compiler at that floor and forfeit newer
+# diagnostics, which is the opposite of the intent.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

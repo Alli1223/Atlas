@@ -28,6 +28,21 @@
   flex: none;
   align-items: center;
   gap: var(--ds-space-100);
+
+  /* A banner's surface is *bold and theme-independent*: warning stays yellow and error stays
+     red in dark mode, while --ds-text flips to near-white. A default Button therefore asks for
+     light text and lands on light yellow — unreadable. Rebinding the tokens here rather than
+     restyling one variant means anything dropped into the action slot inherits the banner's
+     own contrast, and currentColor already resolves to the per-appearance colour set on .banner. */
+  --ds-text: currentColor;
+  --ds-text-subtle: currentColor;
+  --ds-link: currentColor;
+  --ds-background-neutral: color-mix(in srgb, currentColor 12%, transparent);
+  --ds-background-neutral-hovered: color-mix(in srgb, currentColor 20%, transparent);
+  --ds-background-neutral-pressed: color-mix(in srgb, currentColor 28%, transparent);
+  --ds-background-neutral-subtle: transparent;
+  --ds-background-neutral-subtle-hovered: color-mix(in srgb, currentColor 12%, transparent);
+  --ds-background-neutral-subtle-pressed: color-mix(in srgb, currentColor 20%, transparent);
 }
 
 .announcement {
