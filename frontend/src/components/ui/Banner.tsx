@@ -43,6 +43,10 @@ export function Banner({
     <div
       className={cx(styles.banner, styles[appearance], className)}
       role={appearance === 'error' ? 'alert' : 'status'}
+      // Surfaces the variant in the DOM. `role` cannot identify a banner on its own — a
+      // Spinner is also role=status — so this is the stable hook for styling and assertions
+      // that does not depend on hashed CSS-module class names.
+      data-appearance={appearance}
     >
       {icon !== null && (
         <span className={styles.icon}>

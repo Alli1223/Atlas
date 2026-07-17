@@ -63,13 +63,17 @@ Jira's most-reported confusion: an issue is "resolved" iff `resolution IS NOT EM
 - [x] `CLAUDE.md` — architecture + attribution rule
 - [x] `docs/research/` — 7 API/design dossiers + adversarial corrections
 - [x] `TODO.md` (this file)
-- [ ] Cargo workspace: `backend/` (+ `xtask/` for dev tasks)
-- [ ] Vite + React 19 + TS: `frontend/`
-- [ ] `justfile` / `Makefile`: `dev`, `test`, `lint`, `fmt`, `migrate`, `seed`, `build`
-- [ ] GitHub Actions CI: `cargo fmt --check`, `clippy -D warnings`, `cargo test`, `cargo sqlx prepare --check`, `tsc --noEmit`, `eslint`, `vitest`, `playwright`
-- [ ] `.env.example` + typed config loader (figment/config-rs), fail-fast on missing required vars
-- [ ] `docker-compose.yml` for one-command run (optional path, not required for dev)
-- [ ] `README.md`: what Atlas is, quickstart, architecture diagram
+- [x] Cargo workspace: `backend/`
+- [x] Vite + React 19 + TS: `frontend/`
+- [x] `justfile` + `Makefile`: `dev`, `test`, `lint`, `fmt`, `migrate`, `seed`, `build`, `check`
+- [x] GitHub Actions CI: `cargo fmt --check`, `clippy -D warnings`, `cargo test`, `cargo sqlx prepare --check`, `tsc --noEmit`, `eslint`, `vitest`, `playwright`
+- [x] `.env.example` + typed config loader (figment), fail-fast on missing required vars
+- [x] `docker-compose.yml` + multi-stage `Dockerfile`
+- [x] `README.md`: what Atlas is, quickstart, architecture diagram
+- [x] `docs/adr/` — 6 decision records
+- [x] Browser-level contrast tests (jsdom cannot see colour; this class of bug is invisible to unit tests)
+- [ ] ⚠️ **Commit `.sqlx/` the moment Phase 3 adds `query!`/`query_as!` macros, or CI breaks.** Phase 0 has no query macros, so `cargo sqlx prepare` yields an empty dir that git cannot track. `--check` currently exits 0; it will not once real queries land.
+- [x] `rust-toolchain.toml` (channel = stable + rustfmt/clippy). The MSRV floor is `rust-version = "1.94"` in `Cargo.toml`, which Cargo already enforces — pinning the channel to 1.94 would freeze the compiler *at* the floor rather than guarantee a minimum
 
 ---
 

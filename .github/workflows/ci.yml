@@ -122,6 +122,22 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Browser tests carry the checks jsdom structurally cannot make — chiefly measured
+      # colour contrast. They caught a banner action button rendering at 1.01:1 that both
+      # the unit suite and a human eyeballing a screenshot missed, so they gate the build.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
   # Non-blocking for now: advisories land on someone else's schedule, and a fresh
   # RUSTSEC entry should not wall off an unrelated PR at 2am. Tighten this by
   # removing the continue-on-error lines once the dependency tree has settled and
