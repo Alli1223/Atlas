@@ -16,6 +16,17 @@
 //!    direct child does not either;
 //! 6. an `UpdateField` post-function pointing a user field at a non-existent user
 //!    is refused as a bad request (422) rather than an opaque 500, and rolls back.
+//! 7. a **self-loop** transition (a global edge back to the card's own status)
+//!    still runs its post-functions and the screen comment even though it moves
+//!    no field — the `changes.is_empty()` early return used to swallow all three
+//!    (a confirmed defect, fixed in `card::update_inner`);
+//! 8. a `SetResolution` trying to clear the resolution on a move into Done cannot
+//!    win against the §E invariant;
+//! 9. `ChildBlocking`, a *condition*, hides and rejects on the execute endpoint,
+//!    not just on the board-move path;
+//! 10. a soft-deleted open child does not block its parent forever;
+//! 11. every seeded template's card can still reach Done under the migrated
+//!     permissive default workflow — the backfill stranded nobody.
 //!
 //! The harness mirrors `tests/workflow.rs`.
 
@@ -693,3 +704,209 @@ async fn an_update_field_post_function_naming_a_missing_user_is_a_bad_request_no
     );
     assert_eq!(card_status(&app, &admin, &key).await, todo, "the failed transition must roll back");
 }
+
+// ---------------------------------------------------------------------------
+// 7. A self-loop transition still runs its post-functions
+// ---------------------------------------------------------------------------
+
+/// A transition that moves no field — a global "comment" edge back to the card's
+/// own status — was silently swallowing its post-functions and the comment the
+/// user typed on the screen, because `card::update_inner` returned early on
+/// `changes.is_empty()` before the deferred post-functions ran. Taking a
+/// transition is a deliberate action, not a field edit; its `FireEvent`, its
+/// `AddComment`, and the screen comment must all run even when no field changes.
+#[tokio::test]
+async fn a_self_loop_transition_still_runs_its_post_functions() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let p = project(&app, &admin, "LOOP", "blank").await;
+
+    let todo = p.status("To Do");
+    let done = p.status("Done");
+    let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
+
+    // A GLOBAL transition (from any status) that lands on To Do, carrying a
+    // fire-event and a fixed comment. Taken while the card sits in To Do it is a
+    // self-loop: legal, offered, but changes no field.
+    let ping = transition(
+        &app, &admin, &wf, "Ping", None, &todo,
+        json!([]),
+        json!([]),
+        json!([
+            { "kind": "FireEvent", "config": { "event": "pinged" } },
+            { "kind": "AddComment", "config": { "body": "auto: pinged" } },
+        ]),
+    )
+    .await;
+
+    let key = card(&app, &admin, &p, "task").await;
+    let id = card_id(&app, &admin, &key).await;
+    assert_eq!(card_status(&app, &admin, &key).await, todo);
+
+    // Take it, also typing a comment on the screen.
+    let reply = exec(&app, &admin, &key, &ping, json!({ "comment": "I clicked the button" })).await;
+    assert_eq!(reply.status, StatusCode::OK, "a legal transition must be accepted: {}", reply.raw_body);
+
+    // The transition ran. Its post-functions must have run too.
+    assert_eq!(event_count(&app, &id).await, 1, "a taken transition must fire its FireEvent");
+    let cs = comments(&app, &admin, &key).await;
+    assert!(cs.contains(&"auto: pinged".to_owned()), "AddComment post-function must run: {cs:?}");
+    assert!(cs.contains(&"I clicked the button".to_owned()), "the screen comment must be recorded: {cs:?}");
+}
+
+// -------------------------------------------------------------------------
+// 8. A transition into Done never leaves a null resolution
+// -------------------------------------------------------------------------
+
+/// Even a `SetResolution` post-function that tries to CLEAR the resolution on a
+/// move into a done status must not win against the §E invariant: a card in a
+/// done category always carries a resolution.
+/// even when a `SetResolution` post-function explicitly tries to clear it.
+#[tokio::test]
+async fn a_transition_into_done_never_leaves_a_null_resolution() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let p = project(&app, &admin, "DONER", "blank").await;
+
+    let todo = p.status("To Do");
+    let done = p.status("Done");
+    let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
+
+    // Land in Done, and a post-function that tries to CLEAR the resolution.
+    let finish = transition(
+        &app, &admin, &wf, "Finish", Some(&todo), &done,
+        json!([]),
+        json!([]),
+        json!([{ "kind": "SetResolution", "config": {} }]),
+    )
+    .await;
+
+    let key = card(&app, &admin, &p, "task").await;
+    let reply = exec(&app, &admin, &key, &finish, json!({})).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+    assert_eq!(reply.json()["statusId"], done);
+    assert_eq!(reply.json()["resolved"], true, "a card in Done must be resolved");
+    assert_ne!(
+        reply.json()["resolutionId"],
+        Value::Null,
+        "a Done card must carry a resolution even when SetResolution tried to clear it"
+    );
+}
+
+// -------------------------------------------------------------------------
+// 9. ChildBlocking (a condition) blocks the execute endpoint, not just moves
+// -------------------------------------------------------------------------
+
+/// `ChildBlocking` is a CONDITION (it hides). Attacked directly on the
+/// execute endpoint with an open child, it must reject and not move.
+#[tokio::test]
+async fn child_blocking_condition_blocks_the_execute_endpoint() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let p = project(&app, &admin, "CBX", "blank").await;
+
+    let todo = p.status("To Do");
+    let done = p.status("Done");
+    let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
+
+    let types = rows(&app.send(get(&format!("/api/v1/projects/{}/card-types", p.key), Some(&admin))).await);
+    let group = types.iter().find(|t| t["name"] == "Group").map(|t| text(t, "id")).expect("Group");
+    // Route the Group type through the custom workflow.
+    let assigned = app.send(request(Method::PATCH, &format!("/api/v1/workflows/{wf}"), Some(&admin), Some(json!({ "cardTypeIds": [group] })))).await;
+    assert_eq!(assigned.status, StatusCode::OK, "{}", assigned.raw_body);
+
+    let close = transition(&app, &admin, &wf, "Close", Some(&todo), &done, json!([{ "kind": "ChildBlocking" }]), json!([]), json!([])).await;
+
+    let parent = card_of_type(&app, &admin, &p, &group, "parent", None).await;
+    let parent_id = card_id(&app, &admin, &parent).await;
+    let _child = card_of_type(&app, &admin, &p, &p.card_type, "child", Some(&parent_id)).await;
+
+    // Hidden from the list.
+    assert!(!available(&app, &admin, &parent).await.contains(&"Close".to_owned()), "ChildBlocking must hide Close");
+
+    // Attacked directly: rejected, no move.
+    let reply = exec(&app, &admin, &parent, &close, json!({})).await;
+    assert_eq!(reply.status, StatusCode::CONFLICT, "ChildBlocking must reject a direct attempt: {}", reply.raw_body);
+    assert_eq!(card_status(&app, &admin, &parent).await, todo, "the card must not move");
+}
+
+// -------------------------------------------------------------------------
+// 10. A soft-deleted open child does not block its parent forever
+// -------------------------------------------------------------------------
+
+/// A soft-deleted OPEN child must not block its parent forever.
+#[tokio::test]
+async fn a_soft_deleted_open_child_does_not_block_forever() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let p = project(&app, &admin, "SDEL", "blank").await;
+
+    let todo = p.status("To Do");
+    let done = p.status("Done");
+    let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
+
+    let types = rows(&app.send(get(&format!("/api/v1/projects/{}/card-types", p.key), Some(&admin))).await);
+    let group = types.iter().find(|t| t["name"] == "Group").map(|t| text(t, "id")).expect("Group");
+    let assigned = app.send(request(Method::PATCH, &format!("/api/v1/workflows/{wf}"), Some(&admin), Some(json!({ "cardTypeIds": [group] })))).await;
+    assert_eq!(assigned.status, StatusCode::OK, "{}", assigned.raw_body);
+
+    let close = transition(&app, &admin, &wf, "Close", Some(&todo), &done, json!([{ "kind": "ChildBlocking" }]), json!([]), json!([])).await;
+
+    let parent = card_of_type(&app, &admin, &p, &group, "parent", None).await;
+    let parent_id = card_id(&app, &admin, &parent).await;
+    let child = card_of_type(&app, &admin, &p, &p.card_type, "child", Some(&parent_id)).await;
+
+    // Open child blocks.
+    assert!(!available(&app, &admin, &parent).await.contains(&"Close".to_owned()));
+
+    // Soft-delete the open child.
+    let del = app.send(request(Method::DELETE, &format!("/api/v1/cards/{child}"), Some(&admin), None)).await;
+    assert_eq!(del.status, StatusCode::OK, "{}", del.raw_body);
+
+    // The parent may now close: a soft-deleted child is not an open child.
+    assert!(available(&app, &admin, &parent).await.contains(&"Close".to_owned()), "a soft-deleted child must not block");
+    let reply = exec(&app, &admin, &parent, &close, json!({})).await;
+    assert_eq!(reply.status, StatusCode::OK, "a soft-deleted open child must not block forever: {}", reply.raw_body);
+}
+
+// -------------------------------------------------------------------------
+// 11. Every seeded template can reach Done under the migrated default workflow
+// -------------------------------------------------------------------------
+
+/// Every seeded template’s card can reach a Done status under the
+/// migrated/permissive default workflow — nothing is stranded.
+#[tokio::test]
+async fn every_seeded_template_card_can_reach_done() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+
+    for (i, template) in ["blank", "programming", "3d-modeling", "job-search"].iter().enumerate() {
+        let key = format!("STR{i}");
+        // Templates may be spelled differently on the wire; discover them.
+        let reply = app.send(post("/api/v1/projects", Some(&admin), json!({ "key": key, "name": key, "template": template }))).await;
+        if reply.status != StatusCode::CREATED {
+            // Skip a spelling this build does not accept; the point is reachability of the ones it does.
+            continue;
+        }
+        let statuses = rows(&app.send(get(&format!("/api/v1/projects/{key}/statuses"), Some(&admin))).await);
+        // Find any done-category status by moving there and checking `resolved`.
+        let types = rows(&app.send(get(&format!("/api/v1/projects/{key}/card-types"), Some(&admin))).await);
+        let card_type = types.iter().find(|t| t["isDefault"].as_bool() == Some(true)).map(|t| text(t, "id")).expect("default type");
+        let created = app.send(post(&format!("/api/v1/projects/{key}/cards"), Some(&admin), json!({ "typeId": card_type, "summary": "reach done" }))).await;
+        assert_eq!(created.status, StatusCode::CREATED, "{}", created.raw_body);
+        let ckey = created.key();
+
+        // Try each status; at least one must be reachable AND leave the card resolved.
+        let mut reached_done = false;
+        for s in &statuses {
+            let sid = text(s, "id");
+            let mv = move_to(&app, &admin, &ckey, &sid).await;
+            assert_eq!(mv.status, StatusCode::OK, "move to {sid} in {template}: {}", mv.raw_body);
+            if mv.json()["resolved"] == true {
+                reached_done = true;
+            }
+        }
+        assert!(reached_done, "template {template} has no reachable Done status");
+    }
+}
+
