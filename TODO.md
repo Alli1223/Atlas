@@ -158,15 +158,15 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 
 ## Phase 5 — Workflow engine `feat/05-workflow`
 
-- [ ] `workflows`, `statuses`, `transitions` (from[] → to, "any status" source), per-type workflow FK (no schemes — §B)
-- [ ] **Execution contract, copied exactly:** conditions fail → button *hidden*; validators fail → button shown, attempt *rejected*, post-functions do **not** run; then commit; then post-functions in fixed order (set status → add comment → update history → reindex → fire event). The hide-vs-reject distinction is *why* Jira's transition UI never shows a button you can't press
-- [ ] Conditions: Only Assignee, Only Reporter, User in role, **Child-blocking** ("can't close a parent with open children")
-- [ ] Validators: required-field-on-transition (90% of real use)
-- [ ] Post-functions: **set resolution** (the load-bearing one — §E), assign to, clear/copy/update field, add comment, fire event, webhook
-- [ ] Transition screens (prompt for fields, e.g. resolution + comment on Done)
-- [ ] Validity enforced everywhere: board drag, API, bulk, automation
-- [ ] Visual workflow editor (nodes + edges)
-- [ ] **Seed workflows** — the third proves domain-neutrality:
+- [x] `workflows`, `statuses`, `transitions` (from[] → to, "any status" source), per-type workflow FK (no schemes — §B)
+- [x] **Execution contract, copied exactly:** conditions fail → button *hidden*; validators fail → button shown, attempt *rejected*, post-functions do **not** run; then commit; then post-functions in fixed order (set status → add comment → update history → reindex → fire event). The hide-vs-reject distinction is *why* Jira's transition UI never shows a button you can't press
+- [x] Conditions: Only Assignee, Only Reporter, User in role, **Child-blocking** ("can't close a parent with open children")
+- [x] Validators: required-field-on-transition (90% of real use)
+- [x] Post-functions: **set resolution** (the load-bearing one — §E), assign to, clear/copy/update field, add comment, fire event, webhook
+- [x] Transition screens (prompt for fields, e.g. resolution + comment on Done)
+- [x] Validity enforced on API + board drag (bulk/automation land with those phases)
+- [ ] Visual workflow editor (nodes + edges) — deferred to the frontend phase; the API is complete
+- [x] **Seed workflows** — the third proves domain-neutrality:
   - Programming `[SW]`: To Do → In Progress → In Review → Done (+ Blocked, + Reopen)
   - 3D: Concept → Blockout → Modeling → UV/Texture → Rigging → Render → Review → Approved
   - Job search: Interested → Applied → Phone Screen → Interview → Take-home → Offer → Accepted/Rejected/Ghosted
@@ -177,18 +177,18 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 
 **This is the product.** Boards, filters, dashboards, gadgets, automation, quick filters, and reports are all AQL + a renderer. Build it properly, early, once — it is the highest-reuse component in the system.
 
-- [ ] Hand-written recursive-descent parser → AST → **parameterised SQL**. Never string-concatenate SQL
-- [ ] Operators: `= != > >= < <= IN "NOT IN" ~ !~ IS "IS NOT" WAS "WAS IN" "WAS NOT" CHANGED`
-- [ ] Keywords: `AND OR NOT EMPTY NULL ORDER BY ASC DESC`; history modifiers `AFTER BEFORE BY DURING ON FROM TO`
-- [ ] Grammar rules: `IS`/`IS NOT` only with EMPTY/NULL; `=`/`!=` rejected on text fields (use `~`); ordering ops only on orderable fields
-- [ ] Functions: `currentUser() now() startOfDay/Week/Month/Year() endOf*()` with relative args (`-1w`, `+3d`); `membersOf() openCycles() closedCycles() futureCycles() linkedCards() watchedCards() cardHistory() cascadeOption()`
-- [ ] **Scope `WAS`/`CHANGED` to 6 fields** (assignee, milestone, priority, reporter, resolution, status) — generic any-field history search forces indexing every change and wrecks the planner. `status CHANGED FROM "In Progress" TO "Done" AFTER -7d` is the high-value case
-- [ ] Field→operator support matrix enforced at parse time, with good error messages (caret + span)
-- [ ] SQLite **FTS5** for `~` and full-text
-- [ ] Saved filters + `filter = "My Filter"` composition (guard cycles)
-- [ ] Basic (dropdown) search ⇄ advanced (text) **round-trip** — Jira degrades one-way and users hate it
-- [ ] Autocomplete endpoint (fields, values, functions)
-- [ ] Fuzz + property tests: parser never panics; AST→SQL never injects
+- [x] Hand-written recursive-descent parser → AST → **parameterised SQL**. `keyword()` takes `&'static str`, so the injecting version does not compile
+- [x] Operators: `= != > >= < <= IN "NOT IN" ~ !~ IS "IS NOT" WAS "WAS IN" "WAS NOT" CHANGED`
+- [x] Keywords: `AND OR NOT EMPTY NULL ORDER BY ASC DESC`; history modifiers `AFTER BEFORE BY DURING ON FROM TO`
+- [x] Grammar rules enforced at type-check: `IS` only with EMPTY/NULL; `=`/`!=` rejected on text fields; ordering ops only on orderable fields
+- [x] Functions: `currentUser() now() startOf*/endOf*()` with relative args; `membersOf() linkedCards() watchedCards() cardHistory()` (cycle functions land with Phase 10)
+- [x] **Scope `WAS`/`CHANGED` to 6 fields** (assignee, milestone, priority, reporter, resolution, status) — generic any-field history search forces indexing every change and wrecks the planner. `status CHANGED FROM "In Progress" TO "Done" AFTER -7d` is the high-value case
+- [x] Field→operator support matrix enforced at type-check, errors carry a column span
+- [ ] SQLite **FTS5** for `~` — currently LIKE with escaped wildcards; FTS5 upgrade deferred
+- [x] Saved filters + `filter = "My Filter"` composition, with a cycle guard and depth cap
+- [ ] Basic (dropdown) search ⇄ advanced round-trip — deferred to the frontend phase
+- [x] `/search/validate` returns errors-with-spans; full autocomplete deferred to the frontend phase
+- [x] Fuzz + property tests: parser never panics; SQL byte-identical across injection payloads; access wrap covers every subquery
 
 ---
 
@@ -456,8 +456,8 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 2 Auth | `feat/02-auth` | ✅ |
 | 3 Domain | `feat/03-domain` | ✅ |
 | 4 Tags | `feat/04-tags` | ✅ |
-| 5 Workflow | `feat/05-workflow` | ⬜ |
-| 6 AQL | `feat/06-aql` | ⬜ |
+| 5 Workflow | `feat/05-workflow-aql` | ✅ (editor UI with frontend phase) |
+| 6 AQL | `feat/05-workflow-aql` | ✅ (autocomplete UI with frontend phase) |
 | 7 Frontend core | `feat/07-frontend-core` | ⬜ |
 | 8 Boards | `feat/08-boards` | ⬜ |
 | 8b Nested boards | `feat/08b-nested-boards` | ⬜ |
