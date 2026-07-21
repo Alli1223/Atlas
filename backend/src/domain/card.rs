@@ -1031,7 +1031,8 @@ async fn update_inner(
         // (default or absent) workflow yields `None` and behaves exactly as the
         // pre-workflow code did.
         None if next.status_id != current.status_id => {
-            match workflow::resolve_transition(&mut *tx, current, &next.status_id, author_id).await?
+            match workflow::resolve_transition(&mut *tx, current, &next.status_id, author_id)
+                .await?
             {
                 Outcome::Permissive => None,
                 Outcome::Via(transition) => Some(*transition),

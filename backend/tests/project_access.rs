@@ -1524,8 +1524,7 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
     let (insider_id, _) = user(app, admin, &format!("insider-{key}"), "member").await;
     grant(app, admin, key, &insider_id, "member").await;
 
-    let (workflow_id, transition_id) =
-        furnish_workflow(app, admin, key, &theirs.status_id).await;
+    let (workflow_id, transition_id) = furnish_workflow(app, admin, key, &theirs.status_id).await;
 
     Targets {
         project_key: theirs.key.clone(),
@@ -2281,8 +2280,7 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
     let (victim_id, _) = user(&app, &admin, "victim", "member").await;
     grant(&app, &admin, "ATLAS", &victim_id, "member").await;
 
-    let (workflow_id, transition_id) =
-        furnish_workflow(&app, &admin, &p.key, &p.status_id).await;
+    let (workflow_id, transition_id) = furnish_workflow(&app, &admin, &p.key, &p.status_id).await;
 
     let targets = Targets {
         project_key: p.key.clone(),

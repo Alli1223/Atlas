@@ -64,7 +64,11 @@ impl App {
         seed::ensure_default_admin(&db)
             .await
             .expect("failed to seed the default admin");
-        Self { db, config, _temp: temp }
+        Self {
+            db,
+            config,
+            _temp: temp,
+        }
     }
 
     fn router(&self) -> Router {
@@ -72,7 +76,11 @@ impl App {
     }
 
     async fn send(&self, request: Request<Body>) -> Reply {
-        let response = self.router().oneshot(request).await.expect("request failed");
+        let response = self
+            .router()
+            .oneshot(request)
+            .await
+            .expect("request failed");
         Reply::from(response).await
     }
 }
@@ -142,7 +150,9 @@ fn request(method: Method, uri: &str, cookie: Option<&str>, body: Option<Value>)
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(body.to_string()))
             .expect("failed to build the request"),
-        None => builder.body(Body::empty()).expect("failed to build the request"),
+        None => builder
+            .body(Body::empty())
+            .expect("failed to build the request"),
     }
 }
 
@@ -258,18 +268,37 @@ async fn project(app: &App, admin: &str, key: &str, template: &str) -> Project {
         .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
 
-    let types = rows(&app.send(get(&format!("/api/v1/projects/{key}/card-types"), Some(admin))).await);
+    let types = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{key}/card-types"),
+            Some(admin),
+        ))
+        .await,
+    );
     let card_type = types
         .iter()
         .find(|t| t["isDefault"].as_bool() == Some(true))
-        .map_or_else(|| panic!("{key} has no default card type"), |t| text(t, "id"));
+        .map_or_else(
+            || panic!("{key} has no default card type"),
+            |t| text(t, "id"),
+        );
 
-    let statuses = rows(&app.send(get(&format!("/api/v1/projects/{key}/statuses"), Some(admin))).await)
-        .iter()
-        .map(|s| (text(s, "id"), text(s, "name")))
-        .collect();
+    let statuses = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{key}/statuses"),
+            Some(admin),
+        ))
+        .await,
+    )
+    .iter()
+    .map(|s| (text(s, "id"), text(s, "name")))
+    .collect();
 
-    Project { key: key.to_owned(), card_type, statuses }
+    Project {
+        key: key.to_owned(),
+        card_type,
+        statuses,
+    }
 }
 
 async fn card(app: &App, admin: &str, project: &Project, summary: &str) -> String {
@@ -289,24 +318,37 @@ async fn card_of_type(
         body["parentId"] = json!(parent);
     }
     let reply = app
-        .send(post(&format!("/api/v1/projects/{}/cards", project.key), Some(admin), body))
+        .send(post(
+            &format!("/api/v1/projects/{}/cards", project.key),
+            Some(admin),
+            body,
+        ))
         .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
     reply.key()
 }
 
 async fn card_id(app: &App, admin: &str, key: &str) -> String {
-    app.send(get(&format!("/api/v1/cards/{key}"), Some(admin))).await.id()
+    app.send(get(&format!("/api/v1/cards/{key}"), Some(admin)))
+        .await
+        .id()
 }
 
 async fn card_status(app: &App, admin: &str, key: &str) -> String {
     text(
-        &app.send(get(&format!("/api/v1/cards/{key}"), Some(admin))).await.json(),
+        &app.send(get(&format!("/api/v1/cards/{key}"), Some(admin)))
+            .await
+            .json(),
         "statusId",
     )
 }
 
-async fn custom_workflow(app: &App, admin: &str, project: &Project, status_ids: &[String]) -> String {
+async fn custom_workflow(
+    app: &App,
+    admin: &str,
+    project: &Project,
+    status_ids: &[String],
+) -> String {
     let reply = app
         .send(post(
             &format!("/api/v1/projects/{}/workflows", project.key),
@@ -345,24 +387,40 @@ async fn transition(
         body["fromStatusId"] = json!(from);
     }
     let reply = app
-        .send(post(&format!("/api/v1/workflows/{workflow_id}/transitions"), Some(admin), body))
+        .send(post(
+            &format!("/api/v1/workflows/{workflow_id}/transitions"),
+            Some(admin),
+            body,
+        ))
         .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
     reply.id()
 }
 
 async fn available(app: &App, admin: &str, card_key: &str) -> Vec<String> {
-    rows(&app.send(get(&format!("/api/v1/cards/{card_key}/transitions"), Some(admin))).await)
-        .iter()
-        .map(|t| text(t, "name"))
-        .collect()
+    rows(
+        &app.send(get(
+            &format!("/api/v1/cards/{card_key}/transitions"),
+            Some(admin),
+        ))
+        .await,
+    )
+    .iter()
+    .map(|t| text(t, "name"))
+    .collect()
 }
 
 async fn comments(app: &App, admin: &str, card_key: &str) -> Vec<String> {
-    rows(&app.send(get(&format!("/api/v1/cards/{card_key}/comments"), Some(admin))).await)
-        .iter()
-        .map(|c| text(c, "body"))
-        .collect()
+    rows(
+        &app.send(get(
+            &format!("/api/v1/cards/{card_key}/comments"),
+            Some(admin),
+        ))
+        .await,
+    )
+    .iter()
+    .map(|c| text(c, "body"))
+    .collect()
 }
 
 async fn move_to(app: &App, admin: &str, card_key: &str, status_id: &str) -> Reply {
@@ -408,8 +466,18 @@ async fn a_transition_from_another_project_cannot_be_executed_on_a_card() {
     let b_todo = b.status("To Do");
     let b_done = b.status("Done");
     let b_wf = custom_workflow(&app, &admin, &b, &[b_todo.clone(), b_done.clone()]).await;
-    let b_finish =
-        transition(&app, &admin, &b_wf, "Finish", Some(&b_todo), &b_done, json!([]), json!([]), json!([])).await;
+    let b_finish = transition(
+        &app,
+        &admin,
+        &b_wf,
+        "Finish",
+        Some(&b_todo),
+        &b_done,
+        json!([]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     // A card in project A. Its type routes through A's permissive default, and B's
     // transition is nothing to do with it.
@@ -426,7 +494,11 @@ async fn a_transition_from_another_project_cannot_be_executed_on_a_card() {
         "a foreign-workflow transition must not execute: {}",
         reply.raw_body
     );
-    assert_eq!(card_status(&app, &admin, &a_card).await, before, "the card must not have moved");
+    assert_eq!(
+        card_status(&app, &admin, &a_card).await,
+        before,
+        "the card must not have moved"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -442,8 +514,18 @@ async fn a_project_viewer_can_read_but_not_execute_a_transition() {
     let todo = p.status("To Do");
     let done = p.status("Done");
     let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
-    let finish =
-        transition(&app, &admin, &wf, "Finish", Some(&todo), &done, json!([]), json!([]), json!([])).await;
+    let finish = transition(
+        &app,
+        &admin,
+        &wf,
+        "Finish",
+        Some(&todo),
+        &done,
+        json!([]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     let key = card(&app, &admin, &p, "task").await;
 
@@ -452,8 +534,18 @@ async fn a_project_viewer_can_read_but_not_execute_a_transition() {
     grant(&app, &admin, &p.key, &viewer_id, "viewer").await;
 
     // Reading the available transitions is allowed (Viewer).
-    let read = app.send(get(&format!("/api/v1/cards/{key}/transitions"), Some(&viewer))).await;
-    assert_eq!(read.status, StatusCode::OK, "a viewer may read transitions: {}", read.raw_body);
+    let read = app
+        .send(get(
+            &format!("/api/v1/cards/{key}/transitions"),
+            Some(&viewer),
+        ))
+        .await;
+    assert_eq!(
+        read.status,
+        StatusCode::OK,
+        "a viewer may read transitions: {}",
+        read.raw_body
+    );
 
     // Executing one is not (needs Member). The card must not move.
     let reply = exec(&app, &viewer, &key, &finish, json!({})).await;
@@ -463,7 +555,11 @@ async fn a_project_viewer_can_read_but_not_execute_a_transition() {
         "a project viewer must not execute a transition: {}",
         reply.raw_body
     );
-    assert_eq!(card_status(&app, &admin, &key).await, todo, "the card must not have moved");
+    assert_eq!(
+        card_status(&app, &admin, &key).await,
+        todo,
+        "the card must not have moved"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -484,7 +580,12 @@ async fn a_hidden_transition_attacked_directly_runs_no_post_function() {
     // post-function AND a fire-event post-function. If the hide gate leaked, either
     // would leave a visible trace.
     let resolve = transition(
-        &app, &admin, &wf, "Resolve", Some(&todo), &done,
+        &app,
+        &admin,
+        &wf,
+        "Resolve",
+        Some(&todo),
+        &done,
         json!([{ "kind": "OnlyAssignee" }]),
         json!([]),
         json!([
@@ -497,15 +598,26 @@ async fn a_hidden_transition_attacked_directly_runs_no_post_function() {
     let key = card(&app, &admin, &p, "task").await;
     let id = card_id(&app, &admin, &key).await;
 
-    assert!(!available(&app, &admin, &key).await.contains(&"Resolve".to_owned()));
+    assert!(
+        !available(&app, &admin, &key)
+            .await
+            .contains(&"Resolve".to_owned())
+    );
 
     let reply = exec(&app, &admin, &key, &resolve, json!({})).await;
     assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.raw_body);
 
     // No move, no comment, no event.
     assert_eq!(card_status(&app, &admin, &key).await, todo);
-    assert!(comments(&app, &admin, &key).await.is_empty(), "a hidden transition must add no comment");
-    assert_eq!(event_count(&app, &id).await, 0, "a hidden transition must fire no event");
+    assert!(
+        comments(&app, &admin, &key).await.is_empty(),
+        "a hidden transition must add no comment"
+    );
+    assert_eq!(
+        event_count(&app, &id).await,
+        0,
+        "a hidden transition must fire no event"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -522,20 +634,48 @@ async fn a_screen_resolution_on_a_move_to_a_non_done_status_is_cleared() {
     let in_progress = p.status("In Progress");
     let done = p.status("Done");
 
-    let resolutions =
-        rows(&app.send(get(&format!("/api/v1/projects/{}/resolutions", p.key), Some(&admin))).await);
+    let resolutions = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{}/resolutions", p.key),
+            Some(&admin),
+        ))
+        .await,
+    );
     let done_res = text(&resolutions[0], "id");
 
-    let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), in_progress.clone(), done.clone()]).await;
+    let wf = custom_workflow(
+        &app,
+        &admin,
+        &p,
+        &[todo.clone(), in_progress.clone(), done.clone()],
+    )
+    .await;
     // A transition into a NON-done status (In Progress).
-    let start =
-        transition(&app, &admin, &wf, "Start", Some(&todo), &in_progress, json!([]), json!([]), json!([])).await;
+    let start = transition(
+        &app,
+        &admin,
+        &wf,
+        "Start",
+        Some(&todo),
+        &in_progress,
+        json!([]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     let key = card(&app, &admin, &p, "task").await;
 
     // The screen hands a resolution to a move that lands in a non-done column. The
     // §E rule must win: not-done => no resolution, regardless of what was supplied.
-    let reply = exec(&app, &admin, &key, &start, json!({ "resolutionId": done_res })).await;
+    let reply = exec(
+        &app,
+        &admin,
+        &key,
+        &start,
+        json!({ "resolutionId": done_res }),
+    )
+    .await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
     assert_eq!(reply.json()["statusId"], in_progress);
     assert_eq!(
@@ -564,13 +704,24 @@ async fn a_rolled_back_transition_records_no_event_and_no_comment() {
     // rolls the move back. The FireEvent and AddComment post-functions on the same
     // transition must therefore leave no trace.
     let foreign = {
-        let rs = rows(&app.send(get(&format!("/api/v1/projects/{}/resolutions", other.key), Some(&admin))).await);
+        let rs = rows(
+            &app.send(get(
+                &format!("/api/v1/projects/{}/resolutions", other.key),
+                Some(&admin),
+            ))
+            .await,
+        );
         text(&rs[0], "id")
     };
 
     let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
     let finish = transition(
-        &app, &admin, &wf, "Finish", Some(&todo), &done,
+        &app,
+        &admin,
+        &wf,
+        "Finish",
+        Some(&todo),
+        &done,
         json!([]),
         json!([]),
         json!([
@@ -583,11 +734,31 @@ async fn a_rolled_back_transition_records_no_event_and_no_comment() {
     let key = card(&app, &admin, &p, "task").await;
     let id = card_id(&app, &admin, &key).await;
 
-    let reply = exec(&app, &admin, &key, &finish, json!({ "comment": "here goes" })).await;
-    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", reply.raw_body);
+    let reply = exec(
+        &app,
+        &admin,
+        &key,
+        &finish,
+        json!({ "comment": "here goes" }),
+    )
+    .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.raw_body
+    );
 
-    assert_eq!(card_status(&app, &admin, &key).await, todo, "the card must not have moved");
-    assert_eq!(event_count(&app, &id).await, 0, "a rolled-back transition must record no event");
+    assert_eq!(
+        card_status(&app, &admin, &key).await,
+        todo,
+        "the card must not have moved"
+    );
+    assert_eq!(
+        event_count(&app, &id).await,
+        0,
+        "a rolled-back transition must record no event"
+    );
     assert!(
         comments(&app, &admin, &key).await.is_empty(),
         "a rolled-back transition must persist no comment"
@@ -604,10 +775,31 @@ async fn a_rolled_back_transition_records_no_event_and_no_comment() {
 async fn child_blocking_workflow(app: &App, admin: &str, p: &Project) -> (String, String) {
     let done = p.status("Done");
     let wf = custom_workflow(app, admin, p, &[p.status("To Do"), done.clone()]).await;
-    transition(app, admin, &wf, "Close", None, &done, json!([{ "kind": "ChildBlocking" }]), json!([]), json!([])).await;
+    transition(
+        app,
+        admin,
+        &wf,
+        "Close",
+        None,
+        &done,
+        json!([{ "kind": "ChildBlocking" }]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
-    let types = rows(&app.send(get(&format!("/api/v1/projects/{}/card-types", p.key), Some(admin))).await);
-    let group = types.iter().find(|t| t["name"] == "Group").map(|t| text(t, "id")).expect("Group type");
+    let types = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{}/card-types", p.key),
+            Some(admin),
+        ))
+        .await,
+    );
+    let group = types
+        .iter()
+        .find(|t| t["name"] == "Group")
+        .map(|t| text(t, "id"))
+        .expect("Group type");
     let assigned = app
         .send(request(
             Method::PATCH,
@@ -635,8 +827,18 @@ async fn child_blocking_ignores_a_done_direct_child_even_with_an_open_grandchild
     let (_wf, group) = child_blocking_workflow(&app, &admin, &p).await;
 
     let done = p.status("Done");
-    let types = rows(&app.send(get(&format!("/api/v1/projects/{}/card-types", p.key), Some(&admin))).await);
-    let subtask = types.iter().find(|t| t["name"] == "Sub-task").map(|t| text(t, "id")).expect("Sub-task type");
+    let types = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{}/card-types", p.key),
+            Some(&admin),
+        ))
+        .await,
+    );
+    let subtask = types
+        .iter()
+        .find(|t| t["name"] == "Sub-task")
+        .map(|t| text(t, "id"))
+        .expect("Sub-task type");
 
     // parent (Group) -> child (Card). No grandchild yet.
     let parent = card_of_type(&app, &admin, &p, &group, "parent", None).await;
@@ -646,12 +848,22 @@ async fn child_blocking_ignores_a_done_direct_child_even_with_an_open_grandchild
 
     // The parent's only direct child is still open, so the parent cannot close.
     let blocked = move_to(&app, &admin, &parent, &done).await;
-    assert_eq!(blocked.status, StatusCode::CONFLICT, "open direct child blocks: {}", blocked.raw_body);
+    assert_eq!(
+        blocked.status,
+        StatusCode::CONFLICT,
+        "open direct child blocks: {}",
+        blocked.raw_body
+    );
 
     // Close the child while it has no children. Then hang an OPEN grandchild
     // (Sub-task, routed through the permissive default) under the now-done child.
     let close_child = move_to(&app, &admin, &child, &done).await;
-    assert_eq!(close_child.status, StatusCode::OK, "{}", close_child.raw_body);
+    assert_eq!(
+        close_child.status,
+        StatusCode::OK,
+        "{}",
+        close_child.raw_body
+    );
     let _grandchild = card_of_type(&app, &admin, &p, &subtask, "grandchild", Some(&child_id)).await;
 
     // The parent's only direct child is done, so the parent may close — the open
@@ -702,7 +914,11 @@ async fn an_update_field_post_function_naming_a_missing_user_is_a_bad_request_no
         "a post-function naming a missing user must be a 422, not a 500: {}",
         reply.raw_body
     );
-    assert_eq!(card_status(&app, &admin, &key).await, todo, "the failed transition must roll back");
+    assert_eq!(
+        card_status(&app, &admin, &key).await,
+        todo,
+        "the failed transition must roll back"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -729,7 +945,12 @@ async fn a_self_loop_transition_still_runs_its_post_functions() {
     // fire-event and a fixed comment. Taken while the card sits in To Do it is a
     // self-loop: legal, offered, but changes no field.
     let ping = transition(
-        &app, &admin, &wf, "Ping", None, &todo,
+        &app,
+        &admin,
+        &wf,
+        "Ping",
+        None,
+        &todo,
         json!([]),
         json!([]),
         json!([
@@ -744,14 +965,36 @@ async fn a_self_loop_transition_still_runs_its_post_functions() {
     assert_eq!(card_status(&app, &admin, &key).await, todo);
 
     // Take it, also typing a comment on the screen.
-    let reply = exec(&app, &admin, &key, &ping, json!({ "comment": "I clicked the button" })).await;
-    assert_eq!(reply.status, StatusCode::OK, "a legal transition must be accepted: {}", reply.raw_body);
+    let reply = exec(
+        &app,
+        &admin,
+        &key,
+        &ping,
+        json!({ "comment": "I clicked the button" }),
+    )
+    .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::OK,
+        "a legal transition must be accepted: {}",
+        reply.raw_body
+    );
 
     // The transition ran. Its post-functions must have run too.
-    assert_eq!(event_count(&app, &id).await, 1, "a taken transition must fire its FireEvent");
+    assert_eq!(
+        event_count(&app, &id).await,
+        1,
+        "a taken transition must fire its FireEvent"
+    );
     let cs = comments(&app, &admin, &key).await;
-    assert!(cs.contains(&"auto: pinged".to_owned()), "AddComment post-function must run: {cs:?}");
-    assert!(cs.contains(&"I clicked the button".to_owned()), "the screen comment must be recorded: {cs:?}");
+    assert!(
+        cs.contains(&"auto: pinged".to_owned()),
+        "AddComment post-function must run: {cs:?}"
+    );
+    assert!(
+        cs.contains(&"I clicked the button".to_owned()),
+        "the screen comment must be recorded: {cs:?}"
+    );
 }
 
 // -------------------------------------------------------------------------
@@ -774,7 +1017,12 @@ async fn a_transition_into_done_never_leaves_a_null_resolution() {
 
     // Land in Done, and a post-function that tries to CLEAR the resolution.
     let finish = transition(
-        &app, &admin, &wf, "Finish", Some(&todo), &done,
+        &app,
+        &admin,
+        &wf,
+        "Finish",
+        Some(&todo),
+        &done,
         json!([]),
         json!([]),
         json!([{ "kind": "SetResolution", "config": {} }]),
@@ -785,7 +1033,11 @@ async fn a_transition_into_done_never_leaves_a_null_resolution() {
     let reply = exec(&app, &admin, &key, &finish, json!({})).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
     assert_eq!(reply.json()["statusId"], done);
-    assert_eq!(reply.json()["resolved"], true, "a card in Done must be resolved");
+    assert_eq!(
+        reply.json()["resolved"],
+        true,
+        "a card in Done must be resolved"
+    );
     assert_ne!(
         reply.json()["resolutionId"],
         Value::Null,
@@ -809,25 +1061,67 @@ async fn child_blocking_condition_blocks_the_execute_endpoint() {
     let done = p.status("Done");
     let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
 
-    let types = rows(&app.send(get(&format!("/api/v1/projects/{}/card-types", p.key), Some(&admin))).await);
-    let group = types.iter().find(|t| t["name"] == "Group").map(|t| text(t, "id")).expect("Group");
+    let types = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{}/card-types", p.key),
+            Some(&admin),
+        ))
+        .await,
+    );
+    let group = types
+        .iter()
+        .find(|t| t["name"] == "Group")
+        .map(|t| text(t, "id"))
+        .expect("Group");
     // Route the Group type through the custom workflow.
-    let assigned = app.send(request(Method::PATCH, &format!("/api/v1/workflows/{wf}"), Some(&admin), Some(json!({ "cardTypeIds": [group] })))).await;
+    let assigned = app
+        .send(request(
+            Method::PATCH,
+            &format!("/api/v1/workflows/{wf}"),
+            Some(&admin),
+            Some(json!({ "cardTypeIds": [group] })),
+        ))
+        .await;
     assert_eq!(assigned.status, StatusCode::OK, "{}", assigned.raw_body);
 
-    let close = transition(&app, &admin, &wf, "Close", Some(&todo), &done, json!([{ "kind": "ChildBlocking" }]), json!([]), json!([])).await;
+    let close = transition(
+        &app,
+        &admin,
+        &wf,
+        "Close",
+        Some(&todo),
+        &done,
+        json!([{ "kind": "ChildBlocking" }]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     let parent = card_of_type(&app, &admin, &p, &group, "parent", None).await;
     let parent_id = card_id(&app, &admin, &parent).await;
     let _child = card_of_type(&app, &admin, &p, &p.card_type, "child", Some(&parent_id)).await;
 
     // Hidden from the list.
-    assert!(!available(&app, &admin, &parent).await.contains(&"Close".to_owned()), "ChildBlocking must hide Close");
+    assert!(
+        !available(&app, &admin, &parent)
+            .await
+            .contains(&"Close".to_owned()),
+        "ChildBlocking must hide Close"
+    );
 
     // Attacked directly: rejected, no move.
     let reply = exec(&app, &admin, &parent, &close, json!({})).await;
-    assert_eq!(reply.status, StatusCode::CONFLICT, "ChildBlocking must reject a direct attempt: {}", reply.raw_body);
-    assert_eq!(card_status(&app, &admin, &parent).await, todo, "the card must not move");
+    assert_eq!(
+        reply.status,
+        StatusCode::CONFLICT,
+        "ChildBlocking must reject a direct attempt: {}",
+        reply.raw_body
+    );
+    assert_eq!(
+        card_status(&app, &admin, &parent).await,
+        todo,
+        "the card must not move"
+    );
 }
 
 // -------------------------------------------------------------------------
@@ -845,28 +1139,77 @@ async fn a_soft_deleted_open_child_does_not_block_forever() {
     let done = p.status("Done");
     let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
 
-    let types = rows(&app.send(get(&format!("/api/v1/projects/{}/card-types", p.key), Some(&admin))).await);
-    let group = types.iter().find(|t| t["name"] == "Group").map(|t| text(t, "id")).expect("Group");
-    let assigned = app.send(request(Method::PATCH, &format!("/api/v1/workflows/{wf}"), Some(&admin), Some(json!({ "cardTypeIds": [group] })))).await;
+    let types = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{}/card-types", p.key),
+            Some(&admin),
+        ))
+        .await,
+    );
+    let group = types
+        .iter()
+        .find(|t| t["name"] == "Group")
+        .map(|t| text(t, "id"))
+        .expect("Group");
+    let assigned = app
+        .send(request(
+            Method::PATCH,
+            &format!("/api/v1/workflows/{wf}"),
+            Some(&admin),
+            Some(json!({ "cardTypeIds": [group] })),
+        ))
+        .await;
     assert_eq!(assigned.status, StatusCode::OK, "{}", assigned.raw_body);
 
-    let close = transition(&app, &admin, &wf, "Close", Some(&todo), &done, json!([{ "kind": "ChildBlocking" }]), json!([]), json!([])).await;
+    let close = transition(
+        &app,
+        &admin,
+        &wf,
+        "Close",
+        Some(&todo),
+        &done,
+        json!([{ "kind": "ChildBlocking" }]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     let parent = card_of_type(&app, &admin, &p, &group, "parent", None).await;
     let parent_id = card_id(&app, &admin, &parent).await;
     let child = card_of_type(&app, &admin, &p, &p.card_type, "child", Some(&parent_id)).await;
 
     // Open child blocks.
-    assert!(!available(&app, &admin, &parent).await.contains(&"Close".to_owned()));
+    assert!(
+        !available(&app, &admin, &parent)
+            .await
+            .contains(&"Close".to_owned())
+    );
 
     // Soft-delete the open child.
-    let del = app.send(request(Method::DELETE, &format!("/api/v1/cards/{child}"), Some(&admin), None)).await;
+    let del = app
+        .send(request(
+            Method::DELETE,
+            &format!("/api/v1/cards/{child}"),
+            Some(&admin),
+            None,
+        ))
+        .await;
     assert_eq!(del.status, StatusCode::OK, "{}", del.raw_body);
 
     // The parent may now close: a soft-deleted child is not an open child.
-    assert!(available(&app, &admin, &parent).await.contains(&"Close".to_owned()), "a soft-deleted child must not block");
+    assert!(
+        available(&app, &admin, &parent)
+            .await
+            .contains(&"Close".to_owned()),
+        "a soft-deleted child must not block"
+    );
     let reply = exec(&app, &admin, &parent, &close, json!({})).await;
-    assert_eq!(reply.status, StatusCode::OK, "a soft-deleted open child must not block forever: {}", reply.raw_body);
+    assert_eq!(
+        reply.status,
+        StatusCode::OK,
+        "a soft-deleted open child must not block forever: {}",
+        reply.raw_body
+    );
 }
 
 // -------------------------------------------------------------------------
@@ -880,19 +1223,50 @@ async fn every_seeded_template_card_can_reach_done() {
     let app = App::new().await;
     let admin = admin_past_the_gate(&app).await;
 
-    for (i, template) in ["blank", "programming", "3d-modeling", "job-search"].iter().enumerate() {
+    for (i, template) in ["blank", "programming", "3d-modeling", "job-search"]
+        .iter()
+        .enumerate()
+    {
         let key = format!("STR{i}");
         // Templates may be spelled differently on the wire; discover them.
-        let reply = app.send(post("/api/v1/projects", Some(&admin), json!({ "key": key, "name": key, "template": template }))).await;
+        let reply = app
+            .send(post(
+                "/api/v1/projects",
+                Some(&admin),
+                json!({ "key": key, "name": key, "template": template }),
+            ))
+            .await;
         if reply.status != StatusCode::CREATED {
             // Skip a spelling this build does not accept; the point is reachability of the ones it does.
             continue;
         }
-        let statuses = rows(&app.send(get(&format!("/api/v1/projects/{key}/statuses"), Some(&admin))).await);
+        let statuses = rows(
+            &app.send(get(
+                &format!("/api/v1/projects/{key}/statuses"),
+                Some(&admin),
+            ))
+            .await,
+        );
         // Find any done-category status by moving there and checking `resolved`.
-        let types = rows(&app.send(get(&format!("/api/v1/projects/{key}/card-types"), Some(&admin))).await);
-        let card_type = types.iter().find(|t| t["isDefault"].as_bool() == Some(true)).map(|t| text(t, "id")).expect("default type");
-        let created = app.send(post(&format!("/api/v1/projects/{key}/cards"), Some(&admin), json!({ "typeId": card_type, "summary": "reach done" }))).await;
+        let types = rows(
+            &app.send(get(
+                &format!("/api/v1/projects/{key}/card-types"),
+                Some(&admin),
+            ))
+            .await,
+        );
+        let card_type = types
+            .iter()
+            .find(|t| t["isDefault"].as_bool() == Some(true))
+            .map(|t| text(t, "id"))
+            .expect("default type");
+        let created = app
+            .send(post(
+                &format!("/api/v1/projects/{key}/cards"),
+                Some(&admin),
+                json!({ "typeId": card_type, "summary": "reach done" }),
+            ))
+            .await;
         assert_eq!(created.status, StatusCode::CREATED, "{}", created.raw_body);
         let ckey = created.key();
 
@@ -901,12 +1275,19 @@ async fn every_seeded_template_card_can_reach_done() {
         for s in &statuses {
             let sid = text(s, "id");
             let mv = move_to(&app, &admin, &ckey, &sid).await;
-            assert_eq!(mv.status, StatusCode::OK, "move to {sid} in {template}: {}", mv.raw_body);
+            assert_eq!(
+                mv.status,
+                StatusCode::OK,
+                "move to {sid} in {template}: {}",
+                mv.raw_body
+            );
             if mv.json()["resolved"] == true {
                 reached_done = true;
             }
         }
-        assert!(reached_done, "template {template} has no reachable Done status");
+        assert!(
+            reached_done,
+            "template {template} has no reachable Done status"
+        );
     }
 }
-

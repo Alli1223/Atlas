@@ -578,7 +578,11 @@ mod tests {
         .filter(|f| f.is_historyable())
         .map(Field::as_str)
         .collect();
-        assert_eq!(historyable.len(), 6, "history scope drifted: {historyable:?}");
+        assert_eq!(
+            historyable.len(),
+            6,
+            "history scope drifted: {historyable:?}"
+        );
     }
 
     #[test]
