@@ -1056,20 +1056,30 @@ async fn update_inner(
     apply_resolution_rules(&mut *tx, &project, current, &mut next, now).await?;
 
     let changes = diff(&mut *tx, current, &next).await?;
+    let moved = !changes.is_empty();
 
     // Nothing moved: no write, no `updated_at` bump, no history. Bumping
     // `updated_at` for a no-op edit would make "updated <= -7d" — the query the
     // job-search follow-up rule is built on (TODO.md Phase 15) — quietly wrong.
-    if changes.is_empty() {
-        return Ok(current.clone());
+    //
+    // But taking a *transition* is a deliberate action, not a field edit, and its
+    // post-functions and the comment the user typed on the screen must still run
+    // even when no field moved. A self-loop "comment" transition — a global edge
+    // back to the card's own status — exists for exactly that: it fires an event
+    // and records a comment without moving the card. Gating the deferred
+    // post-functions on `moved` silently swallowed all three (the FireEvent, the
+    // AddComment, and the screen comment). So the *write and changelog* are gated
+    // on an actual field change; the *deferred post-functions* are gated on a
+    // transition having been taken.
+    if moved {
+        write(&mut *tx, &next, now).await?;
+        history::record(&mut *tx, &current.id, author_id, &changes, now).await?;
     }
 
-    write(&mut *tx, &next, now).await?;
-    history::record(&mut *tx, &current.id, author_id, &changes, now).await?;
-
-    // Deferred post-functions (add comment, fire event) run last, after the write
-    // and the history — but still inside `tx`, so if one fails the whole
-    // transition rolls back and the card did not move.
+    // Deferred post-functions (add comment, fire event) run last — after the write
+    // and the history when there was one — but still inside `tx`, so if one fails
+    // the whole transition rolls back and the card did not move. They neither read
+    // nor need the just-written row; both sinks reference the card by id.
     if let Some(transition) = &transition {
         workflow::run_deferred_post_functions(
             &mut *tx,
@@ -1080,6 +1090,12 @@ async fn update_inner(
             now,
         )
         .await?;
+    }
+
+    if !moved {
+        // The card row itself is unchanged; any post-function above added a
+        // comment or an event, neither of which is a card field.
+        return Ok(current.clone());
     }
 
     find_by_id_tx(&mut *tx, &current.id)
