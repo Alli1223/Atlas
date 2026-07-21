@@ -791,7 +791,7 @@ fn compile_set_function(
 ) -> Result<(), AqlError> {
     let name = call.name.to_ascii_lowercase();
     match name.as_str() {
-        "membersof" => membersof(field, call, b),
+        "membersof" => membersof(field, call, b, ctx),
         "watchedcards" => watchedcards(field, call, b, ctx),
         "cardhistory" => cardhistory(field, call, b, ctx),
         "linkedcards" => linkedcards(field, call, b),
@@ -804,7 +804,14 @@ fn compile_set_function(
 }
 
 /// `assignee IN membersOf("ATLAS")` — members of a project.
-fn membersof(field: Field, call: &FuncCall, b: &mut SqlBuilder) -> Result<(), AqlError> {
+///
+/// The named project is itself gated by the caller's access: without the guard,
+/// `assignee IN membersOf("SECRET")` would report, through the presence of a
+/// matching card, whether a user the caller *can* see is also a member of a
+/// project the caller *cannot* see — a cross-project membership oracle. Scoping
+/// the lookup keeps AQL from being a way to learn anything about an invisible
+/// project, the same principle the outer access wrap enforces for cards.
+fn membersof(field: Field, call: &FuncCall, b: &mut SqlBuilder, ctx: &CompileCtx) -> Result<(), AqlError> {
     let col = match field {
         Field::Assignee => "cards.assignee_id",
         Field::Reporter => "cards.reporter_id",
@@ -820,8 +827,32 @@ fn membersof(field: Field, call: &FuncCall, b: &mut SqlBuilder) -> Result<(), Aq
     b.keyword(col);
     b.keyword(" IN (SELECT m.user_id FROM project_members m JOIN projects p ON p.id = m.project_id WHERE p.key = ");
     b.bind(Bind::Text(key));
+    b.keyword(" AND ");
+    project_accessible(b, ctx, "p.id", "p.lead_id");
     b.keyword(")");
     Ok(())
+}
+
+/// Emits `(is_admin OR <lead_col> = viewer OR viewer is a member of <id_col>)`,
+/// the projects-table twin of [`build_access`]'s card predicate. Bound values
+/// only; the two column arguments are `&'static str`.
+fn project_accessible(
+    b: &mut SqlBuilder,
+    ctx: &CompileCtx,
+    id_col: &'static str,
+    lead_col: &'static str,
+) {
+    b.keyword("(");
+    b.bind(Bind::Bool(ctx.viewer_is_admin));
+    b.keyword(" OR ");
+    b.keyword(lead_col);
+    b.keyword(" = ");
+    b.bind(Bind::Text(ctx.viewer_id.clone()));
+    b.keyword(" OR EXISTS (SELECT 1 FROM project_members vm WHERE vm.project_id = ");
+    b.keyword(id_col);
+    b.keyword(" AND vm.user_id = ");
+    b.bind(Bind::Text(ctx.viewer_id.clone()));
+    b.keyword("))");
 }
 
 /// `key IN watchedCards()` — cards the caller watches.
