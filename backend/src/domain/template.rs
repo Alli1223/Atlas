@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::domain::project::{self, NewProject, Project};
-use crate::domain::{EstimationUnit, StatusCategory, config, tag};
+use crate::domain::{EstimationUnit, StatusCategory, config, tag, workflow};
 use crate::error::AppResult;
 
 /// One rung of a template's hierarchy.
@@ -366,6 +366,14 @@ pub async fn apply(
     for (name, position) in template.resolutions() {
         config::insert_resolution(&mut *tx, project_id, name, *position).await?;
     }
+
+    // The permissive default workflow: every status, assigned to every card type,
+    // so a card of any type may move between any two of the project's statuses.
+    // This is what keeps a template's implied moves legal without seeding an edge
+    // per pair — a custom workflow, built later with the transition editor, is
+    // what enforces a specific path. Seeded after statuses and card types, which
+    // it references. See `domain::workflow::seed_default`.
+    workflow::seed_default(&mut *tx, project_id, now).await?;
 
     // The tag presets. The lists live in `domain::tag` rather than here because
     // they are the only seed data with a rule of their own attached — the

@@ -168,6 +168,12 @@ pub(crate) enum Scope {
 
     /// `{id}` is a row in one of the per-project config tables.
     Config(ConfigTable, ProjectRole),
+
+    /// `{id}` is a workflow id; the project is the one that owns it.
+    Workflow(ProjectRole),
+
+    /// `{id}` is a transition id; the project is its workflow's.
+    Transition(ProjectRole),
 }
 
 impl Scope {
@@ -185,7 +191,11 @@ impl Scope {
             // both carry a second parameter; the first is the one that names the
             // thing access is decided on.
             Self::Project(_) | Self::Card(_) => Some("key"),
-            Self::Comment(_) | Self::Tag(_) | Self::Config(..) => Some("id"),
+            Self::Comment(_)
+            | Self::Tag(_)
+            | Self::Config(..)
+            | Self::Workflow(_)
+            | Self::Transition(_) => Some("id"),
         }
     }
 
@@ -197,7 +207,9 @@ impl Scope {
             | Self::Card(role)
             | Self::Comment(role)
             | Self::Tag(role)
-            | Self::Config(_, role) => Some(role),
+            | Self::Config(_, role)
+            | Self::Workflow(role)
+            | Self::Transition(role) => Some(role),
         }
     }
 }
@@ -495,6 +507,84 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/cards/{key}/tags/{tagId}",
         Scope::Card(ProjectRole::Member),
     ),
+    // --- workflows: reading is Viewer, editing is Owner (it is configuration) ---
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/workflows",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/workflows",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::GET,
+        "/api/v1/workflows/{id}",
+        Scope::Workflow(ProjectRole::Viewer),
+    ),
+    (
+        Method::PATCH,
+        "/api/v1/workflows/{id}",
+        Scope::Workflow(ProjectRole::Owner),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/workflows/{id}",
+        Scope::Workflow(ProjectRole::Owner),
+    ),
+    (
+        Method::GET,
+        "/api/v1/workflows/{id}/transitions",
+        Scope::Workflow(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/workflows/{id}/transitions",
+        Scope::Workflow(ProjectRole::Owner),
+    ),
+    (
+        Method::PATCH,
+        "/api/v1/transitions/{id}",
+        Scope::Transition(ProjectRole::Owner),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/transitions/{id}",
+        Scope::Transition(ProjectRole::Owner),
+    ),
+    // --- a card's transitions: reading is Viewer, taking one is Member (a move) ---
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/transitions",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/transitions/{id}",
+        Scope::Card(ProjectRole::Member),
+    ),
+    // --- AQL search and saved filters ---
+    //
+    // None of these are project-scoped at the route level, and that is on
+    // purpose: a search spans every project the caller can see, so there is no
+    // single `{key}` to decide on. The scoping is instead compiled *into* the
+    // query — `crate::aql` ANDs an accessible-projects predicate onto every
+    // statement — so a search can never read cards in a project the caller
+    // cannot access. The handler's `CurrentUser`/`RequireMember` extractor
+    // supplies the identity that predicate is built from.
+    //
+    // Filters are personal: each `/filters/{id}` handler loads the row and
+    // checks `owner_id` against the caller, answering 404 for someone else's. So
+    // `{id}` here is not a project key and must not be resolved as one.
+    (Method::POST, "/api/v1/search", Scope::Unscoped),
+    (Method::POST, "/api/v1/search/validate", Scope::Unscoped),
+    (Method::GET, "/api/v1/filters", Scope::Unscoped),
+    (Method::POST, "/api/v1/filters", Scope::Unscoped),
+    (Method::GET, "/api/v1/filters/{id}", Scope::Unscoped),
+    (Method::PATCH, "/api/v1/filters/{id}", Scope::Unscoped),
+    (Method::DELETE, "/api/v1/filters/{id}", Scope::Unscoped),
+    (Method::GET, "/api/v1/filters/{id}/results", Scope::Unscoped),
 ];
 
 /// The scope declared for a route, or `None` if it has none — which is a bug.
@@ -833,6 +923,25 @@ async fn resolve_target(db: &Db, scope: Scope, value: &str) -> AppResult<Target>
                 .bind(value)
                 .fetch_optional(db.reader())
                 .await?
+        }
+
+        Scope::Workflow(_) => {
+            sqlx::query_scalar("SELECT project_id FROM workflows WHERE id = ?")
+                .bind(value)
+                .fetch_optional(db.reader())
+                .await?
+        }
+
+        // A transition is owned by a workflow, which is owned by a project.
+        Scope::Transition(_) => {
+            sqlx::query_scalar(
+                "SELECT w.project_id FROM workflows w \
+                   JOIN transitions t ON t.workflow_id = w.id \
+                  WHERE t.id = ?",
+            )
+            .bind(value)
+            .fetch_optional(db.reader())
+            .await?
         }
     };
 

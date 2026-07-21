@@ -1359,6 +1359,18 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "GET /api/v1/projects",
     "POST /api/v1/projects",
     "GET /api/v1/project-templates",
+    // AQL search and saved filters: not project-scoped at the route level. A
+    // search spans every project the caller can see and scopes itself in the
+    // compiled SQL; filters are personal and checked by owner_id. So none of
+    // these 404 for an "outsider" — there is no single project to be outside of.
+    "POST /api/v1/search",
+    "POST /api/v1/search/validate",
+    "GET /api/v1/filters",
+    "POST /api/v1/filters",
+    "GET /api/v1/filters/{id}",
+    "PATCH /api/v1/filters/{id}",
+    "DELETE /api/v1/filters/{id}",
+    "GET /api/v1/filters/{id}/results",
 ];
 
 /// Every path parameter in the API, and a real value from a project the outsider
@@ -1378,6 +1390,8 @@ struct Targets {
     priority_id: String,
     resolution_id: String,
     member_user_id: String,
+    workflow_id: String,
+    transition_id: String,
 }
 
 impl Targets {
@@ -1406,6 +1420,10 @@ impl Targets {
                     ("priorities", "{id}") => &self.priority_id,
                     ("resolutions", "{id}") => &self.resolution_id,
                     ("members", "{userId}") => &self.member_user_id,
+                    ("workflows", "{id}") => &self.workflow_id,
+                    // `/transitions/{id}` and `/cards/{key}/transitions/{id}`
+                    // both name a transition.
+                    ("transitions", "{id}") => &self.transition_id,
                     _ => {
                         return Err(format!(
                             "no value known for {segment} after /{previous} in {path}. Teach \
@@ -1452,6 +1470,29 @@ fn every_write_body(actor_id: &str, targets: &Targets) -> Value {
     })
 }
 
+/// Creates a custom workflow and a transition in it, so `/workflows/{id}` and
+/// `/transitions/{id}` resolve to real rows in the project rather than 404ing for
+/// an unrelated reason.
+async fn furnish_workflow(app: &App, admin: &str, key: &str, status_id: &str) -> (String, String) {
+    let workflow_id = app
+        .send(post(
+            &format!("/api/v1/projects/{key}/workflows"),
+            Some(admin),
+            json!({ "name": "Probe", "statusIds": [status_id] }),
+        ))
+        .await
+        .id();
+    let transition_id = app
+        .send(post(
+            &format!("/api/v1/workflows/{workflow_id}/transitions"),
+            Some(admin),
+            json!({ "name": "Probe", "toStatusId": status_id }),
+        ))
+        .await
+        .id();
+    (workflow_id, transition_id)
+}
+
 /// A project with one of everything in it, for an attacker to aim at.
 ///
 /// Fully furnished on purpose: a route that resolves to no row 404s for reasons
@@ -1483,6 +1524,9 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
     let (insider_id, _) = user(app, admin, &format!("insider-{key}"), "member").await;
     grant(app, admin, key, &insider_id, "member").await;
 
+    let (workflow_id, transition_id) =
+        furnish_workflow(app, admin, key, &theirs.status_id).await;
+
     Targets {
         project_key: theirs.key.clone(),
         card_key: their_card,
@@ -1494,6 +1538,8 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
         priority_id: theirs.priority_id.clone(),
         resolution_id: theirs.resolution_id.clone(),
         member_user_id: insider_id,
+        workflow_id,
+        transition_id,
     }
 }
 
@@ -2235,6 +2281,9 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
     let (victim_id, _) = user(&app, &admin, "victim", "member").await;
     grant(&app, &admin, "ATLAS", &victim_id, "member").await;
 
+    let (workflow_id, transition_id) =
+        furnish_workflow(&app, &admin, &p.key, &p.status_id).await;
+
     let targets = Targets {
         project_key: p.key.clone(),
         card_key: card_key.clone(),
@@ -2246,6 +2295,8 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
         priority_id: p.priority_id.clone(),
         resolution_id: p.resolution_id.clone(),
         member_user_id: victim_id.clone(),
+        workflow_id,
+        transition_id,
     };
 
     let mut probed = 0;

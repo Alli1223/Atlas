@@ -14,6 +14,8 @@
 //! - [`comment`] — the `comments` row.
 //! - [`tag`] — free-text labels, and the presets each template seeds.
 //! - [`template`] — the four project templates' seed data.
+//! - [`workflow`] — the workflow engine: transitions and their conditions,
+//!   validators and post-functions. Enforced from [`card::update`].
 //!
 //! The HTTP handlers live in [`crate::api`]: this module is the domain, `api` is
 //! the surface. That is the same split [`crate::auth`] makes.
@@ -39,12 +41,14 @@
 pub mod card;
 pub mod comment;
 pub mod config;
+pub mod filter;
 pub mod hierarchy;
 pub mod history;
 pub mod member;
 pub mod project;
 pub mod tag;
 pub mod template;
+pub mod workflow;
 
 use std::fmt;
 use std::str::FromStr;

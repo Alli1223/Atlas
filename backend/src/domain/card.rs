@@ -33,6 +33,7 @@ use crate::auth::to_sql_timestamp;
 use crate::db::Db;
 use crate::domain::history::{self, Change, Field};
 use crate::domain::project::{self, Project};
+use crate::domain::workflow::{self, Outcome, Transition};
 use crate::domain::{config, hierarchy};
 use crate::error::{AppError, AppResult};
 use crate::rank::Rank;
@@ -839,17 +840,84 @@ async fn rank_for_placement(
 ///
 /// A patch that names fields but changes nothing writes nothing at all — not
 /// even `updated_at`. "I sent the same value again" is not an edit.
-// One `if let` per patchable field, which is what a patch *is*. Splitting it to
-// satisfy a line count would scatter the field rules across helpers that each
-// have one caller, and `create` above carries the same allow for the same
-// reason.
-#[allow(clippy::too_many_lines)]
+/// The workflow context of an [`update`] that is a transition.
+///
+/// Carried only by [`execute_transition`], which pins a *specific* transition
+/// (chosen by the user from a screen) and may carry a comment they typed on it.
+/// A plain [`update`] passes `None`: a status change there auto-resolves whatever
+/// legal transition reaches the target, which is what a board drag or a bare
+/// `PATCH statusId` means.
+struct TransitionCtx {
+    /// The transition the caller pinned, already verified by
+    /// [`workflow::verify_transition`].
+    explicit: Option<Transition>,
+    /// A comment entered on the transition screen, added as the first
+    /// post-function.
+    comment: Option<String>,
+}
+
 pub async fn update(
     tx: &mut sqlx::SqliteConnection,
     current: &Card,
     patch: &CardPatch,
     author_id: Option<&str>,
     now: DateTime<Utc>,
+) -> AppResult<Card> {
+    update_inner(tx, current, patch, author_id, now, None).await
+}
+
+/// Executes a **named** transition on a card: the `POST /cards/{key}/transitions/{id}`
+/// path.
+///
+/// Distinct from a board drag only in that the caller pinned *which* transition
+/// (there may be several to the same status, with different post-functions or
+/// screens) and may pass a `comment` typed on the transition's screen. The status
+/// change, the validators, and the post-functions all run inside `tx`, so a
+/// post-function that fails rolls the whole move back.
+pub async fn execute_transition(
+    tx: &mut sqlx::SqliteConnection,
+    card: &Card,
+    transition: &Transition,
+    mut patch: CardPatch,
+    comment: Option<&str>,
+    author_id: Option<&str>,
+    now: DateTime<Utc>,
+) -> AppResult<Card> {
+    // Verify up front: belongs to this card's workflow, offered from where the
+    // card sits, and not hidden by a condition. A hidden transition is rejected
+    // here exactly as if it did not exist.
+    workflow::verify_transition(&mut *tx, card, transition, author_id).await?;
+
+    // The target is the transition's, never the caller's — the caller named a
+    // transition, not a status.
+    patch.status_id = Some(transition.to_status_id.clone());
+
+    update_inner(
+        tx,
+        card,
+        &patch,
+        author_id,
+        now,
+        Some(TransitionCtx {
+            explicit: Some(transition.clone()),
+            comment: comment.map(ToOwned::to_owned),
+        }),
+    )
+    .await
+}
+
+// One `if let` per patchable field, which is what a patch *is*. Splitting it to
+// satisfy a line count would scatter the field rules across helpers that each
+// have one caller, and `create` above carries the same allow for the same
+// reason.
+#[allow(clippy::too_many_lines)]
+async fn update_inner(
+    tx: &mut sqlx::SqliteConnection,
+    current: &Card,
+    patch: &CardPatch,
+    author_id: Option<&str>,
+    now: DateTime<Utc>,
+    tctx: Option<TransitionCtx>,
 ) -> AppResult<Card> {
     let project = project::find_by_id_tx(&mut *tx, &current.project_id)
         .await?
@@ -947,6 +1015,44 @@ pub async fn update(
         check_type_change_against_hierarchy(&mut *tx, current, &next.type_id).await?;
     }
 
+    // --- the workflow execution contract (see domain::workflow) --------------
+    //
+    // A status change is a *transition*, and a transition must be legal. The
+    // check happens here, once, so both a board drag and a bare `PATCH statusId`
+    // are covered — there is no second door.
+    let explicit = tctx.as_ref().and_then(|c| c.explicit.clone());
+    let entered_comment = tctx.as_ref().and_then(|c| c.comment.clone());
+
+    let transition: Option<Transition> = match explicit {
+        // The execute endpoint pinned and already verified this one.
+        Some(transition) => Some(transition),
+        // A status change with no pinned transition auto-resolves: conditions
+        // decide whether *any* legal edge reaches the target. A permissive
+        // (default or absent) workflow yields `None` and behaves exactly as the
+        // pre-workflow code did.
+        None if next.status_id != current.status_id => {
+            match workflow::resolve_transition(&mut *tx, current, &next.status_id, author_id).await?
+            {
+                Outcome::Permissive => None,
+                Outcome::Via(transition) => Some(*transition),
+            }
+        }
+        None => None,
+    };
+
+    if let Some(transition) = &transition {
+        // Validators run against the card the user is submitting — before any
+        // post-function touches it. A failure is a 422 and stops here: the status
+        // does not change and no post-function runs.
+        workflow::run_validators(&mut *tx, transition, &next).await?;
+
+        // Field post-functions (SetResolution, AssignTo, UpdateField) fold into
+        // `next` so they land in the same row and the same changelog as the
+        // status change. SetResolution only *sets* the field; the resolution
+        // rules below reconcile it against the landing status.
+        workflow::apply_field_post_functions(&mut *tx, transition, &mut next, author_id).await?;
+    }
+
     apply_resolution_rules(&mut *tx, &project, current, &mut next, now).await?;
 
     let changes = diff(&mut *tx, current, &next).await?;
@@ -960,6 +1066,21 @@ pub async fn update(
 
     write(&mut *tx, &next, now).await?;
     history::record(&mut *tx, &current.id, author_id, &changes, now).await?;
+
+    // Deferred post-functions (add comment, fire event) run last, after the write
+    // and the history — but still inside `tx`, so if one fails the whole
+    // transition rolls back and the card did not move.
+    if let Some(transition) = &transition {
+        workflow::run_deferred_post_functions(
+            &mut *tx,
+            transition,
+            &next,
+            author_id,
+            entered_comment.as_deref(),
+            now,
+        )
+        .await?;
+    }
 
     find_by_id_tx(&mut *tx, &current.id)
         .await?
