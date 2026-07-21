@@ -7,6 +7,8 @@
 //! ## Layout
 //!
 //! - [`config`] — typed, fail-fast configuration.
+//! - [`aql`] — the Atlas Query Language: lexer, parser, and a compiler to
+//!   parameterised SQL that boards, filters, dashboards and automation all reuse.
 //! - [`db`] — SQLite pools (writer-of-one + N readers) and migrations.
 //! - [`error`] — the error taxonomy and its RFC 7807 rendering.
 //! - [`rank`] — lexicographic card ordering for drag-and-drop.
@@ -16,6 +18,7 @@
 //! - [`api`] — router, middleware, OpenAPI.
 
 pub mod api;
+pub mod aql;
 pub mod auth;
 pub mod config;
 pub mod db;

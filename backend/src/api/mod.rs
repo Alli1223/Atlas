@@ -7,9 +7,11 @@ pub mod members;
 pub mod middleware;
 pub mod project_config;
 pub mod projects;
+pub mod search;
 pub mod serde_ext;
 pub mod tags;
 pub mod users;
+pub mod workflow;
 
 use std::sync::Arc;
 
@@ -78,7 +80,9 @@ impl AppState {
         (name = "project-config", description = "Per-project hierarchy, card types, statuses, priorities and resolutions"),
         (name = "cards", description = "Cards, the board, the hierarchy, and the changelog"),
         (name = "comments", description = "Comments on cards"),
-        (name = "tags", description = "Free-text labels on cards, their presets, and merging")
+        (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
+        (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
+        (name = "search", description = "AQL search, query validation, and saved filters")
     )
 )]
 struct ApiDoc;
@@ -163,6 +167,8 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(cards::routes())
         .merge(comments::routes())
         .merge(tags::routes())
+        .merge(search::routes())
+        .merge(workflow::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::auth::project_access::authorise,
