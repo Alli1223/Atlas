@@ -150,7 +150,10 @@ pub enum PostFunction {
     /// Record an event for Phase 15 automation to consume.
     FireEvent(String),
     /// Set (or clear) a single field.
-    UpdateField { field: FieldName, value: Option<String> },
+    UpdateField {
+        field: FieldName,
+        value: Option<String>,
+    },
 }
 
 /// Who a card is assigned to by an [`PostFunction::AssignTo`].
@@ -341,7 +344,9 @@ pub fn parse_post_function(kind: &str, config: &str) -> AppResult<PostFunction> 
             let parsed: EventConfig = serde_json::from_str(config)
                 .map_err(|_| AppError::Validation("FireEvent needs an \"event\".".to_owned()))?;
             if parsed.event.trim().is_empty() {
-                return Err(AppError::Validation("FireEvent \"event\" is empty.".to_owned()));
+                return Err(AppError::Validation(
+                    "FireEvent \"event\" is empty.".to_owned(),
+                ));
             }
             PostFunction::FireEvent(parsed.event)
         }
@@ -355,9 +360,13 @@ pub fn parse_post_function(kind: &str, config: &str) -> AppResult<PostFunction> 
             let parsed: UpdateConfig = serde_json::from_str(config).map_err(|_| {
                 AppError::Validation("UpdateField needs a \"field\" and a \"value\".".to_owned())
             })?;
-            let field = FieldName::from_str(&parsed.field)
-                .ok_or_else(|| AppError::Validation(format!("{:?} is not settable.", parsed.field)))?;
-            PostFunction::UpdateField { field, value: parsed.value }
+            let field = FieldName::from_str(&parsed.field).ok_or_else(|| {
+                AppError::Validation(format!("{:?} is not settable.", parsed.field))
+            })?;
+            PostFunction::UpdateField {
+                field,
+                value: parsed.value,
+            }
         }
         other => {
             return Err(AppError::Validation(format!(
@@ -464,13 +473,11 @@ pub async fn add_status(
     workflow_id: &str,
     status_id: &str,
 ) -> AppResult<()> {
-    sqlx::query(
-        "INSERT OR IGNORE INTO workflow_statuses (workflow_id, status_id) VALUES (?, ?)",
-    )
-    .bind(workflow_id)
-    .bind(status_id)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("INSERT OR IGNORE INTO workflow_statuses (workflow_id, status_id) VALUES (?, ?)")
+        .bind(workflow_id)
+        .bind(status_id)
+        .execute(&mut *tx)
+        .await?;
     Ok(())
 }
 
@@ -544,12 +551,12 @@ pub async fn assign_card_types(
 
 /// The ids of the card types routed through a workflow.
 pub async fn card_type_ids(db: &Db, workflow_id: &str) -> AppResult<Vec<String>> {
-    Ok(
-        sqlx::query_scalar("SELECT id FROM card_types WHERE workflow_id = ? ORDER BY level DESC, name")
-            .bind(workflow_id)
-            .fetch_all(db.reader())
-            .await?,
+    Ok(sqlx::query_scalar(
+        "SELECT id FROM card_types WHERE workflow_id = ? ORDER BY level DESC, name",
     )
+    .bind(workflow_id)
+    .fetch_all(db.reader())
+    .await?)
 }
 
 /// Seeds a project's permissive default workflow: one workflow named `Default`,
@@ -675,7 +682,9 @@ pub async fn update_transition(
     .execute(&mut *tx)
     .await?;
 
-    transition_by_id_tx(&mut *tx, id).await?.ok_or(AppError::NotFound)
+    transition_by_id_tx(&mut *tx, id)
+        .await?
+        .ok_or(AppError::NotFound)
 }
 
 /// Deletes a transition (and, by cascade, its gates).
@@ -688,15 +697,29 @@ pub async fn delete_transition(tx: &mut sqlx::SqliteConnection, id: &str) -> App
 }
 
 /// Removes every condition from a transition — for a PATCH that replaces the set.
-pub async fn clear_conditions(tx: &mut sqlx::SqliteConnection, transition_id: &str) -> AppResult<()> {
-    clear_gate(&mut *tx, "DELETE FROM transition_conditions WHERE transition_id = ?", transition_id)
-        .await
+pub async fn clear_conditions(
+    tx: &mut sqlx::SqliteConnection,
+    transition_id: &str,
+) -> AppResult<()> {
+    clear_gate(
+        &mut *tx,
+        "DELETE FROM transition_conditions WHERE transition_id = ?",
+        transition_id,
+    )
+    .await
 }
 
 /// Removes every validator from a transition.
-pub async fn clear_validators(tx: &mut sqlx::SqliteConnection, transition_id: &str) -> AppResult<()> {
-    clear_gate(&mut *tx, "DELETE FROM transition_validators WHERE transition_id = ?", transition_id)
-        .await
+pub async fn clear_validators(
+    tx: &mut sqlx::SqliteConnection,
+    transition_id: &str,
+) -> AppResult<()> {
+    clear_gate(
+        &mut *tx,
+        "DELETE FROM transition_validators WHERE transition_id = ?",
+        transition_id,
+    )
+    .await
 }
 
 /// Removes every post-function from a transition.
@@ -717,7 +740,10 @@ async fn clear_gate(
     sql: &'static str,
     transition_id: &str,
 ) -> AppResult<()> {
-    sqlx::query(sql).bind(transition_id).execute(&mut *tx).await?;
+    sqlx::query(sql)
+        .bind(transition_id)
+        .execute(&mut *tx)
+        .await?;
     Ok(())
 }
 
@@ -836,11 +862,7 @@ async fn gate_rows(
 }
 
 /// A transition's gate rows of one table, read from the pool directly.
-async fn gate_rows_pool(
-    db: &Db,
-    table: GateTable,
-    transition_id: &str,
-) -> AppResult<Vec<GateRow>> {
+async fn gate_rows_pool(db: &Db, table: GateTable, transition_id: &str) -> AppResult<Vec<GateRow>> {
     Ok(sqlx::query_as::<_, GateRow>(table.select_sql())
         .bind(transition_id)
         .fetch_all(db.reader())
@@ -1037,8 +1059,14 @@ pub async fn verify_transition(
     // Conditions hide: a hidden transition attempted directly is rejected as if
     // it did not exist. The reason is named (409) rather than a bare 403 so the
     // caller learns why the button they were offered no longer applies.
-    if let Some(reason) =
-        conditions_verdict(&mut *tx, transition, card, &transition.to_status_id, actor_id).await?
+    if let Some(reason) = conditions_verdict(
+        &mut *tx,
+        transition,
+        card,
+        &transition.to_status_id,
+        actor_id,
+    )
+    .await?
     {
         return Err(AppError::Conflict(reason));
     }
@@ -1136,7 +1164,9 @@ async fn evaluate_condition(
                 if actor_holds_role(&mut *tx, &card.project_id, actor, *required).await? {
                     None
                 } else {
-                    Some(format!("Only a project {required} may make this transition."))
+                    Some(format!(
+                        "Only a project {required} may make this transition."
+                    ))
                 }
             }
         },
@@ -1262,11 +1292,9 @@ pub async fn apply_field_post_functions(
                 next.assignee_id = match target {
                     AssignTarget::CurrentUser => actor_id.map(ToOwned::to_owned),
                     AssignTarget::Reporter => next.reporter_id.clone(),
-                    AssignTarget::Lead => {
-                        project::find_by_id_tx(&mut *tx, &next.project_id)
-                            .await?
-                            .and_then(|p| p.lead_id)
-                    }
+                    AssignTarget::Lead => project::find_by_id_tx(&mut *tx, &next.project_id)
+                        .await?
+                        .and_then(|p| p.lead_id),
                     AssignTarget::Unassign => None,
                 };
             }
@@ -1315,10 +1343,7 @@ async fn apply_update_field(
         FieldName::Description => next.description = value,
         // Resolution goes through the resolution rules; other typed fields are
         // out of scope for a string-valued UpdateField.
-        FieldName::Resolution
-        | FieldName::DueDate
-        | FieldName::StartDate
-        | FieldName::Estimate => {
+        FieldName::Resolution | FieldName::DueDate | FieldName::StartDate | FieldName::Estimate => {
             return Err(AppError::Validation(format!(
                 "UpdateField cannot set the {} here; use a dedicated post-function.",
                 field.label()
@@ -1342,7 +1367,10 @@ async fn ensure_user_exists(
     field: &str,
     user_id: &str,
 ) -> AppResult<()> {
-    if crate::auth::user::find_by_id_tx(&mut *tx, user_id).await?.is_none() {
+    if crate::auth::user::find_by_id_tx(&mut *tx, user_id)
+        .await?
+        .is_none()
+    {
         return Err(AppError::Validation(format!(
             "An UpdateField post-function sets the {field} to {user_id:?}, who is not a user of \
              this instance."

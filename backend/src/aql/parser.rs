@@ -203,10 +203,7 @@ impl Parser {
         let Tok::Word(word) = &field_tok.tok else {
             return Err(AqlError::at(
                 field_tok.span,
-                format!(
-                    "expected a field name but found {}",
-                    field_tok.tok.label()
-                ),
+                format!("expected a field name but found {}", field_tok.tok.label()),
             ));
         };
 
@@ -217,9 +214,7 @@ impl Parser {
         let Some(field) = Field::parse(word) else {
             return Err(AqlError::at(
                 field_tok.span,
-                format!(
-                    "unknown field '{word}'; it is not one Atlas can search on"
-                ),
+                format!("unknown field '{word}'; it is not one Atlas can search on"),
             ));
         };
         let field_span = field_tok.span;
@@ -358,8 +353,16 @@ impl Parser {
             }
             Op::Is | Op::IsNot => self.parse_empty(op),
             Op::Changed => Ok(Rhs::None),
-            Op::Eq | Op::Ne | Op::Gt | Op::Ge | Op::Lt | Op::Le | Op::Match | Op::NotMatch
-            | Op::Was | Op::WasNot => Ok(Rhs::Single(self.parse_value()?)),
+            Op::Eq
+            | Op::Ne
+            | Op::Gt
+            | Op::Ge
+            | Op::Lt
+            | Op::Le
+            | Op::Match
+            | Op::NotMatch
+            | Op::Was
+            | Op::WasNot => Ok(Rhs::Single(self.parse_value()?)),
         }
     }
 
@@ -572,7 +575,10 @@ impl Parser {
         if !self.eat_keyword("by") {
             return Err(AqlError::at(
                 self.peek_span(),
-                format!("expected 'BY' after 'ORDER' but found {}", self.peek_tok().label()),
+                format!(
+                    "expected 'BY' after 'ORDER' but found {}",
+                    self.peek_tok().label()
+                ),
             ));
         }
 
@@ -582,7 +588,10 @@ impl Parser {
             let Tok::Word(word) = &token.tok else {
                 return Err(AqlError::at(
                     token.span,
-                    format!("expected a field to order by but found {}", token.tok.label()),
+                    format!(
+                        "expected a field to order by but found {}",
+                        token.tok.label()
+                    ),
                 ));
             };
             let Some(field) = Field::parse(word) else {
@@ -692,8 +701,7 @@ mod tests {
 
     #[test]
     fn changed_takes_history_modifiers() {
-        let query =
-            parse_str("status CHANGED FROM \"In Progress\" TO Done AFTER -7d").unwrap();
+        let query = parse_str("status CHANGED FROM \"In Progress\" TO Done AFTER -7d").unwrap();
         let c = cond(query.predicate.as_ref().unwrap());
         assert_eq!(c.op, Op::Changed);
         assert_eq!(c.history.len(), 3);

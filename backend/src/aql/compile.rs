@@ -202,7 +202,9 @@ fn build_filtered(query: &Query, b: &mut SqlBuilder, ctx: &CompileCtx) -> Result
 fn build_access(b: &mut SqlBuilder, ctx: &CompileCtx) {
     b.keyword("");
     b.bind(Bind::Bool(ctx.viewer_is_admin));
-    b.keyword(" OR EXISTS (SELECT 1 FROM projects p WHERE p.id = cards.project_id AND (p.lead_id = ");
+    b.keyword(
+        " OR EXISTS (SELECT 1 FROM projects p WHERE p.id = cards.project_id AND (p.lead_id = ",
+    );
     b.bind(Bind::Text(ctx.viewer_id.clone()));
     b.keyword(" OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = cards.project_id AND m.user_id = ");
     b.bind(Bind::Text(ctx.viewer_id.clone()));
@@ -387,8 +389,10 @@ fn check_support(
     }
 
     // History: the six indexed fields only.
-    if matches!(op, Op::Was | Op::WasNot | Op::WasIn | Op::WasNotIn | Op::Changed)
-        && !field.is_historyable()
+    if matches!(
+        op,
+        Op::Was | Op::WasNot | Op::WasIn | Op::WasNotIn | Op::Changed
+    ) && !field.is_historyable()
     {
         return Err(AqlError::at(
             field_span,
@@ -686,9 +690,14 @@ fn compile_changed(cond: &Cond, b: &mut SqlBuilder, ctx: &CompileCtx) -> Result<
 /// `(h.to_value IN (…) OR h.to_display IN (…) OR h.from_value IN (…) OR
 /// h.from_display IN (…))`.
 fn history_value_match(b: &mut SqlBuilder, binds: &[Bind]) {
-    for (i, column) in ["h.to_value", "h.to_display", "h.from_value", "h.from_display"]
-        .into_iter()
-        .enumerate()
+    for (i, column) in [
+        "h.to_value",
+        "h.to_display",
+        "h.from_value",
+        "h.from_display",
+    ]
+    .into_iter()
+    .enumerate()
     {
         if i > 0 {
             b.keyword(" OR ");
@@ -811,7 +820,12 @@ fn compile_set_function(
 /// project the caller *cannot* see — a cross-project membership oracle. Scoping
 /// the lookup keeps AQL from being a way to learn anything about an invisible
 /// project, the same principle the outer access wrap enforces for cards.
-fn membersof(field: Field, call: &FuncCall, b: &mut SqlBuilder, ctx: &CompileCtx) -> Result<(), AqlError> {
+fn membersof(
+    field: Field,
+    call: &FuncCall,
+    b: &mut SqlBuilder,
+    ctx: &CompileCtx,
+) -> Result<(), AqlError> {
     let col = match field {
         Field::Assignee => "cards.assignee_id",
         Field::Reporter => "cards.reporter_id",
@@ -1075,9 +1089,10 @@ fn maybe_uppercase(field: Field, text: String) -> String {
 fn number_bind(value: &Value) -> Result<Bind, AqlError> {
     match value {
         Value::Num { value, .. } => Ok(Bind::Real(*value)),
-        Value::Str { text, span } => text.parse::<f64>().map(Bind::Real).map_err(|_| {
-            AqlError::at(*span, format!("'{text}' is not a number"))
-        }),
+        Value::Str { text, span } => text
+            .parse::<f64>()
+            .map(Bind::Real)
+            .map_err(|_| AqlError::at(*span, format!("'{text}' is not a number"))),
         Value::Func(call) => Err(AqlError::at(
             call.span,
             "expected a number here, not a function",
@@ -1141,7 +1156,11 @@ mod tests {
         // The whole invariant. The literal must be a bind, never in the string.
         let c = compile_str("summary ~ \"secret sauce\"").unwrap();
         assert!(!c.sql.contains("secret sauce"), "value leaked: {}", c.sql);
-        assert!(c.binds.iter().any(|b| matches!(b, Bind::Text(t) if t.contains("secret sauce"))));
+        assert!(
+            c.binds
+                .iter()
+                .any(|b| matches!(b, Bind::Text(t) if t.contains("secret sauce")))
+        );
         assert_balanced(&c);
     }
 

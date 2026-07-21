@@ -36,7 +36,7 @@ use crate::domain::filter;
 use crate::error::{AppError, AppResult};
 
 pub use ast::{AqlError, Node, Query};
-pub use compile::{Bind, Compiled, CompileCtx};
+pub use compile::{Bind, CompileCtx, Compiled};
 
 /// The deepest chain of `filter = "…"` references the expander will follow, as a
 /// backstop beyond the id-based cycle guard: a chain with no repeats but 10,000
@@ -270,9 +270,7 @@ fn expand_node<'a>(
                 Ok(Node::Not(Box::new(inner)))
             }
             Node::Cond(_) | Node::All => Ok(node),
-            Node::Filter(reference) => {
-                expand_filter(db, viewer, &reference, visiting, depth).await
-            }
+            Node::Filter(reference) => expand_filter(db, viewer, &reference, visiting, depth).await,
         }
     })
 }
@@ -302,12 +300,13 @@ async fn expand_filter(
         )));
     }
 
-    let inner = parse(&resolved.aql)
-        .map_err(|err| AppError::BadRequest(format!(
+    let inner = parse(&resolved.aql).map_err(|err| {
+        AppError::BadRequest(format!(
             "the saved filter {:?} no longer parses: {}",
             resolved.name,
             err.render(&resolved.aql)
-        )))?;
+        ))
+    })?;
 
     // The inlined body replaces the filter node, so it continues from the same
     // depth — this is what makes a chain of shallow filters accumulate rather
@@ -492,7 +491,10 @@ fn render_value(value: &ast::Value, out: &mut String) {
 /// Whether a value can be written unquoted in the normalised echo.
 fn is_bareword(text: &str) -> bool {
     !text.is_empty()
-        && text.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && text
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && text
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '@' | '/'))

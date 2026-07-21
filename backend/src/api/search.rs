@@ -223,7 +223,8 @@ async fn search(
     let (limit, offset, page, page_size) = window(body.page, body.page_size);
     let source = compose(&body.aql, body.order_by.as_deref());
 
-    let results = crate::aql::search(&state.db, &current.user, now(), &source, limit, offset).await?;
+    let results =
+        crate::aql::search(&state.db, &current.user, now(), &source, limit, offset).await?;
 
     Ok(Json(SearchResponse {
         cards: results.cards.iter().map(CardDto::from).collect(),
@@ -390,7 +391,8 @@ async fn create_filter(
 
     // Type-check now so a broken filter can never be saved.
     let ctx = crate::aql::context(&current.user, now(), 1, 0);
-    crate::aql::check(&body.aql, &ctx).map_err(|err| AppError::BadRequest(err.render(&body.aql)))?;
+    crate::aql::check(&body.aql, &ctx)
+        .map_err(|err| AppError::BadRequest(err.render(&body.aql)))?;
 
     let now = now();
     let mut tx = state.db.begin_write().await?;
@@ -461,7 +463,11 @@ async fn update_filter(
     let current = member.0;
 
     let patch = FilterPatch {
-        name: body.name.as_deref().map(filter::validate_name).transpose()?,
+        name: body
+            .name
+            .as_deref()
+            .map(filter::validate_name)
+            .transpose()?,
         description: body
             .description
             .map(|d| d.as_deref().map(filter::validate_description).transpose())

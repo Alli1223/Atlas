@@ -302,11 +302,49 @@ proptest! {
 /// A fragment of AQL, sampled to build deeper random queries than `.*` reaches.
 fn fragment() -> impl Strategy<Value = &'static str> {
     prop::sample::select(vec![
-        "status", "priority", "summary", "assignee", "resolution", "labels", "key", "created",
-        "=", "!=", ">", ">=", "<", "<=", "~", "!~", "IN", "NOT IN", "IS", "IS NOT", "WAS",
-        "CHANGED", "AND", "OR", "NOT", "EMPTY", "NULL", "(", ")", ",", "Done", "\"In Progress\"",
-        "High", "currentUser()", "startOfWeek(-1w)", "now()", "ORDER", "BY", "ASC", "DESC",
-        "'; DROP TABLE cards; --", "filter", "membersOf(\"X\")",
+        "status",
+        "priority",
+        "summary",
+        "assignee",
+        "resolution",
+        "labels",
+        "key",
+        "created",
+        "=",
+        "!=",
+        ">",
+        ">=",
+        "<",
+        "<=",
+        "~",
+        "!~",
+        "IN",
+        "NOT IN",
+        "IS",
+        "IS NOT",
+        "WAS",
+        "CHANGED",
+        "AND",
+        "OR",
+        "NOT",
+        "EMPTY",
+        "NULL",
+        "(",
+        ")",
+        ",",
+        "Done",
+        "\"In Progress\"",
+        "High",
+        "currentUser()",
+        "startOfWeek(-1w)",
+        "now()",
+        "ORDER",
+        "BY",
+        "ASC",
+        "DESC",
+        "'; DROP TABLE cards; --",
+        "filter",
+        "membersOf(\"X\")",
     ])
 }
 
@@ -336,10 +374,17 @@ async fn seed() -> (Db, TempDb, atlas::auth::User) {
     .await
     .expect("insert admin");
 
-    let project =
-        template::create_project(&mut tx, Template::Blank, "ATLAS", "Atlas", None, Some(&admin.id), now)
-            .await
-            .expect("project");
+    let project = template::create_project(
+        &mut tx,
+        Template::Blank,
+        "ATLAS",
+        "Atlas",
+        None,
+        Some(&admin.id),
+        now,
+    )
+    .await
+    .expect("project");
     let card_type = config::default_card_type_tx(&mut tx, &project.id)
         .await
         .expect("type lookup")
@@ -425,6 +470,10 @@ async fn injection_payloads_are_treated_as_data_not_statements() {
 
     // The table is still there, with the same rows: no `DROP`, no `DELETE`, no
     // second statement ever executed.
-    assert_eq!(card_count(&db).await, before, "a statement escaped the bind boundary");
+    assert_eq!(
+        card_count(&db).await,
+        before,
+        "a statement escaped the bind boundary"
+    );
     db.close().await;
 }

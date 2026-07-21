@@ -124,7 +124,10 @@ fn resolve_period(name: &str, call: &FuncCall, ctx: &FnCtx) -> Result<String, Aq
         period_start(name, ctx.now)
     }
     .ok_or_else(|| {
-        AqlError::at(call.span, "the requested date is outside the representable range")
+        AqlError::at(
+            call.span,
+            "the requested date is outside the representable range",
+        )
     })?;
 
     let shifted = base
@@ -155,7 +158,9 @@ fn period_start(name: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
 /// period begins.
 fn period_end(name: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
     let next_start = match name {
-        "endofday" => period_start("startofday", now)?.checked_add_signed(Duration::try_days(1)?)?,
+        "endofday" => {
+            period_start("startofday", now)?.checked_add_signed(Duration::try_days(1)?)?
+        }
         "endofweek" => {
             period_start("startofweek", now)?.checked_add_signed(Duration::try_days(7)?)?
         }
@@ -213,9 +218,9 @@ fn parse_offset(value: &super::ast::Value) -> Result<Duration, AqlError> {
         _ => (trimmed, None),
     };
 
-    let amount: i64 = number_part.parse().map_err(|_| {
-        AqlError::at(span, format!("'{raw}' is not a relative offset like -1w"))
-    })?;
+    let amount: i64 = number_part
+        .parse()
+        .map_err(|_| AqlError::at(span, format!("'{raw}' is not a relative offset like -1w")))?;
 
     let duration = match unit {
         Some('w' | 'W') => Duration::try_weeks(amount),
@@ -307,14 +312,20 @@ mod tests {
     #[test]
     fn end_of_day_is_the_last_microsecond() {
         let resolved = resolve_scalar(&call("due <= endOfDay()"), &ctx()).unwrap();
-        assert!(resolved.starts_with("2026-07-16T23:59:59.999999"), "{resolved}");
+        assert!(
+            resolved.starts_with("2026-07-16T23:59:59.999999"),
+            "{resolved}"
+        );
     }
 
     #[test]
     fn end_of_month_crosses_into_the_next_month_correctly() {
         // July has 31 days, so endOfMonth is the 31st, not the 30th.
         let resolved = resolve_scalar(&call("due <= endOfMonth()"), &ctx()).unwrap();
-        assert!(resolved.starts_with("2026-07-31T23:59:59.999999"), "{resolved}");
+        assert!(
+            resolved.starts_with("2026-07-31T23:59:59.999999"),
+            "{resolved}"
+        );
     }
 
     #[test]

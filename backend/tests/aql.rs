@@ -288,7 +288,12 @@ async fn search_keys(app: &App, cookie: &str, aql: &str) -> Vec<String> {
     let reply = app
         .send(post("/api/v1/search", Some(cookie), json!({ "aql": aql })))
         .await;
-    assert_eq!(reply.status, StatusCode::OK, "AQL {aql:?}: {}", reply.raw_body);
+    assert_eq!(
+        reply.status,
+        StatusCode::OK,
+        "AQL {aql:?}: {}",
+        reply.raw_body
+    );
     reply.json()["cards"]
         .as_array()
         .expect("cards array")
@@ -301,6 +306,9 @@ async fn search_keys(app: &App, cookie: &str, aql: &str) -> Vec<String> {
 // Operators
 // ---------------------------------------------------------------------------
 
+// One flow exercises every operator against a shared fixture; splitting it would
+// fragment a single coherent scenario and re-seed the project six times over.
+#[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn each_operator_runs_and_filters_as_expected() {
     let app = App::new().await;
@@ -327,31 +335,63 @@ async fn each_operator_runs_and_filters_as_expected() {
     .await;
 
     // Equality and its negation.
-    assert_eq!(search_keys(&app, &admin, "status = \"To Do\"").await, vec![a.clone()]);
-    assert_eq!(search_keys(&app, &admin, "status != \"To Do\"").await, vec![b.clone()]);
+    assert_eq!(
+        search_keys(&app, &admin, "status = \"To Do\"").await,
+        vec![a.clone()]
+    );
+    assert_eq!(
+        search_keys(&app, &admin, "status != \"To Do\"").await,
+        vec![b.clone()]
+    );
 
     // IN / NOT IN.
     assert_eq!(
-        search_keys(&app, &admin, "status IN (\"To Do\", Done)").await.len(),
+        search_keys(&app, &admin, "status IN (\"To Do\", Done)")
+            .await
+            .len(),
         2
     );
-    assert_eq!(search_keys(&app, &admin, "status NOT IN (Done)").await, vec![a.clone()]);
+    assert_eq!(
+        search_keys(&app, &admin, "status NOT IN (Done)").await,
+        vec![a.clone()]
+    );
 
     // Full text.
-    assert_eq!(search_keys(&app, &admin, "summary ~ login").await, vec![a.clone()]);
-    assert_eq!(search_keys(&app, &admin, "text ~ release").await, vec![b.clone()]);
-    assert_eq!(search_keys(&app, &admin, "summary !~ login").await, vec![b.clone()]);
+    assert_eq!(
+        search_keys(&app, &admin, "summary ~ login").await,
+        vec![a.clone()]
+    );
+    assert_eq!(
+        search_keys(&app, &admin, "text ~ release").await,
+        vec![b.clone()]
+    );
+    assert_eq!(
+        search_keys(&app, &admin, "summary !~ login").await,
+        vec![b.clone()]
+    );
 
     // Emptiness: a To Do card has no resolution; a Done card does.
-    assert_eq!(search_keys(&app, &admin, "resolution IS EMPTY").await, vec![a.clone()]);
-    assert_eq!(search_keys(&app, &admin, "resolution IS NOT EMPTY").await, vec![b.clone()]);
+    assert_eq!(
+        search_keys(&app, &admin, "resolution IS EMPTY").await,
+        vec![a.clone()]
+    );
+    assert_eq!(
+        search_keys(&app, &admin, "resolution IS NOT EMPTY").await,
+        vec![b.clone()]
+    );
 
     // Priority ordering (High is more urgent than the seeded Medium/Low).
-    assert!(search_keys(&app, &admin, "priority >= High").await.contains(&a));
+    assert!(
+        search_keys(&app, &admin, "priority >= High")
+            .await
+            .contains(&a)
+    );
 
     // currentUser(): the admin created both, and is the reporter.
     assert_eq!(
-        search_keys(&app, &admin, "reporter = currentUser()").await.len(),
+        search_keys(&app, &admin, "reporter = currentUser()")
+            .await
+            .len(),
         2
     );
 
@@ -360,12 +400,17 @@ async fn each_operator_runs_and_filters_as_expected() {
 
     // startOfWeek(-1w): both created this week, so after last week's start.
     assert_eq!(
-        search_keys(&app, &admin, "created >= startOfWeek(-1w)").await.len(),
+        search_keys(&app, &admin, "created >= startOfWeek(-1w)")
+            .await
+            .len(),
         2
     );
 
     // key.
-    assert_eq!(search_keys(&app, &admin, &format!("key = {a}")).await, vec![a.clone()]);
+    assert_eq!(
+        search_keys(&app, &admin, &format!("key = {a}")).await,
+        vec![a.clone()]
+    );
 
     // An empty query returns everything the caller can see.
     assert_eq!(search_keys(&app, &admin, "").await.len(), 2);
@@ -382,8 +427,16 @@ async fn each_operator_runs_and_filters_as_expected() {
         ))
         .await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
-    assert!(search_keys(&app, &admin, "priority WAS High").await.contains(&a));
-    assert!(search_keys(&app, &admin, "priority CHANGED").await.contains(&a));
+    assert!(
+        search_keys(&app, &admin, "priority WAS High")
+            .await
+            .contains(&a)
+    );
+    assert!(
+        search_keys(&app, &admin, "priority CHANGED")
+            .await
+            .contains(&a)
+    );
     assert!(
         search_keys(&app, &admin, "priority CHANGED FROM High TO Low")
             .await
@@ -400,9 +453,17 @@ async fn reject(app: &App, cookie: &str, aql: &str, needle: &str) {
     let reply = app
         .send(post("/api/v1/search", Some(cookie), json!({ "aql": aql })))
         .await;
-    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{aql:?}: {}", reply.raw_body);
+    assert_eq!(
+        reply.status,
+        StatusCode::BAD_REQUEST,
+        "{aql:?}: {}",
+        reply.raw_body
+    );
     let detail = reply.json()["detail"].as_str().unwrap_or("").to_lowercase();
-    assert!(detail.contains(needle), "{aql:?} → {detail:?} (wanted {needle:?})");
+    assert!(
+        detail.contains(needle),
+        "{aql:?} → {detail:?} (wanted {needle:?})"
+    );
 }
 
 #[tokio::test]
@@ -436,8 +497,20 @@ async fn order_by_sorts_the_results() {
     let high = fx.priority("High").to_owned();
     let low = fx.priority("Low").to_owned();
 
-    let urgent = card(&app, &admin, &fx, json!({ "summary": "urgent", "priorityId": high })).await;
-    let lazy = card(&app, &admin, &fx, json!({ "summary": "lazy", "priorityId": low })).await;
+    let urgent = card(
+        &app,
+        &admin,
+        &fx,
+        json!({ "summary": "urgent", "priorityId": high }),
+    )
+    .await;
+    let lazy = card(
+        &app,
+        &admin,
+        &fx,
+        json!({ "summary": "lazy", "priorityId": low }),
+    )
+    .await;
 
     // Priority ascending = most urgent first (rank order).
     let by_priority = search_keys(&app, &admin, "ORDER BY priority ASC").await;
@@ -476,14 +549,21 @@ async fn an_outsiders_query_cannot_see_another_projects_cards() {
 
     // Bob's own empty query returns only MINE's card.
     let visible = search_keys(&app, &bob, "").await;
-    assert_eq!(visible, vec![my_card.clone()], "bob saw across the boundary");
+    assert_eq!(
+        visible,
+        vec![my_card.clone()],
+        "bob saw across the boundary"
+    );
 
     // Even an explicit attempt to reach the other project returns nothing —
     // the query cannot scope itself out of the access predicate.
     let attempt = search_keys(&app, &bob, "project = THEIRS").await;
     assert!(attempt.is_empty(), "bob reached THEIRS: {attempt:?}");
     let by_key = search_keys(&app, &bob, &format!("key = {their_card}")).await;
-    assert!(by_key.is_empty(), "bob reached a card by key across the boundary");
+    assert!(
+        by_key.is_empty(),
+        "bob reached a card by key across the boundary"
+    );
 
     // The admin, who can see everything, still sees both.
     assert_eq!(search_keys(&app, &admin, "").await.len(), 2);
@@ -558,11 +638,15 @@ async fn access_scoping_wraps_the_history_and_label_subqueries_too() {
     // the clauses genuinely match it, which is what makes bob's empty results
     // meaningful rather than vacuous.
     assert!(
-        search_keys(&app, &admin, "labels = confidential").await.contains(&their_card),
+        search_keys(&app, &admin, "labels = confidential")
+            .await
+            .contains(&their_card),
         "the label clause should match for the admin"
     );
     assert!(
-        search_keys(&app, &admin, "priority WAS High").await.contains(&their_card),
+        search_keys(&app, &admin, "priority WAS High")
+            .await
+            .contains(&their_card),
         "the history clause should match for the admin"
     );
 
@@ -570,11 +654,15 @@ async fn access_scoping_wraps_the_history_and_label_subqueries_too() {
     // subquery, the CHANGED subquery, or a linkedCards() lookup. The access
     // predicate wraps every one of them.
     assert!(
-        search_keys(&app, &bob, "labels = confidential").await.is_empty(),
+        search_keys(&app, &bob, "labels = confidential")
+            .await
+            .is_empty(),
         "bob reached THEIRS through the labels subquery"
     );
     assert!(
-        search_keys(&app, &bob, "priority WAS High").await.is_empty(),
+        search_keys(&app, &bob, "priority WAS High")
+            .await
+            .is_empty(),
         "bob reached THEIRS through the WAS history subquery"
     );
     assert!(
@@ -672,7 +760,13 @@ async fn filters_compose_and_a_cycle_is_refused() {
 
     let done = fx.status("Done").to_owned();
     let open = card(&app, &admin, &fx, json!({ "summary": "open" })).await;
-    let _shut = card(&app, &admin, &fx, json!({ "summary": "shut", "statusId": done })).await;
+    let _shut = card(
+        &app,
+        &admin,
+        &fx,
+        json!({ "summary": "shut", "statusId": done }),
+    )
+    .await;
 
     // A saved filter, then a query that references it.
     let reply = app
@@ -685,12 +779,19 @@ async fn filters_compose_and_a_cycle_is_refused() {
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
 
     let composed = search_keys(&app, &admin, "filter = \"Not done\"").await;
-    assert_eq!(composed, vec![open.clone()], "composition did not apply the filter");
+    assert_eq!(
+        composed,
+        vec![open.clone()],
+        "composition did not apply the filter"
+    );
 
     // Referencing a filter's results endpoint returns the same.
     let filter_id = reply.id();
     let reply = app
-        .send(get(&format!("/api/v1/filters/{filter_id}/results"), Some(&admin)))
+        .send(get(
+            &format!("/api/v1/filters/{filter_id}/results"),
+            Some(&admin),
+        ))
         .await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
     assert_eq!(reply.json()["total"].as_i64(), Some(1));
@@ -713,9 +814,18 @@ async fn filters_compose_and_a_cycle_is_refused() {
             json!({ "aql": "filter = \"Loopy\"" }),
         ))
         .await;
-    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "cycle not caught: {}", reply.raw_body);
+    assert_eq!(
+        reply.status,
+        StatusCode::BAD_REQUEST,
+        "cycle not caught: {}",
+        reply.raw_body
+    );
     assert!(
-        reply.json()["detail"].as_str().unwrap_or("").to_lowercase().contains("cycle"),
+        reply.json()["detail"]
+            .as_str()
+            .unwrap_or("")
+            .to_lowercase()
+            .contains("cycle"),
         "{}",
         reply.raw_body
     );
@@ -746,7 +856,11 @@ async fn an_indirect_filter_cycle_is_also_refused() {
     assert_eq!(b.status, StatusCode::CREATED, "{}", b.raw_body);
 
     let reply = app
-        .send(post("/api/v1/search", Some(&admin), json!({ "aql": "filter = \"A\"" })))
+        .send(post(
+            "/api/v1/search",
+            Some(&admin),
+            json!({ "aql": "filter = \"A\"" }),
+        ))
         .await;
     assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.raw_body);
 }
@@ -829,7 +943,10 @@ async fn filters_are_personal_and_a_bad_body_is_refused_at_save() {
 
     // Bob's own filter list is empty; the admin's has one.
     assert!(rows(&app.send(get("/api/v1/filters", Some(&bob))).await).is_empty());
-    assert_eq!(rows(&app.send(get("/api/v1/filters", Some(&admin))).await).len(), 1);
+    assert_eq!(
+        rows(&app.send(get("/api/v1/filters", Some(&admin))).await).len(),
+        1
+    );
 
     // The admin can rename and then delete it.
     let reply = app
@@ -843,7 +960,10 @@ async fn filters_are_personal_and_a_bad_body_is_refused_at_save() {
     assert_eq!(reply.json()["name"], json!("Renamed"));
 
     let reply = app
-        .send(delete(&format!("/api/v1/filters/{filter_id}"), Some(&admin)))
+        .send(delete(
+            &format!("/api/v1/filters/{filter_id}"),
+            Some(&admin),
+        ))
         .await;
     assert_eq!(reply.status, StatusCode::NO_CONTENT, "{}", reply.raw_body);
 }

@@ -225,16 +225,31 @@ async fn project(app: &App, admin: &str, key: &str, template: &str) -> Project {
         .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
 
-    let types = rows(&app.send(get(&format!("/api/v1/projects/{key}/card-types"), Some(admin))).await);
+    let types = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{key}/card-types"),
+            Some(admin),
+        ))
+        .await,
+    );
     let card_type = types
         .iter()
         .find(|t| t["isDefault"].as_bool() == Some(true))
-        .map_or_else(|| panic!("{key} has no default card type"), |t| text(t, "id"));
+        .map_or_else(
+            || panic!("{key} has no default card type"),
+            |t| text(t, "id"),
+        );
 
-    let statuses = rows(&app.send(get(&format!("/api/v1/projects/{key}/statuses"), Some(admin))).await)
-        .iter()
-        .map(|s| (text(s, "id"), text(s, "name")))
-        .collect();
+    let statuses = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{key}/statuses"),
+            Some(admin),
+        ))
+        .await,
+    )
+    .iter()
+    .map(|s| (text(s, "id"), text(s, "name")))
+    .collect();
 
     Project {
         key: key.to_owned(),
@@ -262,7 +277,11 @@ async fn card_of_type(
         body["parentId"] = json!(parent);
     }
     let reply = app
-        .send(post(&format!("/api/v1/projects/{}/cards", project.key), Some(admin), body))
+        .send(post(
+            &format!("/api/v1/projects/{}/cards", project.key),
+            Some(admin),
+            body,
+        ))
         .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
     reply.key()
@@ -276,7 +295,9 @@ async fn card_id(app: &App, admin: &str, key: &str) -> String {
 
 async fn card_status(app: &App, admin: &str, key: &str) -> String {
     text(
-        &app.send(get(&format!("/api/v1/cards/{key}"), Some(admin))).await.json(),
+        &app.send(get(&format!("/api/v1/cards/{key}"), Some(admin)))
+            .await
+            .json(),
         "statusId",
     )
 }
@@ -284,18 +305,29 @@ async fn card_status(app: &App, admin: &str, key: &str) -> String {
 /// The project's permissive default workflow id.
 async fn default_workflow(app: &App, admin: &str, project_key: &str) -> String {
     let workflows = rows(
-        &app.send(get(&format!("/api/v1/projects/{project_key}/workflows"), Some(admin)))
-            .await,
+        &app.send(get(
+            &format!("/api/v1/projects/{project_key}/workflows"),
+            Some(admin),
+        ))
+        .await,
     );
     workflows
         .iter()
         .find(|w| w["isDefault"].as_bool() == Some(true))
-        .map_or_else(|| panic!("{project_key} has no default workflow"), |w| text(w, "id"))
+        .map_or_else(
+            || panic!("{project_key} has no default workflow"),
+            |w| text(w, "id"),
+        )
 }
 
 /// Creates a custom, enforcing workflow over the given statuses and routes the
 /// project's default card type through it. Returns the workflow id.
-async fn custom_workflow(app: &App, admin: &str, project: &Project, status_ids: &[String]) -> String {
+async fn custom_workflow(
+    app: &App,
+    admin: &str,
+    project: &Project,
+    status_ids: &[String],
+) -> String {
     let reply = app
         .send(post(
             &format!("/api/v1/projects/{}/workflows", project.key),
@@ -336,7 +368,11 @@ async fn transition(
         body["fromStatusId"] = json!(from);
     }
     let reply = app
-        .send(post(&format!("/api/v1/workflows/{workflow_id}/transitions"), Some(admin), body))
+        .send(post(
+            &format!("/api/v1/workflows/{workflow_id}/transitions"),
+            Some(admin),
+            body,
+        ))
         .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
     reply.id()
@@ -344,18 +380,30 @@ async fn transition(
 
 /// The names of a card's currently-available transitions.
 async fn available(app: &App, admin: &str, card_key: &str) -> Vec<String> {
-    rows(&app.send(get(&format!("/api/v1/cards/{card_key}/transitions"), Some(admin))).await)
-        .iter()
-        .map(|t| text(t, "name"))
-        .collect()
+    rows(
+        &app.send(get(
+            &format!("/api/v1/cards/{card_key}/transitions"),
+            Some(admin),
+        ))
+        .await,
+    )
+    .iter()
+    .map(|t| text(t, "name"))
+    .collect()
 }
 
 /// A card's comment bodies.
 async fn comments(app: &App, admin: &str, card_key: &str) -> Vec<String> {
-    rows(&app.send(get(&format!("/api/v1/cards/{card_key}/comments"), Some(admin))).await)
-        .iter()
-        .map(|c| text(c, "body"))
-        .collect()
+    rows(
+        &app.send(get(
+            &format!("/api/v1/cards/{card_key}/comments"),
+            Some(admin),
+        ))
+        .await,
+    )
+    .iter()
+    .map(|c| text(c, "body"))
+    .collect()
 }
 
 /// Moves a card to a status through the board endpoint. Returns the reply.
@@ -383,8 +431,25 @@ async fn an_illegal_transition_with_no_edge_is_rejected() {
     let done = p.status("Done");
 
     // A workflow with exactly one edge: To Do -> In Progress. Nothing reaches Done.
-    let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), in_progress.clone(), done.clone()]).await;
-    transition(&app, &admin, &wf, "Start", Some(&todo), &in_progress, json!([]), json!([]), json!([])).await;
+    let wf = custom_workflow(
+        &app,
+        &admin,
+        &p,
+        &[todo.clone(), in_progress.clone(), done.clone()],
+    )
+    .await;
+    transition(
+        &app,
+        &admin,
+        &wf,
+        "Start",
+        Some(&todo),
+        &in_progress,
+        json!([]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     let key = card(&app, &admin, &p, "task").await;
 
@@ -411,15 +476,25 @@ async fn a_failing_condition_hides_a_transition_and_rejects_a_direct_attempt() {
     // "Only the assignee may resolve" — a condition. The card has no assignee, and
     // the admin is not it, so the condition fails and the transition is hidden.
     let resolve = transition(
-        &app, &admin, &wf, "Resolve", Some(&todo), &done,
-        json!([{ "kind": "OnlyAssignee" }]), json!([]), json!([]),
-    ).await;
+        &app,
+        &admin,
+        &wf,
+        "Resolve",
+        Some(&todo),
+        &done,
+        json!([{ "kind": "OnlyAssignee" }]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     let key = card(&app, &admin, &p, "task").await;
 
     // Hidden: absent from the available list.
     assert!(
-        !available(&app, &admin, &key).await.contains(&"Resolve".to_owned()),
+        !available(&app, &admin, &key)
+            .await
+            .contains(&"Resolve".to_owned()),
         "a transition whose condition fails must not be offered"
     );
 
@@ -453,16 +528,26 @@ async fn a_failing_validator_rejects_names_the_field_and_runs_no_post_function()
     // The "resolution + comment on Done" screen: a validator requiring an
     // assignee, plus a post-function that would add a comment if the move ran.
     let resolve = transition(
-        &app, &admin, &wf, "Finish", Some(&todo), &done,
+        &app,
+        &admin,
+        &wf,
+        "Finish",
+        Some(&todo),
+        &done,
         json!([]),
         json!([{ "kind": "RequiredField", "config": { "field": "assignee" } }]),
         json!([{ "kind": "AddComment", "config": { "body": "auto: finished" } }]),
-    ).await;
+    )
+    .await;
 
     let key = card(&app, &admin, &p, "task").await;
 
     // The transition is OFFERED (its condition passes) ...
-    assert!(available(&app, &admin, &key).await.contains(&"Finish".to_owned()));
+    assert!(
+        available(&app, &admin, &key)
+            .await
+            .contains(&"Finish".to_owned())
+    );
 
     // ... but rejected with the field named, because there is no assignee.
     let reply = app
@@ -472,8 +557,17 @@ async fn a_failing_validator_rejects_names_the_field_and_runs_no_post_function()
             json!({}),
         ))
         .await;
-    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", reply.raw_body);
-    assert!(reply.raw_body.contains("assignee"), "the field must be named: {}", reply.raw_body);
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.raw_body
+    );
+    assert!(
+        reply.raw_body.contains("assignee"),
+        "the field must be named: {}",
+        reply.raw_body
+    );
 
     // The status did not change ...
     assert_eq!(card_status(&app, &admin, &key).await, todo);
@@ -495,15 +589,33 @@ async fn child_blocking_stops_closing_a_parent_with_an_open_child() {
 
     let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
     transition(
-        &app, &admin, &wf, "Close", None, &done,
-        json!([{ "kind": "ChildBlocking" }]), json!([]), json!([]),
-    ).await;
+        &app,
+        &admin,
+        &wf,
+        "Close",
+        None,
+        &done,
+        json!([{ "kind": "ChildBlocking" }]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     // A parent (Group, level 1) with a child (Card, level 0). Route the Group
     // type through the workflow too, so the parent's move is enforced — otherwise
     // the parent would sit on the permissive default and close freely.
-    let types = rows(&app.send(get(&format!("/api/v1/projects/{}/card-types", p.key), Some(&admin))).await);
-    let group = types.iter().find(|t| t["name"] == "Group").map(|t| text(t, "id")).expect("Group type");
+    let types = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{}/card-types", p.key),
+            Some(&admin),
+        ))
+        .await,
+    );
+    let group = types
+        .iter()
+        .find(|t| t["name"] == "Group")
+        .map(|t| text(t, "id"))
+        .expect("Group type");
     let assigned = app
         .send(request(
             Method::PATCH,
@@ -520,7 +632,11 @@ async fn child_blocking_stops_closing_a_parent_with_an_open_child() {
 
     // The child is open, so the parent cannot enter Done — the transition is
     // hidden and the direct attempt is rejected.
-    assert!(!available(&app, &admin, &parent).await.contains(&"Close".to_owned()));
+    assert!(
+        !available(&app, &admin, &parent)
+            .await
+            .contains(&"Close".to_owned())
+    );
     let blocked = move_to(&app, &admin, &parent, &done).await;
     assert_eq!(blocked.status, StatusCode::CONFLICT, "{}", blocked.raw_body);
     assert_eq!(card_status(&app, &admin, &parent).await, todo);
@@ -531,7 +647,11 @@ async fn child_blocking_stops_closing_a_parent_with_an_open_child() {
     assert_eq!(child_done.status, StatusCode::OK, "{}", child_done.raw_body);
 
     // Now the parent may close.
-    assert!(available(&app, &admin, &parent).await.contains(&"Close".to_owned()));
+    assert!(
+        available(&app, &admin, &parent)
+            .await
+            .contains(&"Close".to_owned())
+    );
     let ok = move_to(&app, &admin, &parent, &done).await;
     assert_eq!(ok.status, StatusCode::OK, "{}", ok.raw_body);
     assert_eq!(card_status(&app, &admin, &parent).await, done);
@@ -547,21 +667,53 @@ async fn a_set_resolution_post_function_sets_it_on_done_and_leaving_done_clears_
     let done = p.status("Done");
 
     // Pick a specific resolution to set.
-    let resolutions = rows(&app.send(get(&format!("/api/v1/projects/{}/resolutions", p.key), Some(&admin))).await);
-    let wont_do = resolutions.iter().find(|r| r["name"] == "Won't Do").map(|r| text(r, "id")).expect("Won't Do");
+    let resolutions = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{}/resolutions", p.key),
+            Some(&admin),
+        ))
+        .await,
+    );
+    let wont_do = resolutions
+        .iter()
+        .find(|r| r["name"] == "Won't Do")
+        .map(|r| text(r, "id"))
+        .expect("Won't Do");
 
     let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
     let finish = transition(
-        &app, &admin, &wf, "Finish", Some(&todo), &done,
-        json!([]), json!([]),
+        &app,
+        &admin,
+        &wf,
+        "Finish",
+        Some(&todo),
+        &done,
+        json!([]),
+        json!([]),
         json!([{ "kind": "SetResolution", "config": { "resolutionId": wont_do } }]),
-    ).await;
-    transition(&app, &admin, &wf, "Reopen", Some(&done), &todo, json!([]), json!([]), json!([])).await;
+    )
+    .await;
+    transition(
+        &app,
+        &admin,
+        &wf,
+        "Reopen",
+        Some(&done),
+        &todo,
+        json!([]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     let key = card(&app, &admin, &p, "task").await;
 
     let reply = app
-        .send(post(&format!("/api/v1/cards/{key}/transitions/{finish}"), Some(&admin), json!({})))
+        .send(post(
+            &format!("/api/v1/cards/{key}/transitions/{finish}"),
+            Some(&admin),
+            json!({}),
+        ))
         .await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
     // The post-function set the specific resolution, not just any default.
@@ -588,27 +740,53 @@ async fn a_failing_post_function_rolls_the_whole_transition_back() {
 
     // A SetResolution post-function pointing at a resolution from ANOTHER project.
     // It validates against this project, fails, and must roll the move back.
-    let other_resolutions =
-        rows(&app.send(get(&format!("/api/v1/projects/{}/resolutions", other.key), Some(&admin))).await);
+    let other_resolutions = rows(
+        &app.send(get(
+            &format!("/api/v1/projects/{}/resolutions", other.key),
+            Some(&admin),
+        ))
+        .await,
+    );
     let foreign = text(&other_resolutions[0], "id");
 
     let wf = custom_workflow(&app, &admin, &p, &[todo.clone(), done.clone()]).await;
     let finish = transition(
-        &app, &admin, &wf, "Finish", Some(&todo), &done,
-        json!([]), json!([]),
+        &app,
+        &admin,
+        &wf,
+        "Finish",
+        Some(&todo),
+        &done,
+        json!([]),
+        json!([]),
         json!([{ "kind": "SetResolution", "config": { "resolutionId": foreign } }]),
-    ).await;
+    )
+    .await;
 
     let key = card(&app, &admin, &p, "task").await;
 
     let reply = app
-        .send(post(&format!("/api/v1/cards/{key}/transitions/{finish}"), Some(&admin), json!({})))
+        .send(post(
+            &format!("/api/v1/cards/{key}/transitions/{finish}"),
+            Some(&admin),
+            json!({}),
+        ))
         .await;
-    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{}", reply.raw_body);
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.raw_body
+    );
 
     // The card did not move: the failing post-function rolled everything back.
     assert_eq!(card_status(&app, &admin, &key).await, todo);
-    assert_eq!(app.send(get(&format!("/api/v1/cards/{key}"), Some(&admin))).await.json()["resolved"], false);
+    assert_eq!(
+        app.send(get(&format!("/api/v1/cards/{key}"), Some(&admin)))
+            .await
+            .json()["resolved"],
+        false
+    );
 }
 
 #[tokio::test]
@@ -620,7 +798,12 @@ async fn the_job_search_workflow_round_trips_from_interested_to_rejected() {
     let p = project(&app, &admin, "JOB", "job-search").await;
 
     let stages = [
-        "Interested", "Applied", "Phone Screen", "Interview", "Take-home", "Offer",
+        "Interested",
+        "Applied",
+        "Phone Screen",
+        "Interview",
+        "Take-home",
+        "Offer",
     ];
     let status_ids: Vec<String> = stages
         .iter()
@@ -634,30 +817,76 @@ async fn the_job_search_workflow_round_trips_from_interested_to_rejected() {
     for pair in stages.windows(2) {
         let from = p.status(pair[0]);
         let to = p.status(pair[1]);
-        transition(&app, &admin, &wf, &format!("To {}", pair[1]), Some(&from), &to, json!([]), json!([]), json!([])).await;
+        transition(
+            &app,
+            &admin,
+            &wf,
+            &format!("To {}", pair[1]),
+            Some(&from),
+            &to,
+            json!([]),
+            json!([]),
+            json!([]),
+        )
+        .await;
     }
     // The three terminal branches from Offer.
     for ending in ["Accepted", "Rejected", "Ghosted"] {
         let to = p.status(ending);
-        transition(&app, &admin, &wf, ending, Some(&p.status("Offer")), &to, json!([]), json!([]), json!([])).await;
+        transition(
+            &app,
+            &admin,
+            &wf,
+            ending,
+            Some(&p.status("Offer")),
+            &to,
+            json!([]),
+            json!([]),
+            json!([]),
+        )
+        .await;
     }
     // Ghosted can happen from any stage after applying — a global edge.
-    transition(&app, &admin, &wf, "Ghost", None, &p.status("Ghosted"), json!([]), json!([]), json!([])).await;
+    transition(
+        &app,
+        &admin,
+        &wf,
+        "Ghost",
+        None,
+        &p.status("Ghosted"),
+        json!([]),
+        json!([]),
+        json!([]),
+    )
+    .await;
 
     let application = card(&app, &admin, &p, "Dream Corp").await;
 
     // Walk the spine, then reject.
     for stage in &stages[1..] {
         let reply = move_to(&app, &admin, &application, &p.status(stage)).await;
-        assert_eq!(reply.status, StatusCode::OK, "step to {stage}: {}", reply.raw_body);
-        assert_eq!(card_status(&app, &admin, &application).await, p.status(stage));
+        assert_eq!(
+            reply.status,
+            StatusCode::OK,
+            "step to {stage}: {}",
+            reply.raw_body
+        );
+        assert_eq!(
+            card_status(&app, &admin, &application).await,
+            p.status(stage)
+        );
     }
     let rejected = move_to(&app, &admin, &application, &p.status("Rejected")).await;
     assert_eq!(rejected.status, StatusCode::OK, "{}", rejected.raw_body);
     // Rejected is a done status, so the card is now resolved.
-    assert_eq!(card_status(&app, &admin, &application).await, p.status("Rejected"));
     assert_eq!(
-        app.send(get(&format!("/api/v1/cards/{application}"), Some(&admin))).await.json()["resolved"],
+        card_status(&app, &admin, &application).await,
+        p.status("Rejected")
+    );
+    assert_eq!(
+        app.send(get(&format!("/api/v1/cards/{application}"), Some(&admin)))
+            .await
+            .json()["resolved"],
         true
     );
 
@@ -682,18 +911,28 @@ async fn existing_card_moves_still_work_under_the_permissive_default_workflow() 
 
     // The project really does have a default workflow.
     let wf = default_workflow(&app, &admin, &p.key).await;
-    let workflow = app.send(get(&format!("/api/v1/workflows/{wf}"), Some(&admin))).await;
+    let workflow = app
+        .send(get(&format!("/api/v1/workflows/{wf}"), Some(&admin)))
+        .await;
     assert_eq!(workflow.json()["isDefault"], true);
 
     let key = card(&app, &admin, &p, "task").await;
 
     // The default workflow offers a move to every other status.
     let offered = available(&app, &admin, &key).await;
-    assert!(offered.iter().any(|n| n.contains("In Progress")), "default offers moves: {offered:?}");
+    assert!(
+        offered.iter().any(|n| n.contains("In Progress")),
+        "default offers moves: {offered:?}"
+    );
 
     for status in ["In Progress", "Done", "To Do", "Blocked"] {
         let reply = move_to(&app, &admin, &key, &p.status(status)).await;
-        assert_eq!(reply.status, StatusCode::OK, "move to {status}: {}", reply.raw_body);
+        assert_eq!(
+            reply.status,
+            StatusCode::OK,
+            "move to {status}: {}",
+            reply.raw_body
+        );
         assert_eq!(card_status(&app, &admin, &key).await, p.status(status));
     }
 }

@@ -318,7 +318,10 @@ async fn create_workflow(
     workflow::assign_card_types(&mut tx, &created.id, &project.id, &body.card_type_ids).await?;
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, Json(workflow_dto(&state.db, created).await?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(workflow_dto(&state.db, created).await?),
+    ))
 }
 
 /// One workflow.
@@ -370,7 +373,11 @@ async fn update_workflow(
             "The request changed nothing. Send a name or cardTypeIds.".to_owned(),
         ));
     }
-    let name = body.name.as_deref().map(config::validate_name).transpose()?;
+    let name = body
+        .name
+        .as_deref()
+        .map(config::validate_name)
+        .transpose()?;
     let now = crate::auth::now();
 
     let mut tx = state.db.begin_write().await?;
@@ -535,7 +542,11 @@ async fn update_transition(
     Path(id): Path<String>,
     Json(body): Json<UpdateTransitionRequest>,
 ) -> AppResult<Json<TransitionDto>> {
-    let name = body.name.as_deref().map(config::validate_name).transpose()?;
+    let name = body
+        .name
+        .as_deref()
+        .map(config::validate_name)
+        .transpose()?;
 
     let mut tx = state.db.begin_write().await?;
     let existing = workflow::transition_by_id_tx(&mut tx, &id)
@@ -554,9 +565,7 @@ async fn update_transition(
         &mut tx,
         &id,
         name.as_deref(),
-        body.from_status_id
-            .as_ref()
-            .map(|outer| outer.as_deref()),
+        body.from_status_id.as_ref().map(|outer| outer.as_deref()),
         body.to_status_id.as_deref(),
         body.position,
     )

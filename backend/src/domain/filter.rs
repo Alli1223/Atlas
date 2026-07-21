@@ -188,10 +188,7 @@ pub async fn insert(
 }
 
 /// A filter by id inside a transaction.
-pub async fn find_by_id_tx(
-    tx: &mut sqlx::SqliteConnection,
-    id: &str,
-) -> AppResult<Option<Filter>> {
+pub async fn find_by_id_tx(tx: &mut sqlx::SqliteConnection, id: &str) -> AppResult<Option<Filter>> {
     Ok(sqlx::query_as::<_, Filter>(concat!(
         "SELECT ",
         filter_columns!(),
@@ -247,9 +244,7 @@ pub async fn apply_patch(
     .execute(&mut *tx)
     .await?;
 
-    find_by_id_tx(&mut *tx, id)
-        .await?
-        .ok_or(AppError::NotFound)
+    find_by_id_tx(&mut *tx, id).await?.ok_or(AppError::NotFound)
 }
 
 /// Deletes a filter. Returns whether a row went.
@@ -318,13 +313,20 @@ mod tests {
         .unwrap();
         tx.commit().await.unwrap();
 
-        let found = find_by_name(&db, &owner, "my filter").await.unwrap().unwrap();
+        let found = find_by_name(&db, &owner, "my filter")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(found.id, created.id);
         assert_eq!(found.aql, "status = Done");
 
         // A second filter with the same name for the same owner is refused.
         let mut tx = db.begin_write().await.unwrap();
-        assert!(name_taken(&mut tx, &owner, "MY FILTER", None).await.unwrap());
+        assert!(
+            name_taken(&mut tx, &owner, "MY FILTER", None)
+                .await
+                .unwrap()
+        );
         let clash = insert(&mut tx, &owner, "My Filter", None, "x", crate::auth::now()).await;
         assert!(clash.is_err(), "UNIQUE (owner_id, name)");
         tx.rollback().await.unwrap();
