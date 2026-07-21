@@ -489,6 +489,177 @@ async fn an_outsiders_query_cannot_see_another_projects_cards() {
     assert_eq!(search_keys(&app, &admin, "").await.len(), 2);
 }
 
+/// The top-level access test proves `project = THEIRS` and `key = <their card>`
+/// are scoped. This proves the *subquery* clauses are too: a WAS/CHANGED history
+/// EXISTS, a labels EXISTS, and a `linkedCards()` IN are each correlated to a
+/// `cards` row, and the accessible-projects predicate must wrap all of them — not
+/// only the top level. If any subquery were an unscoped join, an outsider could
+/// read a card in a project they cannot see through it.
+#[tokio::test]
+async fn access_scoping_wraps_the_history_and_label_subqueries_too() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+
+    let mine = project(&app, &admin, "MINE").await;
+    let theirs = project(&app, &admin, "THEIRS").await;
+
+    // A card in THEIRS with a label and a priority change (so it has a matching
+    // history row), that an outsider must never reach through any subquery.
+    let high = theirs.priority("High").to_owned();
+    let low = theirs.priority("Low").to_owned();
+    let their_card = card(
+        &app,
+        &admin,
+        &theirs,
+        json!({ "summary": "secret work", "priorityId": high }),
+    )
+    .await;
+
+    let reply = app
+        .send(post(
+            "/api/v1/projects/THEIRS/tags",
+            Some(&admin),
+            json!({ "name": "confidential" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    let tag_id = reply.id();
+    let reply = app
+        .send(post(
+            &format!("/api/v1/cards/{their_card}/tags"),
+            Some(&admin),
+            json!({ "tagId": tag_id }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+
+    let reply = app
+        .send(patch(
+            &format!("/api/v1/cards/{their_card}"),
+            Some(&admin),
+            json!({ "priorityId": low }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+
+    // Bob is a member of MINE only, with a plain card that carries none of that.
+    let (bob_id, bob) = member(&app, &admin, "bob").await;
+    let reply = app
+        .send(post(
+            "/api/v1/projects/MINE/members",
+            Some(&admin),
+            json!({ "userId": bob_id, "role": "member" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    let _my_card = card(&app, &admin, &mine, json!({ "summary": "my work" })).await;
+
+    // The admin, who sees everything, reaches THEIRS through each subquery — so
+    // the clauses genuinely match it, which is what makes bob's empty results
+    // meaningful rather than vacuous.
+    assert!(
+        search_keys(&app, &admin, "labels = confidential").await.contains(&their_card),
+        "the label clause should match for the admin"
+    );
+    assert!(
+        search_keys(&app, &admin, "priority WAS High").await.contains(&their_card),
+        "the history clause should match for the admin"
+    );
+
+    // Bob reaches nothing in THEIRS through the label subquery, the history
+    // subquery, the CHANGED subquery, or a linkedCards() lookup. The access
+    // predicate wraps every one of them.
+    assert!(
+        search_keys(&app, &bob, "labels = confidential").await.is_empty(),
+        "bob reached THEIRS through the labels subquery"
+    );
+    assert!(
+        search_keys(&app, &bob, "priority WAS High").await.is_empty(),
+        "bob reached THEIRS through the WAS history subquery"
+    );
+    assert!(
+        search_keys(&app, &bob, "priority CHANGED").await.is_empty(),
+        "bob reached THEIRS through the CHANGED history subquery"
+    );
+    assert!(
+        search_keys(&app, &bob, &format!("key IN linkedCards({their_card})"))
+            .await
+            .is_empty(),
+        "bob reached THEIRS through linkedCards()"
+    );
+}
+
+/// `membersOf("HIDDEN")` must not report, through a matching card the caller can
+/// see, whether a visible user also belongs to a project the caller cannot. The
+/// project named to `membersOf` is gated by the caller's own access.
+#[tokio::test]
+async fn members_of_does_not_leak_membership_of_an_invisible_project() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+
+    let mine = project(&app, &admin, "MINE").await;
+    let _theirs = project(&app, &admin, "THEIRS").await;
+
+    // Carol belongs to both projects; Bob only to MINE. A card in MINE, which Bob
+    // can see, is assigned to Carol — so the only thing `membersOf("THEIRS")` can
+    // reveal to Bob is whether Carol (visible) is a member of THEIRS (invisible).
+    let (carol_id, _carol) = member(&app, &admin, "carol").await;
+    let (bob_id, bob) = member(&app, &admin, "bob").await;
+    for user_id in [&carol_id, &bob_id] {
+        let reply = app
+            .send(post(
+                "/api/v1/projects/MINE/members",
+                Some(&admin),
+                json!({ "userId": user_id, "role": "member" }),
+            ))
+            .await;
+        assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    }
+    let reply = app
+        .send(post(
+            "/api/v1/projects/THEIRS/members",
+            Some(&admin),
+            json!({ "userId": carol_id, "role": "member" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+
+    let my_card = card(
+        &app,
+        &admin,
+        &mine,
+        json!({ "summary": "assigned to carol", "assigneeId": carol_id }),
+    )
+    .await;
+
+    // The admin sees THEIRS, so `membersOf("THEIRS")` resolves to its members and
+    // the card matches — which is what makes Bob's empty result meaningful rather
+    // than a query that never matches anything for anyone.
+    assert!(
+        search_keys(&app, &admin, "assignee IN membersOf(\"THEIRS\")")
+            .await
+            .contains(&my_card),
+        "the admin, who can see THEIRS, should match carol's card"
+    );
+
+    // Bob cannot see THEIRS, so for him `membersOf("THEIRS")` is empty and the
+    // card does not match — he learns nothing about carol's membership of it.
+    assert!(
+        search_keys(&app, &bob, "assignee IN membersOf(\"THEIRS\")")
+            .await
+            .is_empty(),
+        "membersOf leaked carol's membership of a project bob cannot see"
+    );
+
+    // Sanity: Bob's own project still works — the guard scopes, it does not break.
+    assert!(
+        search_keys(&app, &bob, "assignee IN membersOf(\"MINE\")")
+            .await
+            .contains(&my_card),
+        "membersOf should still resolve for a project bob can see"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Filter composition and the cycle guard
 // ---------------------------------------------------------------------------

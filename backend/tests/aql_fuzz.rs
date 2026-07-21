@@ -48,7 +48,13 @@ fn ctx() -> CompileCtx {
 fn compile_payload(payload: &str) -> Option<(String, usize)> {
     let escaped = payload.replace('\\', "\\\\").replace('"', "\\\"");
     let source = format!("summary ~ \"{escaped}\"");
-    let query = aql::parse(&source).ok()?;
+    compile_source(&source)
+}
+
+/// Compiles an arbitrary AQL source, returning the SQL and bind count, or `None`
+/// if it does not parse/compile.
+fn compile_source(source: &str) -> Option<(String, usize)> {
+    let query = aql::parse(source).ok()?;
     let compiled = aql::compile::compile(&query, &ctx()).ok()?;
     Some((compiled.sql, compiled.binds.len()))
 }
@@ -147,6 +153,106 @@ fn every_compilable_corpus_query_is_balanced_and_single_statement() {
             );
         }
     }
+}
+
+/// The value-invariance property, checked in **every** position a value can ride
+/// — not only `summary ~`. A leak in any one path (a field the compiler forgot
+/// to bind, a function argument concatenated into a subquery, an `IN` element, a
+/// history modifier) would show up as two different SQL strings for two different
+/// payloads. Each template holds the SQL structure fixed and varies only the
+/// value, so the SQL text must be byte-identical across payloads.
+#[test]
+fn the_sql_is_value_invariant_in_every_position() {
+    // Every value-bearing shape the grammar offers: scalar equality, text match,
+    // reference fields, `IN` lists, each set function's arguments, labels,
+    // priority ordering, and the full `WAS`/`CHANGED` history family with its
+    // FROM/TO/BY/AFTER modifiers. `{V}` is the only thing that changes.
+    const TEMPLATES: &[&str] = &[
+        r#"summary ~ "{V}""#,
+        r#"description ~ "{V}""#,
+        r#"text ~ "{V}""#,
+        r#"key = "{V}""#,
+        r#"key IN ("{V}", "x")"#,
+        r#"parent = "{V}""#,
+        r#"status = "{V}""#,
+        r#"status IN ("{V}", "other")"#,
+        r#"status NOT IN ("{V}")"#,
+        r#"project = "{V}""#,
+        r#"type = "{V}""#,
+        r#"resolution = "{V}""#,
+        r#"assignee = "{V}""#,
+        r#"assignee IN membersOf("{V}")"#,
+        r#"key IN linkedCards("{V}")"#,
+        r#"key IN linkedCards("A", "{V}")"#,
+        r#"labels = "{V}""#,
+        r#"labels IN ("{V}", "y")"#,
+        r#"priority > "{V}""#,
+        r#"status WAS "{V}""#,
+        r#"status WAS IN ("{V}", "x")"#,
+        r#"status WAS NOT "{V}""#,
+        r#"status CHANGED FROM "{V}" TO "y" BY "{V}" AFTER "{V}""#,
+        r#"status CHANGED ON "{V}""#,
+        r#"status CHANGED DURING ("{V}", "{V}")"#,
+        r#"assignee = currentUser() AND key = "{V}""#,
+    ];
+    // Two payloads that both parse as quoted strings, one benign and one a
+    // maximal injection attempt: single quotes, a statement terminator, a
+    // comment, LIKE wildcards, and a boolean tautology.
+    let payloads = ["AAA", "x'; DROP TABLE cards; -- %_ OR 1=1"];
+    for template in TEMPLATES {
+        let a = template.replace("{V}", payloads[0]);
+        let b = template.replace("{V}", payloads[1]);
+        let (Some((sql_a, binds_a)), Some((sql_b, binds_b))) =
+            (compile_source(&a), compile_source(&b))
+        else {
+            panic!("template {template:?} did not compile for both payloads");
+        };
+        assert_eq!(
+            sql_a, sql_b,
+            "template {template:?} let the value into the SQL text"
+        );
+        assert!(balanced(&sql_a, binds_a), "unbalanced: {sql_a}");
+        assert!(balanced(&sql_b, binds_b), "unbalanced: {sql_b}");
+        assert_eq!(
+            sql_a.matches(';').count(),
+            0,
+            "a semicolon appeared for {template:?}: {sql_a}"
+        );
+    }
+}
+
+/// A predicate tree deeper than the compiler's node-depth bound is refused with
+/// an ordinary error, never a stack overflow.
+///
+/// `AND`/`OR` chains are built *iteratively* by the parser, so they slip past its
+/// paren/`NOT` recursion guard (`MAX_DEPTH`) entirely and are the real way a
+/// client can hand the compiler an arbitrarily deep tree. The token cap bounds
+/// how deep, and the compiler's own [`aql::compile`] depth check refuses whatever
+/// gets past it — this pins both ends of that boundary.
+#[test]
+fn a_pathologically_deep_and_chain_errors_instead_of_overflowing() {
+    // Comfortably inside the bound: parses and compiles.
+    let shallow = vec!["status = Done"; 400].join(" AND ");
+    let query = aql::parse(&shallow).expect("a 400-deep chain parses");
+    assert!(
+        aql::compile::compile(&query, &ctx()).is_ok(),
+        "a 400-deep chain should compile"
+    );
+
+    // Past the bound: still parses (it is within the token cap), but the compiler
+    // refuses it rather than recursing into a stack overflow.
+    let deep = vec!["status = Done"; 600].join(" AND ");
+    let query = aql::parse(&deep).expect("a 600-deep chain parses within the token cap");
+    assert!(
+        aql::compile::compile(&query, &ctx()).is_err(),
+        "a 600-deep chain must be refused, not compiled"
+    );
+    // The typechecker (which `POST /search/validate` runs) must refuse it too, on
+    // the same bound, so validation and execution agree.
+    assert!(
+        aql::compile::typecheck(&query, &ctx()).is_err(),
+        "typecheck must refuse the 600-deep chain as well"
+    );
 }
 
 // ---------------------------------------------------------------------------
