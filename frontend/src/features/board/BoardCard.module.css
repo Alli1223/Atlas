@@ -1,0 +1,136 @@
+/* Jira card: a raised white surface on the sunken column, dense, with a hairline that
+   reads in dark mode where the shadow alone does not. position:relative anchors the PDND
+   drop indicator. */
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* Jira packs its cards tight: the summary and the key/avatar footer sit close, with the
+     footer's own margin removed so the two rows read as one dense block rather than two. */
+  gap: var(--ds-space-050);
+  padding: var(--ds-space-100) var(--ds-space-150);
+  background: var(--ds-surface-raised);
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-medium);
+  box-shadow: var(--ds-shadow-raised);
+  cursor: pointer;
+  text-align: start;
+  transition:
+    background-color var(--ds-duration-xxshort) var(--ds-easing-out-practical),
+    box-shadow var(--ds-duration-xxshort) var(--ds-easing-out-practical);
+}
+
+.card:hover {
+  background: var(--ds-surface-raised-hovered);
+  box-shadow: var(--ds-shadow-overlay);
+}
+
+.card:active {
+  background: var(--ds-surface-raised-pressed);
+}
+
+/* Dragging: the source card dims in place while its preview travels — the PDND idiom. */
+.dragging {
+  opacity: 0.4;
+}
+
+/* A board-bearing card (one that contains a nested board) wears a discovery-purple leading
+   accent, so it is unmistakable among leaf cards even before the eye reaches its mini-map. */
+.boardBearing {
+  border-inline-start: 3px solid var(--ds-border-discovery);
+  padding-inline-start: calc(var(--ds-space-150) - 2px);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-050);
+}
+
+.summary {
+  margin: 0;
+  font: var(--ds-font-body);
+  color: var(--ds-text);
+  /* Clamp to three lines so a long summary cannot make one card dwarf the column. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* The mini-map, when it opens a nested board, is a real button — reset the chrome and lift
+   on hover so it reads as "click to drill in". */
+.miniMapButton {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--ds-radius-small);
+}
+
+.miniMapButton:hover {
+  filter: brightness(0.97);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-100);
+}
+
+.footerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-075);
+  min-width: 0;
+}
+
+.footerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-075);
+  flex: none;
+}
+
+.typeIcon,
+.priorityIcon {
+  display: flex;
+  flex: none;
+}
+
+.key {
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-medium);
+  letter-spacing: 0.02em;
+  color: var(--ds-text-subtle);
+  white-space: nowrap;
+}
+
+/* A story-points pill, as Jira shows on the card's trailing edge. */
+.estimate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 16px;
+  padding-inline: var(--ds-space-050);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-background-neutral);
+  color: var(--ds-text-subtle);
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A dashed ring where an assignee avatar would be, so an unassigned card is legibly so. */
+.unassigned {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--ds-radius-full);
+  border: 1.5px dashed var(--ds-border-bold);
+}

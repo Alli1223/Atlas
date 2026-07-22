@@ -1,0 +1,74 @@
+/* Sunken column, ~272px, the ADS board density. The header is a fixed cap; only the card
+   list scrolls, so drag auto-scroll has a real overflow container to work against. */
+.column {
+  flex: 0 0 272px;
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  min-height: 0;
+  background: var(--ds-surface-sunken);
+  border-radius: var(--ds-radius-medium);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-100);
+  padding: var(--ds-space-150) var(--ds-space-150) var(--ds-space-100);
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ds-text-subtlest);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 16px;
+  padding-inline: var(--ds-space-050);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-background-neutral);
+  color: var(--ds-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+/* WIP breach: the count goes bold-danger, the Jira signal that a column is over its limit. */
+.breached .count {
+  background: var(--ds-background-danger-bold);
+  color: var(--ds-text-inverse);
+}
+.breached .name {
+  color: var(--ds-text-danger);
+}
+
+.list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-100);
+  padding: var(--ds-space-050) var(--ds-space-100) var(--ds-space-100);
+  overflow-y: auto;
+  min-height: 0;
+  border-radius: var(--ds-radius-medium);
+  transition: background-color var(--ds-duration-xshort) var(--ds-easing-out-practical);
+}
+
+/* A soft highlight while a card hovers the column, so the drop target is legible. */
+.listOver {
+  background: var(--ds-background-selected);
+}
+
+/* Keeps an empty column a real drop target rather than a zero-height sliver. */
+.empty {
+  min-height: 56px;
+}

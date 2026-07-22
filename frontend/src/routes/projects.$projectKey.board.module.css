@@ -1,0 +1,49 @@
+/* The board fills the content area and never lets the page itself scroll horizontally —
+   only the column track does. A grid: header (auto) + canvas (1fr). */
+.page {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+  min-height: 0;
+  background: var(--ds-surface);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-150);
+  padding: var(--ds-space-200) var(--ds-space-200) var(--ds-space-100);
+}
+
+.headingRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-050);
+}
+
+.title {
+  font: var(--ds-font-heading-large);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-200);
+  flex-wrap: wrap;
+}
+
+.swimlaneControl {
+  flex: none;
+  width: 200px;
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ds-space-800);
+}

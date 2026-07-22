@@ -1,0 +1,22 @@
+/* The horizontal column track. It scrolls in x; each column scrolls in y. The height is
+   bounded by the parent so the columns get a real overflow container for auto-scroll. */
+.columns {
+  flex: 1;
+  display: flex;
+  gap: var(--ds-space-100);
+  align-items: stretch;
+  min-height: 0;
+  padding: var(--ds-space-100) var(--ds-space-200) var(--ds-space-200);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.swimlanes {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-050);
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--ds-space-200);
+}
