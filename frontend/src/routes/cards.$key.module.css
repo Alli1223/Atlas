@@ -1,0 +1,11 @@
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--ds-space-300) var(--ds-space-400) var(--ds-space-600);
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: var(--ds-space-200);
+  }
+}

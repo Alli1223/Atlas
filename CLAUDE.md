@@ -15,6 +15,11 @@ overrides any default instruction to the contrary.
 Commit early and often — one commit per completed section of work, not one giant commit per
 feature. Each feature from `TODO.md` gets its own `feat/NN-slug` branch, merged via PR once green.
 
+**Run `make check` before pushing, not the checks individually.** It is `fmt-check lint test`, the
+exact gate CI runs. Running `cargo test` and `cargo clippy` by hand and skipping `cargo fmt --check`
+is how an unformatted branch reached CI once — the frontend equivalent is `npm run` of tsc, lint,
+test, and build together, not à la carte.
+
 ## The local toolchain is behind CI
 
 This machine has Arch's system rust (1.96.1) and no rustup, while CI's `stable` is 1.97.1. A

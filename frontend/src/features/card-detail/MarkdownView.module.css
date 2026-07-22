@@ -1,0 +1,130 @@
+/* Read-time markdown. Density and colour follow ADS: 14px/20px body, 8px block rhythm. */
+.prose {
+  font: var(--ds-font-body);
+  color: var(--ds-text);
+  overflow-wrap: anywhere;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p {
+  margin: 0 0 var(--ds-space-100);
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin: var(--ds-space-200) 0 var(--ds-space-100);
+}
+.prose h1 { font: var(--ds-font-heading-large); }
+.prose h2 { font: var(--ds-font-heading-medium); }
+.prose h3 { font: var(--ds-font-heading-small); }
+.prose h4,
+.prose h5,
+.prose h6 { font: var(--ds-font-heading-xsmall); }
+
+.prose ul,
+.prose ol {
+  margin: 0 0 var(--ds-space-100);
+  padding-left: var(--ds-space-300);
+}
+.prose li {
+  margin: var(--ds-space-025) 0;
+}
+.prose li::marker {
+  color: var(--ds-text-subtlest);
+}
+
+.taskList {
+  list-style: none;
+  padding-left: 0;
+}
+.taskItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-100);
+}
+.taskCheckbox {
+  margin-top: 3px;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--ds-background-brand-bold);
+  flex: none;
+}
+.taskDone {
+  color: var(--ds-text-subtlest);
+  text-decoration: line-through;
+}
+
+.prose blockquote {
+  margin: 0 0 var(--ds-space-100);
+  padding-left: var(--ds-space-200);
+  border-left: 3px solid var(--ds-border-bold);
+  color: var(--ds-text-subtle);
+}
+
+.code {
+  font-family: var(--ds-font-family-code);
+  font-size: 0.85em;
+  background: var(--ds-background-neutral);
+  border-radius: var(--ds-radius-xsmall);
+  padding: 1px 4px;
+}
+
+.codeBlock {
+  margin: 0 0 var(--ds-space-100);
+  padding: var(--ds-space-150);
+  background: var(--ds-surface-sunken);
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-medium);
+  overflow-x: auto;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ds-text);
+}
+.codeBlock code {
+  font: inherit;
+  background: none;
+  padding: 0;
+}
+
+.rule {
+  border: none;
+  border-top: var(--ds-border-width) solid var(--ds-border);
+  margin: var(--ds-space-200) 0;
+}
+
+.link {
+  color: var(--ds-link);
+  text-decoration: none;
+}
+.link:hover {
+  text-decoration: underline;
+}
+
+.cardKey {
+  color: var(--ds-link);
+  text-decoration: none;
+  font-weight: var(--ds-font-weight-medium);
+  white-space: nowrap;
+}
+.cardKey:hover {
+  text-decoration: underline;
+}
+
+.mention {
+  color: var(--ds-text-selected);
+  background: var(--ds-background-selected);
+  border-radius: var(--ds-radius-xsmall);
+  padding: 0 3px;
+  font-weight: var(--ds-font-weight-medium);
+}

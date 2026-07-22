@@ -13,6 +13,9 @@ import { Route as StyleguideRouteImport } from './routes/styleguide'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ChangePasswordRouteImport } from './routes/change-password'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
+import { Route as CardsKeyRouteImport } from './routes/cards.$key'
+import { Route as ProjectsProjectKeyBoardRouteImport } from './routes/projects.$projectKey.board'
 
 const StyleguideRoute = StyleguideRouteImport.update({
   id: '/styleguide',
@@ -34,18 +37,39 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
+  id: '/projects/',
+  path: '/projects/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CardsKeyRoute = CardsKeyRouteImport.update({
+  id: '/cards/$key',
+  path: '/cards/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsProjectKeyBoardRoute = ProjectsProjectKeyBoardRouteImport.update({
+  id: '/projects/$projectKey/board',
+  path: '/projects/$projectKey/board',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/change-password': typeof ChangePasswordRoute
   '/login': typeof LoginRoute
   '/styleguide': typeof StyleguideRoute
+  '/cards/$key': typeof CardsKeyRoute
+  '/projects/': typeof ProjectsIndexRoute
+  '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/change-password': typeof ChangePasswordRoute
   '/login': typeof LoginRoute
   '/styleguide': typeof StyleguideRoute
+  '/cards/$key': typeof CardsKeyRoute
+  '/projects': typeof ProjectsIndexRoute
+  '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +77,38 @@ export interface FileRoutesById {
   '/change-password': typeof ChangePasswordRoute
   '/login': typeof LoginRoute
   '/styleguide': typeof StyleguideRoute
+  '/cards/$key': typeof CardsKeyRoute
+  '/projects/': typeof ProjectsIndexRoute
+  '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/change-password' | '/login' | '/styleguide'
+  fullPaths:
+    | '/'
+    | '/change-password'
+    | '/login'
+    | '/styleguide'
+    | '/cards/$key'
+    | '/projects/'
+    | '/projects/$projectKey/board'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/change-password' | '/login' | '/styleguide'
-  id: '__root__' | '/' | '/change-password' | '/login' | '/styleguide'
+  to:
+    | '/'
+    | '/change-password'
+    | '/login'
+    | '/styleguide'
+    | '/cards/$key'
+    | '/projects'
+    | '/projects/$projectKey/board'
+  id:
+    | '__root__'
+    | '/'
+    | '/change-password'
+    | '/login'
+    | '/styleguide'
+    | '/cards/$key'
+    | '/projects/'
+    | '/projects/$projectKey/board'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +116,9 @@ export interface RootRouteChildren {
   ChangePasswordRoute: typeof ChangePasswordRoute
   LoginRoute: typeof LoginRoute
   StyleguideRoute: typeof StyleguideRoute
+  CardsKeyRoute: typeof CardsKeyRoute
+  ProjectsIndexRoute: typeof ProjectsIndexRoute
+  ProjectsProjectKeyBoardRoute: typeof ProjectsProjectKeyBoardRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +151,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/projects/': {
+      id: '/projects/'
+      path: '/projects'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof ProjectsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cards/$key': {
+      id: '/cards/$key'
+      path: '/cards/$key'
+      fullPath: '/cards/$key'
+      preLoaderRoute: typeof CardsKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$projectKey/board': {
+      id: '/projects/$projectKey/board'
+      path: '/projects/$projectKey/board'
+      fullPath: '/projects/$projectKey/board'
+      preLoaderRoute: typeof ProjectsProjectKeyBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +180,9 @@ const rootRouteChildren: RootRouteChildren = {
   ChangePasswordRoute: ChangePasswordRoute,
   LoginRoute: LoginRoute,
   StyleguideRoute: StyleguideRoute,
+  CardsKeyRoute: CardsKeyRoute,
+  ProjectsIndexRoute: ProjectsIndexRoute,
+  ProjectsProjectKeyBoardRoute: ProjectsProjectKeyBoardRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
