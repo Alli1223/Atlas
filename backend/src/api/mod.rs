@@ -1,6 +1,7 @@
 //! HTTP surface: router assembly, health check, and the OpenAPI document.
 
 pub mod auth;
+pub mod board;
 pub mod cards;
 pub mod comments;
 pub mod members;
@@ -79,6 +80,7 @@ impl AppState {
         (name = "project-members", description = "Per-project access: who may do what, and where"),
         (name = "project-config", description = "Per-project hierarchy, card types, statuses, priorities and resolutions"),
         (name = "cards", description = "Cards, the board, the hierarchy, and the changelog"),
+        (name = "boards", description = "Board data (columns, mini-map rollups, swimlanes) and saved board config"),
         (name = "comments", description = "Comments on cards"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
@@ -165,6 +167,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(members::routes())
         .merge(project_config::routes())
         .merge(cards::routes())
+        .merge(board::routes())
         .merge(comments::routes())
         .merge(tags::routes())
         .merge(search::routes())

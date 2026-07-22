@@ -10,6 +10,8 @@
 //! - [`hierarchy`] — ancestor/descendant walks, the depth cap, cycle detection.
 //! - [`card`] — the `cards` row and every mutation, including the diffing
 //!   [`card::update`] that writes history so a handler cannot forget to.
+//! - [`board`] — the board *view* over cards (columns by status, the mini-map
+//!   rollup, swimlanes), and the thin saved-board CRUD around it.
 //! - [`history`] — the `card_history` changelog.
 //! - [`comment`] — the `comments` row.
 //! - [`tag`] — free-text labels, and the presets each template seeds.
@@ -38,6 +40,7 @@
 //! `AssertSqlSafe` in this module is a real signal that no SQL is built by
 //! formatting.
 
+pub mod board;
 pub mod card;
 pub mod comment;
 pub mod config;

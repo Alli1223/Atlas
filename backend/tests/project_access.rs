@@ -1392,6 +1392,7 @@ struct Targets {
     member_user_id: String,
     workflow_id: String,
     transition_id: String,
+    board_id: String,
 }
 
 impl Targets {
@@ -1424,6 +1425,7 @@ impl Targets {
                     // `/transitions/{id}` and `/cards/{key}/transitions/{id}`
                     // both name a transition.
                     ("transitions", "{id}") => &self.transition_id,
+                    ("boards", "{id}") => &self.board_id,
                     _ => {
                         return Err(format!(
                             "no value known for {segment} after /{previous} in {path}. Teach \
@@ -1525,6 +1527,7 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
     grant(app, admin, key, &insider_id, "member").await;
 
     let (workflow_id, transition_id) = furnish_workflow(app, admin, key, &theirs.status_id).await;
+    let board_id = furnish_board(app, admin, key).await;
 
     Targets {
         project_key: theirs.key.clone(),
@@ -1539,7 +1542,20 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
         member_user_id: insider_id,
         workflow_id,
         transition_id,
+        board_id,
     }
+}
+
+/// Saves a board in a project, so `/boards/{id}` resolves to a real row rather
+/// than 404ing for an unrelated reason.
+async fn furnish_board(app: &App, admin: &str, key: &str) -> String {
+    app.send(post(
+        &format!("/api/v1/projects/{key}/boards"),
+        Some(admin),
+        json!({ "name": "Probe" }),
+    ))
+    .await
+    .id()
 }
 
 #[tokio::test]
@@ -2281,6 +2297,7 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
     grant(&app, &admin, "ATLAS", &victim_id, "member").await;
 
     let (workflow_id, transition_id) = furnish_workflow(&app, &admin, &p.key, &p.status_id).await;
+    let board_id = furnish_board(&app, &admin, &p.key).await;
 
     let targets = Targets {
         project_key: p.key.clone(),
@@ -2295,6 +2312,7 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
         member_user_id: victim_id.clone(),
         workflow_id,
         transition_id,
+        board_id,
     };
 
     let mut probed = 0;

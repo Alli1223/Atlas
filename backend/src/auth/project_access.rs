@@ -174,6 +174,9 @@ pub(crate) enum Scope {
 
     /// `{id}` is a transition id; the project is its workflow's.
     Transition(ProjectRole),
+
+    /// `{id}` is a saved board's id; the project is the one that owns it.
+    Board(ProjectRole),
 }
 
 impl Scope {
@@ -195,7 +198,8 @@ impl Scope {
             | Self::Tag(_)
             | Self::Config(..)
             | Self::Workflow(_)
-            | Self::Transition(_) => Some("id"),
+            | Self::Transition(_)
+            | Self::Board(_) => Some("id"),
         }
     }
 
@@ -209,7 +213,8 @@ impl Scope {
             | Self::Tag(role)
             | Self::Config(_, role)
             | Self::Workflow(role)
-            | Self::Transition(role) => Some(role),
+            | Self::Transition(role)
+            | Self::Board(role) => Some(role),
         }
     }
 }
@@ -359,6 +364,42 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         Method::GET,
         "/api/v1/cards/{key}/children",
         Scope::Card(ProjectRole::Viewer),
+    ),
+    // --- boards ---
+    // The board *data*: reading a project's cards grouped into columns. A view,
+    // so Viewer. The nested-board and quick-filter parameters ride the query
+    // string, not the path, so the scope is the project either way.
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/board",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    // Saved board config: reading is Viewer, curating is Member (a board is a
+    // saved view, like a tag or a filter — not structural project configuration).
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/boards",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/boards",
+        Scope::Project(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/boards/{id}",
+        Scope::Board(ProjectRole::Viewer),
+    ),
+    (
+        Method::PATCH,
+        "/api/v1/boards/{id}",
+        Scope::Board(ProjectRole::Member),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/boards/{id}",
+        Scope::Board(ProjectRole::Member),
     ),
     (
         Method::GET,
@@ -927,6 +968,14 @@ async fn resolve_target(db: &Db, scope: Scope, value: &str) -> AppResult<Target>
 
         Scope::Workflow(_) => {
             sqlx::query_scalar("SELECT project_id FROM workflows WHERE id = ?")
+                .bind(value)
+                .fetch_optional(db.reader())
+                .await?
+        }
+
+        // A saved board is owned directly by a project.
+        Scope::Board(_) => {
+            sqlx::query_scalar("SELECT project_id FROM boards WHERE id = ?")
                 .bind(value)
                 .fetch_optional(db.reader())
                 .await?
