@@ -15,7 +15,20 @@ export interface paths {
         put?: never;
         /**
          * Changes the signed-in user's password, and rotates the session.
-         * @description # Rotation
+         * @description # Rate limited, on the same counter as login
+         *
+         *     `currentPassword` is re-checked here, and the reason that check exists — a
+         *     borrowed unlocked laptop must not be enough to take an account over — is
+         *     precisely the threat model of an attacker who holds the session but not the
+         *     password. An unlimited number of guesses at it is therefore not a check at
+         *     all: it is a slower `POST /auth/login` with no lockout.
+         *
+         *     So this route spends from the *same* per-username and per-IP counters that
+         *     `login` does, and consults them before any Argon2 runs. Two counters would be
+         *     two budgets for guessing one secret, and an attacker would simply alternate
+         *     between the routes.
+         *
+         *     # Rotation
          *
          *     Every session for the user is revoked and a new one issued, so the cookie the
          *     client ends up with is not the one it arrived with. Two reasons:
@@ -139,6 +152,25 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/boards/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One saved board. */
+        get: operations["get_saved_board"];
+        put?: never;
+        post?: never;
+        /** Deletes a saved board. */
+        delete: operations["delete_board"];
+        options?: never;
+        head?: never;
+        /** Edits a saved board. */
+        patch: operations["update_board"];
         trace?: never;
     };
     "/api/v1/card-types/{id}": {
@@ -365,6 +397,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{key}/transitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The transitions a card may take **right now** — conditions evaluated, so the
+         *     board only ever offers a legal move.
+         */
+        get: operations["card_transitions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/transitions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Takes a named transition on a card: validators, then the status change, then
+         *     post-functions, all in one write transaction.
+         */
+        post: operations["execute_card_transition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/comments/{id}": {
         parameters: {
             query?: never;
@@ -394,6 +466,69 @@ export interface paths {
          *     elsewhere would suggest.
          */
         patch: operations["update_comment"];
+        trace?: never;
+    };
+    "/api/v1/filters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every filter the caller owns. */
+        get: operations["list_filters"];
+        put?: never;
+        /**
+         * Saves a new filter.
+         * @description The AQL is parsed and type-checked before it is stored, so a saved filter is
+         *     always one that will compile when it is run or referenced — which is what lets
+         *     filter composition trust the bodies it inlines.
+         */
+        post: operations["create_filter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filters/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One filter the caller owns. */
+        get: operations["get_filter"];
+        put?: never;
+        post?: never;
+        /** Deletes a filter. */
+        delete: operations["delete_filter"];
+        options?: never;
+        head?: never;
+        /** Edits a filter. */
+        patch: operations["update_filter"];
+        trace?: never;
+    };
+    "/api/v1/filters/{id}/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runs a saved filter and returns a page of results.
+         * @description The same accessibility scoping as `POST /search`: even the filter's owner
+         *     sees only cards in projects they can access.
+         */
+        get: operations["filter_results"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/hierarchy-levels/{id}": {
@@ -459,7 +594,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every project. */
+        /**
+         * Every project the caller can reach.
+         * @description # This filters; it does not refuse
+         *
+         *     A project the caller has no access to is simply **absent**, and this is the
+         *     one route [`crate::auth::project_access`] classifies `SelfFiltered` for
+         *     exactly that reason. A 403 on a list would be a bug twice over: it would turn
+         *     "here is your work" into "you are not allowed to have work", and it would
+         *     confirm to an outsider that there is something there to be refused.
+         *
+         *     The filtering is [`project::list_for`], which takes the viewer and has no
+         *     unscoped sibling that could be called by mistake.
+         */
         get: operations["list_projects"];
         put?: never;
         /** Creates a project, seeded from a template. */
@@ -525,6 +672,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{key}/board": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The board: columns of cards, with the mini-map rollup on every card. */
+        get: operations["get_board"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/boards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every saved board of a project. */
+        get: operations["list_boards"];
+        put?: never;
+        /** Saves a new board. */
+        post: operations["create_board"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{key}/card-types": {
         parameters: {
             query?: never;
@@ -577,6 +759,51 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who has been granted access to a project.
+         * @description # Why an instance admin is not in this list
+         *
+         *     Admins own every project by rule and hold no row, so listing them here would
+         *     make every project's member list a copy of the user list. This is the *grant*
+         *     list — "who has been given access to this" — not "everyone who could open it".
+         *     The project's lead appears only if they also hold a row; they are an owner
+         *     either way.
+         */
+        get: operations["list_members"];
+        put?: never;
+        /** Grants someone access to a project. */
+        post: operations["add_member"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revokes someone's access to a project. */
+        delete: operations["remove_member"];
+        options?: never;
+        head?: never;
+        /** Changes what someone may do on a project. */
+        patch: operations["update_member"];
         trace?: never;
     };
     "/api/v1/projects/{key}/priorities": {
@@ -683,6 +910,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{key}/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's workflows. */
+        get: operations["list_workflows"];
+        put?: never;
+        /** Creates a workflow. */
+        post: operations["create_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/resolutions/{id}": {
         parameters: {
             query?: never;
@@ -698,6 +943,50 @@ export interface paths {
         head?: never;
         /** Edits a resolution. */
         patch: operations["update_resolution"];
+        trace?: never;
+    };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Runs an AQL query and returns a page of matching cards.
+         * @description The result set is always scoped to the projects the caller can access — the
+         *     scoping is compiled into the query by [`crate::aql`], not applied here.
+         */
+        post: operations["search"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parses and type-checks a query without running it.
+         * @description Returns the error with its span so the editor can underline the offending
+         *     token, or the normalised query plus the field and function vocabulary as an
+         *     autocomplete hint. Never touches the database beyond the caller's own
+         *     identity — a filter reference is left unexpanded, so this is cheap.
+         */
+        post: operations["validate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/statuses/{id}": {
@@ -767,6 +1056,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/transitions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a transition. */
+        delete: operations["delete_transition"];
+        options?: never;
+        head?: never;
+        /** Edits a transition and, where a gate array is present, replaces that set. */
+        patch: operations["update_transition"];
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -826,6 +1133,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One workflow. */
+        get: operations["get_workflow"];
+        put?: never;
+        post?: never;
+        /** Deletes a workflow. The default one cannot be deleted. */
+        delete: operations["delete_workflow"];
+        options?: never;
+        head?: never;
+        /** Renames a workflow. */
+        patch: operations["update_workflow"];
+        trace?: never;
+    };
+    "/api/v1/workflows/{id}/transitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A workflow's transitions. */
+        get: operations["list_transitions"];
+        put?: never;
+        /** Adds a transition to a workflow. */
+        post: operations["create_transition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -852,10 +1196,144 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The body of `POST /projects/{key}/members`. */
+        AddMemberRequest: {
+            /**
+             * @description What to grant them. Capped by their instance role on the way out — see
+             *     [`crate::domain::member::ProjectRole::capped_by`].
+             */
+            role: components["schemas"]["ProjectRole"];
+            /** @description Who to grant access to. */
+            userId: string;
+        };
         /** @description The body of `POST /cards/{key}/tags`. */
         AttachTagRequest: {
             /** @description The tag to put on the card. Must be the card's project's, or global. */
             tagId: string;
+        };
+        /** @description A transition a card may currently take. */
+        AvailableTransition: {
+            /**
+             * @description The transition id, or `null` for a permissive default workflow's implicit
+             *     move (which the client takes through the board's move endpoint).
+             */
+            id?: string | null;
+            /** @description The button label. */
+            name: string;
+            /** @description Where the card would land. */
+            toStatusId: string;
+        };
+        /**
+         * @description A saved board configuration.
+         *
+         *     `wip_limits` is a real JSON object in the API, but sqlx's `json` feature is not
+         *     enabled in this workspace, so the column is read as text through [`BoardRow`]
+         *     and parsed here rather than decoded by a `#[sqlx(json)]` field.
+         */
+        Board: {
+            /** @description The saved AQL quick filter, or `None`. */
+            aqlFilter?: string | null;
+            /**
+             * Format: date-time
+             * @description When it was created.
+             */
+            createdAt: string;
+            /** @description The card whose children this board renders, or `None` for the top level. */
+            defaultParentId?: string | null;
+            /** @description UUID v7, as text. */
+            id: string;
+            /** @description The display name, unique per project. */
+            name: string;
+            /** @description The owning project. */
+            projectId: string;
+            /** @description `none`, `assignee` or `parent`. */
+            swimlane: string;
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
+            /** @description Per-status WIP limits, a JSON object `{status_id: max}`. */
+            wipLimits: Record<string, never>;
+        };
+        /** @description One card as the board renders it: the summary fields plus the mini-map rollup. */
+        BoardCard: {
+            /** @description Who is doing it. */
+            assigneeId?: string | null;
+            childRollup?: null | components["schemas"]["ChildRollup"];
+            /**
+             * Format: double
+             * @description The estimate, in the project's estimation unit.
+             */
+            estimate?: number | null;
+            /** @description UUID v7, as text. */
+            id: string;
+            /** @description `ATLAS-123`. */
+            key: string;
+            /**
+             * @description The parent card, if any. Present so a nested-board client and the parent
+             *     swimlane can group without a second fetch.
+             */
+            parentId?: string | null;
+            /** @description The priority. */
+            priorityId?: string | null;
+            /**
+             * @description The board sort key. Cards come back in this order within a column.
+             * @example 8000
+             */
+            rank: string;
+            /** @description Who asked for it. */
+            reporterId?: string | null;
+            /** @description The workflow status — which column the card is in. */
+            statusId: string;
+            /** @description The one-line title. */
+            summary: string;
+            /** @description The card's tags, by name. */
+            tags: components["schemas"]["Tag"][];
+            /** @description The card type. */
+            typeId: string;
+        };
+        /** @description One board column: a status and the cards in it, in rank order. */
+        BoardColumn: {
+            /** @description The cards in this column, in rank order. */
+            cards: components["schemas"]["BoardCard"][];
+            /** @description The column's status. */
+            status: components["schemas"]["BoardColumnStatus"];
+        };
+        /** @description A column's status header: enough for the frontend to label and colour it. */
+        BoardColumnStatus: {
+            /** @description Which of the three categories it falls into. */
+            category: components["schemas"]["StatusCategory"];
+            /** @description The status id. */
+            id: string;
+            /** @description The status name. */
+            name: string;
+        };
+        /**
+         * @description The board: one column per project status, and optionally the same cards
+         *     partitioned into swimlanes.
+         *
+         *     `columns` is always the full, ungrouped board. When a swimlane grouping is
+         *     requested, `swimlanes` additionally partitions the same cards; the frontend
+         *     renders one or the other.
+         */
+        BoardData: {
+            /** @description Every project status as a column, in `position` order, with its cards. */
+            columns: components["schemas"]["BoardColumn"][];
+            /** @description The swimlane partition, present only when a grouping was requested. */
+            swimlanes?: components["schemas"]["BoardSwimlane"][] | null;
+        };
+        /** @description One swimlane: a labelled partition of the board's cards into the same columns. */
+        BoardSwimlane: {
+            /** @description The same columns as the flat board, holding only this lane's cards. */
+            columns: components["schemas"]["BoardColumn"][];
+            /**
+             * @description The grouping key — an assignee id, a parent card id, or `""` for the
+             *     unassigned / no-parent catch-all.
+             */
+            key: string;
+            /** @description The human label for the lane. */
+            label: string;
         };
         /** @description A card as the API describes it. */
         CardDto: {
@@ -991,6 +1469,33 @@ export interface components {
             /** @description The replacement. Must satisfy [`crate::auth::password::validate`]. */
             newPassword: string;
         };
+        /**
+         * @description A card's children summarised by status category — the mini-board preview.
+         *
+         *     `null` on a card with no children; present with real counts otherwise.
+         */
+        ChildRollup: {
+            /**
+             * Format: int64
+             * @description Children in a Done status.
+             */
+            done: number;
+            /**
+             * Format: int64
+             * @description Children in an In Progress status.
+             */
+            inProgress: number;
+            /**
+             * Format: int64
+             * @description Children in a To Do status.
+             */
+            todo: number;
+            /**
+             * Format: int64
+             * @description Total live children.
+             */
+            total: number;
+        };
         /** @description A comment on a card. */
         Comment: {
             /** @description Who wrote it. */
@@ -1036,6 +1541,25 @@ export interface components {
              *     never stored as HTML.
              */
             body: string;
+        };
+        /** @description The body of `POST /projects/{key}/boards`. */
+        CreateBoardRequest: {
+            /** @description The saved AQL quick filter, or omitted for none. */
+            aqlFilter?: string | null;
+            /**
+             * @description The card whose children this board renders, or `null`/omitted for the top
+             *     level.
+             */
+            defaultParentId?: string | null;
+            /**
+             * @description The display name, unique per project.
+             * @example My board
+             */
+            name: string;
+            /** @description Row grouping. Defaults to `none`. */
+            swimlane?: string | null;
+            /** @description Per-status WIP limits, a JSON object `{statusId: max}`. Defaults to `{}`. */
+            wipLimits?: unknown;
         };
         /** @description The body of `POST /projects/{key}/cards`. */
         CreateCardRequest: {
@@ -1087,6 +1611,18 @@ export interface components {
              */
             level: number;
             /** @description `Story`, `Asset`, `Application`. */
+            name: string;
+        };
+        /** @description The body of `POST /filters`. */
+        CreateFilterRequest: {
+            /** @description The AQL. Checked for syntax and type errors before it is saved. */
+            aql: string;
+            /** @description An optional description. */
+            description?: string | null;
+            /**
+             * @description The display name, unique per owner.
+             * @example My open bugs
+             */
             name: string;
         };
         /** @description The body of `POST /projects/{key}/hierarchy-levels`. */
@@ -1164,6 +1700,26 @@ export interface components {
              */
             name: string;
         };
+        /** @description The body of `POST /workflows/{id}/transitions`. */
+        CreateTransitionRequest: {
+            /** @description Conditions to attach. */
+            conditions?: components["schemas"]["GateInput"][];
+            /** @description The source status, or omit/`null` for a global transition. */
+            fromStatusId?: string | null;
+            /** @description The button label. */
+            name: string;
+            /**
+             * Format: int64
+             * @description Evaluation and display order.
+             */
+            position?: number | null;
+            /** @description Post-functions to attach, in the order they should run. */
+            postFunctions?: components["schemas"]["GateInput"][];
+            /** @description Where the card lands. */
+            toStatusId: string;
+            /** @description Validators to attach. */
+            validators?: components["schemas"]["GateInput"][];
+        };
         /** @description The body of `POST /users`. */
         CreateUserRequest: {
             /** @description What the UI shows. Defaults to the username. */
@@ -1185,6 +1741,19 @@ export interface components {
             /** @description The login name. Unique, case-insensitively. */
             username: string;
         };
+        /** @description The body of `POST /projects/{key}/workflows`. */
+        CreateWorkflowRequest: {
+            /**
+             * @description The card types to route through this workflow. Each must belong to the
+             *     project. This is how a custom workflow starts enforcing — until a card
+             *     type points at it, cards still move under the permissive default.
+             */
+            cardTypeIds?: string[];
+            /** @description The human name, unique within the project. */
+            name: string;
+            /** @description The statuses this workflow includes. Each must belong to the project. */
+            statusIds?: string[];
+        };
         /**
          * @description How a project's single `estimate` field is interpreted.
          *
@@ -1199,6 +1768,65 @@ export interface components {
          * @enum {string}
          */
         EstimationUnit: "points" | "hours" | "days" | "tshirt" | "count" | "none";
+        /**
+         * @description The body of `POST /cards/{key}/transitions/{id}` — the "take this transition"
+         *     button, including anything a transition screen asked the user to fill in.
+         */
+        ExecuteTransitionRequest: {
+            /** @description An assignee chosen on the screen. Absent leaves it, `null` clears it. */
+            assigneeId?: string | null;
+            /**
+             * @description A comment entered on the transition screen, added as the first
+             *     post-function.
+             */
+            comment?: string | null;
+            /** @description A resolution chosen on the screen. Absent leaves it, `null` clears it. */
+            resolutionId?: string | null;
+        };
+        /**
+         * @description A row of `filters`, as stored and as the API describes it.
+         *
+         *     Serialisable directly: nothing here is secret, and a filter is the caller's
+         *     own working state.
+         */
+        Filter: {
+            /** @description The AQL source. */
+            aql: string;
+            /**
+             * Format: date-time
+             * @description When it was created.
+             */
+            createdAt: string;
+            /** @description An optional description. */
+            description?: string | null;
+            /** @description UUID v7, as text. */
+            id: string;
+            /** @description The display name, unique per owner. */
+            name: string;
+            /** @description Who owns it. */
+            ownerId: string;
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
+        };
+        /** @description One condition, validator, or post-function. */
+        GateDto: {
+            /** @description The rule's configuration. */
+            config: Record<string, never>;
+            /** @description UUID v7, as text. */
+            id: string;
+            /** @description Which rule: `OnlyAssignee`, `RequiredField`, `SetResolution`, … */
+            kind: string;
+        };
+        /** @description The body of a condition/validator/post-function on a transition. */
+        GateInput: {
+            /** @description The rule's configuration. Defaults to an empty object. */
+            config?: Record<string, never>;
+            /** @description Which rule. */
+            kind: string;
+        };
         /** @description Health check response. */
         HealthResponse: {
             /**
@@ -1400,6 +2028,54 @@ export interface components {
              */
             updatedAt: string;
         };
+        /** @description A project member as the API describes it. */
+        ProjectMemberDto: {
+            /**
+             * Format: date-time
+             * @description When the grant was made.
+             */
+            addedAt: string;
+            /** @description Who made it. `null` means the 0005 backfill rather than a person. */
+            addedBy?: string | null;
+            /** @description The holder's avatar. */
+            avatarUrl?: string | null;
+            /** @description The holder's display name. */
+            displayName: string;
+            /**
+             * @description **What the holder can actually do**, after the ceiling.
+             *
+             *     Both are on the wire because they can differ, and a member list that
+             *     showed only `role` would tell an owner that their read-only colleague is
+             *     an owner. See [`ProjectRole::capped_by`].
+             */
+            effectiveRole: components["schemas"]["ProjectRole"];
+            /** @description The holder's instance role, which is what does the capping. */
+            instanceRole: components["schemas"]["Role"];
+            /** @description Whether the holder can sign in at all. */
+            isActive: boolean;
+            /** @description **What the row says**, before the instance-role ceiling. */
+            role: components["schemas"]["ProjectRole"];
+            /** @description Who holds the grant. */
+            userId: string;
+            /** @description The holder's login name. */
+            username: string;
+        };
+        /**
+         * @description What a user may do *on one project*.
+         *
+         *     # Ordering
+         *
+         *     Declared least- to most-privileged, so the derived `Ord` **is** the privilege
+         *     ordering: `Viewer < Member < Owner`. That is what makes [`Self::at_least`] a
+         *     comparison rather than a match arm somebody has to remember to extend, and
+         *     what makes [`Self::capped_by`] a `min`. Reordering these variants silently
+         *     inverts every authorisation decision in Atlas, which is why a test pins it.
+         *
+         *     Exactly the shape of [`crate::auth::role::Role`], deliberately: two role
+         *     enums that behaved differently would be two things to hold in your head.
+         * @enum {string}
+         */
+        ProjectRole: "viewer" | "member" | "owner";
         /** @description The body of `PATCH /hierarchy-levels/{id}`. */
         RenameRequest: {
             /** @description The new name. */
@@ -1457,6 +2133,55 @@ export interface components {
          * @enum {string}
          */
         Role: "viewer" | "member" | "admin";
+        /** @description The body of `POST /search`. */
+        SearchRequest: {
+            /**
+             * @description The AQL query. An empty string matches every card the caller can see.
+             * @example status = Done AND assignee = currentUser() ORDER BY updated DESC
+             */
+            aql: string;
+            /**
+             * @description An `ORDER BY` clause to append, e.g. `priority DESC`. A convenience for a
+             *     UI that keeps sorting separate from the predicate; embedding `ORDER BY` in
+             *     `aql` works too. Do not supply both.
+             */
+            orderBy?: string | null;
+            /**
+             * Format: int64
+             * @description The 1-based page number. Defaults to 1.
+             */
+            page?: number | null;
+            /**
+             * Format: int64
+             * @description The page size, capped at 200. Defaults to 50.
+             */
+            pageSize?: number | null;
+        };
+        /** @description A page of search results, with the normalised query echoed back. */
+        SearchResponse: {
+            /** @description The cards on this page, in the query's order. */
+            cards: components["schemas"]["CardDto"][];
+            /**
+             * Format: int64
+             * @description The 1-based page number returned.
+             */
+            page: number;
+            /**
+             * Format: int64
+             * @description The page size used.
+             */
+            pageSize: number;
+            /**
+             * @description The query, re-rendered canonically. This is what the basic⇄advanced
+             *     editor round-trips against.
+             */
+            query: string;
+            /**
+             * Format: int64
+             * @description How many cards matched in total.
+             */
+            total: number;
+        };
         /** @description A session as the API describes it. */
         SessionDto: {
             /**
@@ -1604,6 +2329,43 @@ export interface components {
             /** @description The workflow this template seeds, in board order. */
             statuses: string[];
         };
+        /** @description A transition and its three gates. */
+        TransitionDto: {
+            /** @description Conditions that decide whether the transition is offered. */
+            conditions: components["schemas"]["GateDto"][];
+            /** @description The source status, or `null` for a global ("from any status") transition. */
+            fromStatusId?: string | null;
+            /** @description UUID v7, as text. */
+            id: string;
+            /** @description The button label. */
+            name: string;
+            /**
+             * Format: int64
+             * @description Evaluation and display order.
+             */
+            position: number;
+            /** @description Post-functions that run after the status change commits. */
+            postFunctions: components["schemas"]["GateDto"][];
+            /** @description Where the card lands. */
+            toStatusId: string;
+            /** @description Validators that decide whether an offered transition may be taken. */
+            validators: components["schemas"]["GateDto"][];
+            /** @description The owning workflow. */
+            workflowId: string;
+        };
+        /** @description The body of `PATCH /boards/{id}`. */
+        UpdateBoardRequest: {
+            /** @description Absent leaves it, `null` clears it, a value sets it. */
+            aqlFilter?: string | null;
+            /** @description Absent leaves it, `null` clears it, a value sets it. */
+            defaultParentId?: string | null;
+            /** @description The new name. */
+            name?: string | null;
+            /** @description The new swimlane mode. */
+            swimlane?: string | null;
+            /** @description The new WIP limits. */
+            wipLimits?: unknown;
+        };
         /** @description The body of `PATCH /cards/{key}`. */
         UpdateCardRequest: {
             /** @description Archive or unarchive. */
@@ -1674,6 +2436,20 @@ export interface components {
             /** @description The name. */
             name?: string | null;
         };
+        /** @description The body of `PATCH /filters/{id}`. */
+        UpdateFilterRequest: {
+            /** @description The new AQL. Re-checked before it is saved. */
+            aql?: string | null;
+            /** @description Absent leaves it, `null` clears it, a value sets it. */
+            description?: string | null;
+            /** @description The new name. */
+            name?: string | null;
+        };
+        /** @description The body of `PATCH /projects/{key}/members/{userId}`. */
+        UpdateMemberRequest: {
+            /** @description The new role. */
+            role: components["schemas"]["ProjectRole"];
+        };
         /** @description The body of `PATCH /priorities/{id}`. */
         UpdatePriorityRequest: {
             /** @description Absent leaves it, `null` clears it, a value sets it. */
@@ -1737,6 +2513,31 @@ export interface components {
             name?: string | null;
         };
         /**
+         * @description The body of `PATCH /transitions/{id}`.
+         *
+         *     A gate array that is present **replaces** that transition's whole set; an
+         *     absent one leaves it alone.
+         */
+        UpdateTransitionRequest: {
+            /** @description Replaces the conditions, if present. */
+            conditions?: components["schemas"]["GateInput"][] | null;
+            /** @description Absent leaves it, `null` makes it global, a value anchors it. */
+            fromStatusId?: string | null;
+            /** @description The button label. */
+            name?: string | null;
+            /**
+             * Format: int64
+             * @description Evaluation and display order.
+             */
+            position?: number | null;
+            /** @description Replaces the post-functions, if present. */
+            postFunctions?: components["schemas"]["GateInput"][] | null;
+            /** @description Where the card lands. */
+            toStatusId?: string | null;
+            /** @description Replaces the validators, if present. */
+            validators?: components["schemas"]["GateInput"][] | null;
+        };
+        /**
          * @description The body of `PATCH /users/{id}`.
          *
          *     `Option<Option<T>>` on `email` and `avatarUrl` is what distinguishes the
@@ -1759,6 +2560,17 @@ export interface components {
             /** @description Whether the account must change its password before doing anything. */
             mustChangePassword?: boolean | null;
             role?: null | components["schemas"]["Role"];
+        };
+        /**
+         * @description The body of `PATCH /workflows/{id}`.
+         *
+         *     At least one field must be present.
+         */
+        UpdateWorkflowRequest: {
+            /** @description Reassign these card types to this workflow. */
+            cardTypeIds?: string[] | null;
+            /** @description The new name. */
+            name?: string | null;
         };
         /**
          * @description A user as the API describes it.
@@ -1802,6 +2614,59 @@ export interface components {
             updatedAt: string;
             /** @description The login name. */
             username: string;
+        };
+        /** @description The body of `POST /search/validate`. */
+        ValidateRequest: {
+            /** @description The AQL to check. Parsed and type-checked, never run. */
+            aql: string;
+        };
+        /** @description The result of validating a query. */
+        ValidateResponse: {
+            error?: null | components["schemas"]["ValidationError"];
+            /** @description Every field a query can name — an autocomplete hint for the editor. */
+            fields: string[];
+            /** @description Every function the language offers. */
+            functions: string[];
+            /** @description Whether the query is valid. */
+            ok: boolean;
+            /** @description The normalised query, present when `ok`. */
+            query?: string | null;
+        };
+        /** @description A parse/type error, with the span the frontend underlines. */
+        ValidationError: {
+            /** @description The 1-based character column, for a caret. */
+            column?: number | null;
+            /** @description One past the last byte of the span. */
+            end?: number | null;
+            /** @description The human-readable message, without the column. */
+            message: string;
+            /** @description The byte offset the span starts at, or `null` for a whole-query problem. */
+            start?: number | null;
+        };
+        /** @description A workflow, with the ids of the statuses it includes. */
+        WorkflowDto: {
+            /** @description The card types routed through this workflow. */
+            cardTypeIds: string[];
+            /**
+             * Format: date-time
+             * @description When it was created.
+             */
+            createdAt: string;
+            /** @description UUID v7, as text. */
+            id: string;
+            /** @description Whether this is the project's permissive default. */
+            isDefault: boolean;
+            /** @description The human name. */
+            name: string;
+            /** @description The owning project. */
+            projectId: string;
+            /** @description The statuses this workflow includes. */
+            statusIds: string[];
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
         };
     };
     responses: never;
@@ -2002,6 +2867,167 @@ export interface operations {
             };
             /** @description No such session for this user */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_saved_board: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The board's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such board */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_board: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The board's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot delete boards */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such board */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_board: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The board's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateBoardRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot edit boards */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such board */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A board of that name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request is invalid */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2778,6 +3804,121 @@ export interface operations {
             };
         };
     };
+    card_transitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The available transitions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailableTransition"][];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    execute_card_transition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+                /** @description The transition id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecuteTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Moved, with post-functions applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot move cards */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such card or transition */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The transition is hidden or not available here */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A validator failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     delete_comment: {
         parameters: {
             query?: never;
@@ -2880,6 +4021,329 @@ export interface operations {
             };
             /** @description The comment is empty or too long */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_filters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's saved filters, by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Filter"][];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_filter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFilterRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Filter"];
+                };
+            };
+            /** @description The AQL does not parse or type-check */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A read-only account cannot save filters */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A filter of that name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name, description or AQL is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_filter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The filter's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The filter */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Filter"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such filter of yours */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_filter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The filter's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A read-only account cannot delete filters */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such filter of yours */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_filter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The filter's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFilterRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Filter"];
+                };
+            };
+            /** @description The new AQL does not parse or type-check */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A read-only account cannot edit filters */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such filter of yours */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A filter of that name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    filter_results: {
+        parameters: {
+            query?: {
+                /** @description The 1-based page number. */
+                page?: number;
+                /** @description The page size. */
+                pageSize?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The filter's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the filter's results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description The filter's AQL no longer compiles */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such filter of yours */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3056,7 +4520,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Every project, by name */
+            /** @description Every project the caller can reach, by name */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3329,6 +4793,191 @@ export interface operations {
             };
             /** @description No such project */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_board: {
+        parameters: {
+            query?: {
+                /**
+                 * @description A card **key** to render the children of — the nested board. Omit for the
+                 *     project's top-level cards.
+                 */
+                parent?: string;
+                /**
+                 * @description An AQL quick filter, combined with `AND` onto the board's scope. Omit for
+                 *     no filter.
+                 */
+                aql?: string;
+                /** @description Row grouping: `none` (default), `assignee` or `parent`. */
+                swimlane?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardData"];
+                };
+            };
+            /** @description The AQL filter does not parse or type-check */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project, or no such parent card in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unknown swimlane value */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_boards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's saved boards, by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"][];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_board: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBoardRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot save boards */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A board of that name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name or swimlane is invalid */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3684,6 +5333,243 @@ export interface operations {
             };
             /** @description The name is invalid */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key, e.g. ATLAS */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's members, by display name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberDto"][];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project, or no access to it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    add_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Granted */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not an owner of this project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project, or no access to it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description They are already a member */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such user */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    remove_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+                /** @description The member's user id */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not an owner of this project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project or member */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description This is the project's only owner */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+                /** @description The member's user id */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not an owner of this project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project or member */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description This is the project's only owner */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4195,6 +6081,119 @@ export interface operations {
             };
         };
     };
+    list_workflows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's workflows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDto"][];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkflowRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers and members cannot change workflows */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name or a status is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     update_resolution: {
         parameters: {
             query?: never;
@@ -4249,6 +6248,81 @@ export interface operations {
             };
             /** @description The name is invalid */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    search: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchRequest"];
+            };
+        };
+        responses: {
+            /** @description A page of matching cards and the normalised query */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description The query does not parse or type-check */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    validate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidateRequest"];
+            };
+        };
+        responses: {
+            /** @description Validation result: ok with a normalised query, or an error with a span */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidateResponse"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4494,6 +6568,117 @@ export interface operations {
                 };
             };
             /** @description The tags are the same one, or are in different scopes */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_transition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The transition id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Members cannot change workflows */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such transition */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_transition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The transition id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransitionDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Members cannot change workflows */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such transition */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A status or a gate is invalid */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4774,6 +6959,271 @@ export interface operations {
             };
             /** @description This is you, or the last active admin */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workflow id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workflow */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such workflow */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workflow id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Members cannot change workflows */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such workflow */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The default workflow cannot be deleted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workflow id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkflowRequest"];
+            };
+        };
+        responses: {
+            /** @description Renamed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Members cannot change workflows */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such workflow */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_transitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workflow id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workflow's transitions and their gates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransitionDto"][];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such workflow */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_transition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The workflow id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransitionDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Members cannot change workflows */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such workflow */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A status or a gate is invalid */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
