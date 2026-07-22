@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import {
   Bell,
   ChevronLeft,
@@ -24,7 +24,7 @@ import { ThemeToggle } from './ThemeToggle'
 interface NavItem {
   label: string
   icon: LucideIcon
-  to?: '/' | '/styleguide'
+  to?: '/' | '/styleguide' | '/projects'
 }
 
 const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
@@ -32,7 +32,7 @@ const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
     heading: 'Work',
     items: [
       { label: 'Overview', to: '/', icon: LayoutDashboard },
-      { label: 'Boards', icon: FolderKanban },
+      { label: 'Projects', to: '/projects', icon: FolderKanban },
       { label: 'Starred', icon: Star },
     ],
   },
@@ -46,6 +46,7 @@ const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
 ]
 
 function TopNav() {
+  const navigate = useNavigate()
   return (
     <header className={styles.topnav}>
       <Link to="/" className={styles.brand}>
@@ -53,7 +54,12 @@ function TopNav() {
         Atlas
       </Link>
 
-      <Button appearance="primary" size="compact" iconBefore={<Plus {...ICON} aria-hidden="true" />}>
+      <Button
+        appearance="primary"
+        size="compact"
+        iconBefore={<Plus {...ICON} aria-hidden="true" />}
+        onClick={() => void navigate({ to: '/projects' })}
+      >
         Create
       </Button>
 

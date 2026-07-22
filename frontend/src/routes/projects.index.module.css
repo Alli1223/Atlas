@@ -1,0 +1,30 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-300);
+  padding: var(--ds-space-400);
+  max-width: 1200px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-200);
+}
+
+.lede {
+  margin-top: var(--ds-space-050);
+  font: var(--ds-font-body-large);
+  color: var(--ds-text-subtle);
+}
+
+.skeletons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--ds-space-200);
+}
+
+.skeletonCard {
+  border-radius: var(--ds-radius-large);
+}

@@ -1,0 +1,60 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--ds-space-200);
+}
+
+/* A raised tile on the sunken page, the ADS elevation pairing. The whole tile is a link. */
+.card {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-150);
+  padding: var(--ds-space-200);
+  background: var(--ds-surface-raised);
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-large);
+  box-shadow: var(--ds-shadow-raised);
+  color: var(--ds-text);
+  text-decoration: none;
+  transition:
+    background-color var(--ds-duration-xxshort) var(--ds-easing-out-practical),
+    box-shadow var(--ds-duration-xxshort) var(--ds-easing-out-practical);
+}
+
+.card:hover {
+  background: var(--ds-surface-raised-hovered);
+  box-shadow: var(--ds-shadow-overlay);
+  text-decoration: none;
+}
+
+.card:active {
+  background: var(--ds-surface-raised-pressed);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-025);
+  min-width: 0;
+}
+
+.key {
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ds-text-subtlest);
+}
+
+.name {
+  font: var(--ds-font-heading-xsmall);
+  color: var(--ds-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-subtle);
+}

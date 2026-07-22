@@ -1,0 +1,70 @@
+.lane {
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-100);
+  width: 100%;
+  padding: var(--ds-space-100) var(--ds-space-200);
+  border: none;
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  cursor: pointer;
+  text-align: start;
+}
+
+.header:hover {
+  background: var(--ds-surface-hovered);
+}
+
+.chevron {
+  display: flex;
+  color: var(--ds-icon-subtle);
+  transition: transform var(--ds-duration-xshort) var(--ds-easing-out-practical);
+}
+
+.chevronCollapsed {
+  transform: rotate(0);
+}
+
+.chevron:not(.chevronCollapsed) {
+  transform: rotate(90deg);
+}
+
+.label {
+  font: var(--ds-font-heading-xxsmall);
+  color: var(--ds-text);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 16px;
+  padding-inline: var(--ds-space-050);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-background-neutral);
+  color: var(--ds-text-subtle);
+  font: var(--ds-font-body-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.columns {
+  display: flex;
+  gap: var(--ds-space-100);
+  align-items: flex-start;
+  padding: var(--ds-space-050) var(--ds-space-200) var(--ds-space-150);
+  overflow-x: auto;
+}
+
+/* In a swimlane the columns size to their content rather than a capped height. */
+.columns > section {
+  max-height: none;
+}

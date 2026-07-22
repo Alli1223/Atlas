@@ -1,0 +1,87 @@
+/* The "this card is a board" affordance: a miniature of the child board — three status
+   columns of tiny blocks — over a segmented progress bar and a `n/total done` label.
+   The whole thing sits in a subtly inset well so it reads as a miniature. */
+.miniMap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-050);
+  padding: var(--ds-space-075);
+  background: var(--ds-surface-sunken);
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-small);
+}
+
+/* The mini-board: three columns on the sunken well, mirroring the real board's layout. */
+.miniBoard {
+  display: flex;
+  gap: var(--ds-space-050);
+  align-items: flex-start;
+}
+
+/* One mini-column — a raised track so the three-column structure reads even when empty. */
+.column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 28px;
+  padding: 2px;
+  background: var(--ds-surface-raised);
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-xsmall);
+}
+
+/* One tiny "card" in the mini-board. */
+.block {
+  display: block;
+  height: 4px;
+  border-radius: 1px;
+}
+
+/* The progress bar row beneath the mini-board. */
+.progress {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-075);
+}
+
+.icon {
+  display: flex;
+  flex: none;
+  color: var(--ds-icon-subtlest);
+}
+
+.bar {
+  flex: 1;
+  display: flex;
+  height: 6px;
+  border-radius: var(--ds-radius-full);
+  overflow: hidden;
+  background: var(--ds-background-neutral);
+}
+
+.bar > span {
+  display: block;
+  min-width: 2px;
+}
+
+/* Category colours: To Do grey, In Progress blue, Done green — the same mapping the
+   lozenges and columns use, so the mini-map reads consistently with the board it
+   summarises. Shared by the mini-board blocks and the progress-bar segments. */
+.todo {
+  background: var(--ds-border-bold);
+}
+.inProgress {
+  background: var(--ds-background-information-bold);
+}
+.done {
+  background: var(--ds-background-success-bold);
+}
+
+.label {
+  flex: none;
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-medium);
+  color: var(--ds-text-subtle);
+  font-variant-numeric: tabular-nums;
+}

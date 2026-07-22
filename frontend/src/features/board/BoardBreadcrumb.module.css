@@ -1,0 +1,35 @@
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ds-space-050);
+  font: var(--ds-font-body-small);
+  min-width: 0;
+}
+
+.crumb {
+  color: var(--ds-text-subtle);
+  text-decoration: none;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crumb:hover {
+  color: var(--ds-text);
+  text-decoration: underline;
+}
+
+.crumbSep {
+  color: var(--ds-icon-subtlest);
+  flex: none;
+}
+
+.crumbCurrent {
+  color: var(--ds-text-subtle);
+  font-weight: var(--ds-font-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
