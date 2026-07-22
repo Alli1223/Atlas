@@ -458,10 +458,10 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 4 Tags | `feat/04-tags` | ✅ |
 | 5 Workflow | `feat/05-workflow-aql` | ✅ (editor UI with frontend phase) |
 | 6 AQL | `feat/05-workflow-aql` | ✅ (autocomplete UI with frontend phase) |
-| 7 Frontend core | `feat/07-frontend-core` | ⬜ |
-| 8 Boards | `feat/08-boards` | ⬜ |
-| 8b Nested boards | `feat/08b-nested-boards` | ⬜ |
-| 9 Card detail | `feat/09-card-detail` | ⬜ |
+| 7 Frontend core | `feat/07-frontend-boards` | ✅ |
+| 8 Boards | `feat/07-frontend-boards` | ✅ |
+| 8b Nested boards | `feat/07-frontend-boards` | ✅ mini-map + nested nav |
+| 9 Card detail | `feat/07-frontend-boards` | ✅ |
 | 10 Cycles | `feat/10-cycles` | ⬜ |
 | 11 Secrets | `feat/11-secrets` | ⬜ |
 | 12 GitHub | `feat/12-github` | ⬜ |
