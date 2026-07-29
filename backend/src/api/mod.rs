@@ -4,6 +4,7 @@ pub mod auth;
 pub mod board;
 pub mod cards;
 pub mod comments;
+pub mod credentials;
 pub mod members;
 pub mod middleware;
 pub mod project_config;
@@ -28,6 +29,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::config::Config;
 use crate::db::Db;
 use crate::error::{AppResult, Problem};
+use crate::secrets::Vault;
 
 /// Where the Swagger UI is served.
 pub const DOCS_PATH: &str = "/api/docs";
@@ -44,21 +46,34 @@ pub const API_V1_PREFIX: &str = "/api/v1";
 
 /// Shared state handed to every handler.
 ///
-/// Cheap to clone: both fields are handles.
+/// Cheap to clone: every field is a handle.
 #[derive(Debug, Clone)]
 pub struct AppState {
     /// The database pools.
     pub db: Db,
     /// Resolved configuration.
     pub config: Arc<Config>,
+    /// The secrets vault, or `None` when no `ATLAS_MASTER_KEY` is set.
+    ///
+    /// `None` is reachable only on a dev instance — `Config::validate` requires
+    /// the key in prod — and the credential-writing endpoints refuse when it is
+    /// absent rather than storing a secret they cannot encrypt. See
+    /// [`crate::secrets::Vault::from_config`].
+    pub vault: Option<Arc<Vault>>,
 }
 
 impl AppState {
     /// Builds application state from an open database and its configuration.
+    ///
+    /// The vault is derived from `config.master_key` here, so every caller —
+    /// `main`, and every test harness — gets a consistent one without threading
+    /// it separately. A dev config with no master key yields no vault.
     pub fn new(db: Db, config: Config) -> Self {
+        let vault = Vault::from_config(&config).map(Arc::new);
         Self {
             db,
             config: Arc::new(config),
+            vault,
         }
     }
 }
@@ -84,7 +99,8 @@ impl AppState {
         (name = "comments", description = "Comments on cards"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
-        (name = "search", description = "AQL search, query validation, and saved filters")
+        (name = "search", description = "AQL search, query validation, and saved filters"),
+        (name = "credentials", description = "The encrypted secrets vault: API keys and PATs. Admin only; never returns a secret")
     )
 )]
 struct ApiDoc;
@@ -172,6 +188,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())
+        .merge(credentials::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::auth::project_access::authorise,

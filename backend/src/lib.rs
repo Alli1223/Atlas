@@ -14,6 +14,8 @@
 //! - [`rank`] — lexicographic card ordering for drag-and-drop.
 //! - [`auth`] — users, passwords, sessions, roles, and the forced-reset gate.
 //! - [`domain`] — projects, the configurable hierarchy, cards, and history.
+//! - [`secrets`] — the encrypted secrets vault: API keys and PATs, sealed at rest
+//!   and never returned over the wire.
 //! - [`telemetry`] — tracing setup and the HTTP request span.
 //! - [`api`] — router, middleware, OpenAPI.
 
@@ -24,7 +26,9 @@ pub mod config;
 pub mod db;
 pub mod domain;
 pub mod error;
+pub mod integrations;
 pub mod rank;
+pub mod secrets;
 pub mod telemetry;
 pub mod test_support;
 

@@ -60,12 +60,41 @@ chrono = { version = "0.4.45", features = ["serde"] }
 argon2 = { version = "0.5.3", features = ["std"] }
 # SHA-256 for session-token digests. Session ids are hashed before storage.
 sha2 = "0.10"
+# HMAC-SHA256 for GitHub webhook signature verification (Phase 12). Pinned to
+# 0.12 (digest 0.10) to share `sha2 = 0.10` with the session-token digests —
+# hmac 0.13 pulls digest 0.11 and would fork the sha2 tree. `Mac::verify_slice`
+# is itself constant-time; `subtle` covers the per-repo secret lookup.
+hmac = "0.12"
+# Hex decoding of the `sha256=` webhook signature header.
+hex = "0.4"
 # Constant-time equality for anything derived from a secret.
 subtle = "2"
 base64 = "0.22.1"
+# Secrets vault (Phase 11). XChaCha20-Poly1305 AEAD: the 192-bit nonce is safe to
+# pick at random forever, so no nonce-reuse bookkeeping. aead 0.6 API — see
+# docs/research/rust-stack.md § encryption and corrections.md. `getrandom` gates
+# random nonce generation.
+chacha20poly1305 = { version = "0.11.0", features = ["getrandom"] }
+# HKDF-SHA256 derives per-purpose subkeys from the one master key, so the master
+# key is never used to encrypt directly and can key other purposes later. Pinned
+# to 0.12 (hmac 0.12 / digest 0.10) to share `sha2 = 0.10` with the session-token
+# digests — hkdf 0.13 pulls digest 0.11 and would fork the sha2 tree.
+hkdf = "0.12.4"
+# Scrubs plaintext key material from memory on drop. `derive` for ZeroizeOnDrop.
+zeroize = { version = "1.9.0", features = ["derive"] }
 # Only for cookie `Max-Age`: `cookie` 0.18 (via axum-extra) speaks time::Duration,
 # not std::time::Duration. Cargo unifies this with axum-extra's own copy.
 time = "0.3.53"
+# GitHub REST client (Phase 12), confined behind Atlas's own `GitHostClient`
+# trait so this is the only module that names it (docs/research/github-api.md).
+# `rustls` rather than the OpenSSL default keeps the build free of a system TLS
+# dependency; only api.github.com (a fixed host) is ever contacted.
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "rustls",
+  "http2",
+  "charset",
+] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }

@@ -468,6 +468,68 @@ export interface paths {
         patch: operations["update_comment"];
         trace?: never;
     };
+    "/api/v1/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every stored credential, as metadata. */
+        get: operations["list_credentials"];
+        put?: never;
+        /** Stores a new credential, encrypting the secret at rest. */
+        post: operations["create_credential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credentials/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a credential. */
+        delete: operations["delete_credential"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credentials/{id}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validates a credential against its provider, on demand.
+         * @description Decrypts the secret, runs the provider probe ([`crate::secrets::Validator`]),
+         *     and records the outcome — status, discovered scopes, discovered expiry, and
+         *     `last_validated_at`. The response is the updated metadata; the secret is opened
+         *     only to hand it to the probe and is never serialised.
+         *
+         *     Today every provider uses the no-op probe, which reports `unchecked` — the
+         *     endpoint plumbing (decrypt → probe → persist) works end to end; the GitHub and
+         *     Gemini agents drop their real probes into [`default_validator`].
+         */
+        post: operations["validate_credential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/filters": {
         parameters: {
             query?: never;
@@ -1613,6 +1675,27 @@ export interface components {
             /** @description `Story`, `Asset`, `Application`. */
             name: string;
         };
+        /**
+         * @description The body of `POST /credentials`.
+         *
+         *     `secret` deserialises straight into a [`Secret`], so the plaintext is redacted
+         *     in this struct's `Debug` from the moment it exists — a `tracing` line that logs
+         *     the request body cannot leak it. `#[schema(value_type = String)]` tells OpenAPI
+         *     it is a string on the wire without teaching the schema anything about the
+         *     wrapper.
+         */
+        CreateCredentialRequest: {
+            /** @description A human label, unique within the provider. */
+            label: string;
+            /** @description Which integration the secret is for. */
+            provider: components["schemas"]["Provider"];
+            /**
+             * @description The secret itself — a PAT or API key. Never stored or returned in
+             *     cleartext.
+             * @example ghp_your_token_here
+             */
+            secret: string;
+        };
         /** @description The body of `POST /filters`. */
         CreateFilterRequest: {
             /** @description The AQL. Checked for syntax and type errors before it is saved. */
@@ -1753,6 +1836,52 @@ export interface components {
             name: string;
             /** @description The statuses this workflow includes. Each must belong to the project. */
             statusIds?: string[];
+        };
+        /**
+         * @description A credential as the API describes it: **metadata only, never the secret.**
+         *
+         *     A separate struct from [`Credential`] on purpose — this is the one that
+         *     derives `Serialize`, and it structurally cannot carry the ciphertext, the
+         *     nonce, or the plaintext, because it has no field for them. The secret cannot
+         *     leak through this type by any edit short of adding a field and a decrypt call,
+         *     both of which are visible in review.
+         */
+        CredentialDto: {
+            /**
+             * Format: date-time
+             * @description When it was stored.
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description When the credential expires, if known.
+             */
+            expiresAt?: string | null;
+            /** @description UUID v7, as text. */
+            id: string;
+            /** @description The human label. */
+            label: string;
+            /**
+             * @description The last four characters of the secret — all the UI ever sees of it.
+             * @example a1b2
+             */
+            lastFour: string;
+            /**
+             * Format: date-time
+             * @description When it was last validated, if ever.
+             */
+            lastValidatedAt?: string | null;
+            /** @description Which integration this is for. */
+            provider: components["schemas"]["Provider"];
+            /** @description The provider scopes, if discovered. */
+            scopes: string[];
+            /** @description The effective status pill, resolved against the current time. */
+            status: components["schemas"]["PillStatus"];
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
         };
         /**
          * @description How a project's single `estimate` field is interpreted.
@@ -1929,6 +2058,17 @@ export interface components {
             /** @description The target column. Omit to reorder within the current one. */
             statusId?: string | null;
         };
+        /**
+         * @description The status the frontend renders as a pill, derived from the stored status plus
+         *     `expires_at` and the clock.
+         *
+         *     The extra state over [`CredentialStatus`] is `Expiring`: a still-valid
+         *     credential inside [`EXPIRING_WINDOW_DAYS`] of its expiry. Computing it here
+         *     rather than storing it means it is always correct against *now*, with no
+         *     scheduled job needed to flip a stored flag as the deadline passes.
+         * @enum {string}
+         */
+        PillStatus: "unchecked" | "valid" | "expiring" | "expired" | "invalid";
         /** @description How urgent a card is. Ordered. */
         Priority: {
             /** @description A hex colour. */
@@ -2076,6 +2216,15 @@ export interface components {
          * @enum {string}
          */
         ProjectRole: "viewer" | "member" | "owner";
+        /**
+         * @description Which integration a credential is for.
+         *
+         *     A closed set, pinned by a `CHECK` in migration 0009 *and* by this enum's
+         *     `Decode`: a row with a provider outside the four is corrupt, and defaulting it
+         *     would hide that. The same two-guard shape as [`crate::domain::StatusCategory`].
+         * @enum {string}
+         */
+        Provider: "github" | "anthropic" | "gemini" | "smtp";
         /** @description The body of `PATCH /hierarchy-levels/{id}`. */
         RenameRequest: {
             /** @description The new name. */
@@ -4021,6 +4170,220 @@ export interface operations {
             };
             /** @description The comment is empty or too long */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_credentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every credential, as metadata — never the secret */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialDto"][];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_credential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored; the response is metadata only */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A credential with this provider and label already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The label or secret is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The secrets vault is not configured (no ATLAS_MASTER_KEY) */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_credential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The credential's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such credential */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    validate_credential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The credential's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Validated; the updated metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialDto"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such credential */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The secrets vault is not configured, or the secret could not be decrypted */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,0 +1,40 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-300);
+  padding: var(--ds-space-400);
+  max-width: 800px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-100);
+}
+
+.headingRow {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-150);
+}
+
+.headingIcon {
+  display: flex;
+  color: var(--ds-icon-brand);
+}
+
+.lede {
+  font: var(--ds-font-body);
+  color: var(--ds-text-subtle);
+  max-width: 60ch;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-200);
+}
+
+.skeleton {
+  border-radius: var(--ds-radius-large);
+}
