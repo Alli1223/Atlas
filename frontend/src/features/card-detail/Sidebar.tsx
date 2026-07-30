@@ -14,6 +14,7 @@ import {
 
 import type { Card, StatusCategory } from './api'
 import styles from './CardDetail.module.css'
+import { Development } from './Development'
 import { formatDate, formatDateTime } from './format'
 import {
   useCardTypes,
@@ -157,6 +158,8 @@ export function Sidebar({ card, projectKey, parentLookup }: SidebarProps) {
           )}
         </Field>
       )}
+
+      <Development card={card} projectKey={projectKey} />
 
       <div className={styles.timestamps}>
         <div title={formatDateTime(card.createdAt)}>Created {formatDate(card.createdAt)}</div>

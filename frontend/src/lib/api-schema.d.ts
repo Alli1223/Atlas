@@ -4,6 +4,61 @@
  */
 
 export interface paths {
+    "/api/v1/admin/system": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Returns current CPU, memory and disk usage. Admin only. */
+        get: operations["get_system"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Polls GitHub Releases for a version newer than the one currently running. */
+        get: operations["check_updates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/updates/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queues a self-update by writing a trigger file the host-side update service watches for.
+         * @description The rebuild and restart are asynchronous. Atlas will be briefly unavailable while the
+         *     new container starts. Follow progress with: `journalctl -fu atlas-update`
+         */
+        post: operations["apply_update"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/change-password": {
         parameters: {
             query?: never;
@@ -227,6 +282,23 @@ export interface paths {
         patch: operations["update_card"];
         trace?: never;
     };
+    "/api/v1/cards/{key}/branch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Creates a branch on the linked repo from a card, named `{prefix}/{key}-{slug}`. */
+        post: operations["create_branch_from_card"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{key}/children": {
         parameters: {
             query?: never;
@@ -261,6 +333,23 @@ export interface paths {
         put?: never;
         /** Posts a comment. */
         post: operations["create_comment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/git-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists the git objects (branches, PRs, commits) linked to a card. */
+        get: operations["card_git_links"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -498,6 +587,23 @@ export interface paths {
         post?: never;
         /** Deletes a credential. */
         delete: operations["delete_credential"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credentials/{id}/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists the repositories a GitHub credential can see, for the link picker. */
+        get: operations["list_credential_repos"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -886,6 +992,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{key}/repo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The repo linked to a project. */
+        get: operations["get_project_repo"];
+        /** Links (or relinks) a project to a repository. One repo per project. */
+        put: operations["link_project_repo"];
+        post?: never;
+        /** Unlinks a project's repo. */
+        delete: operations["unlink_project_repo"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{key}/resolutions": {
         parameters: {
             query?: never;
@@ -1268,6 +1393,11 @@ export interface components {
             /** @description Who to grant access to. */
             userId: string;
         };
+        /** @description Confirmation that an update has been queued. */
+        ApplyUpdateResponse: {
+            /** @description Human-readable message for the admin. */
+            message: string;
+        };
         /** @description The body of `POST /cards/{key}/tags`. */
         AttachTagRequest: {
             /** @description The tag to put on the card. Must be the card's project's, or global. */
@@ -1397,6 +1527,15 @@ export interface components {
             /** @description The human label for the lane. */
             label: string;
         };
+        /** @description The branch a card→branch action created. */
+        BranchCreatedDto: {
+            /** @description The branch it was forked from. */
+            baseBranch: string;
+            /** @description The full branch name, e.g. `feature/ATLAS-42-add-login`. */
+            branch: string;
+            /** @description The browser URL for the branch. */
+            url: string;
+        };
         /** @description A card as the API describes it. */
         CardDto: {
             /**
@@ -1478,6 +1617,22 @@ export interface components {
              * @description When it last changed.
              */
             updatedAt: string;
+        };
+        /** @description A git object linked to a card. */
+        CardGitLinkDto: {
+            /**
+             * Format: date-time
+             * @description When Atlas first recorded it.
+             */
+            createdAt: string;
+            /** @description `branch` | `pr` | `commit`. */
+            kind: string;
+            /** @description The branch name, PR number, or commit SHA. */
+            reference: string;
+            /** @description A `kind`-specific state, if known. */
+            state?: string | null;
+            /** @description The browser URL, if known. */
+            url?: string | null;
         };
         /** @description A page of cards. */
         CardPageDto: {
@@ -2023,6 +2178,17 @@ export interface components {
             /** @description The new id / raw value. */
             toValue?: string | null;
         };
+        /** @description The body of a link request: which credential, and which repo. */
+        LinkRepoRequest: {
+            /** @description Prefix for generated branch names. Defaults to `feature`. */
+            branchPrefix?: string | null;
+            /** @description The GitHub credential whose PAT Atlas will act with. */
+            credentialId: string;
+            /** @description The repository owner (user or org login). */
+            owner: string;
+            /** @description The repository name. */
+            repo: string;
+        };
         /** @description Credentials for `POST /auth/login`. */
         LoginRequest: {
             /** @description The password. */
@@ -2200,6 +2366,38 @@ export interface components {
             /** @description The holder's login name. */
             username: string;
         };
+        /** @description The repo a project is linked to, as the API describes it. Carries no secret. */
+        ProjectRepoDto: {
+            /** @description The prefix for generated branch names. */
+            branchPrefix: string;
+            /** @description The credential driving the link, or `null` if it was deleted. */
+            credentialId?: string | null;
+            /** @description The default branch new branches fork from. */
+            defaultBranch: string;
+            /** @description `owner/name`. */
+            fullName: string;
+            /**
+             * Format: date-time
+             * @description When the link was created.
+             */
+            linkedAt: string;
+            /** @description The repository owner. */
+            owner: string;
+            /** @description The repository name. */
+            repo: string;
+            /**
+             * Format: int64
+             * @description GitHub's immutable numeric id.
+             */
+            repoId: number;
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
+            /** @description Whether an Atlas webhook is installed on the repo. */
+            webhookConfigured: boolean;
+        };
         /**
          * @description What a user may do *on one project*.
          *
@@ -2240,6 +2438,25 @@ export interface components {
              *     is a client bug, the other is "make this a root".
              */
             parentId?: string | null;
+        };
+        /** @description A repository as the repo picker shows it. */
+        RepoSummary: {
+            /**
+             * @description Whether the token can push. A token can *list* a repo it cannot write to,
+             *     so this is the real "can Atlas create a branch here" signal.
+             */
+            canPush?: boolean;
+            /** @description The repo's default branch (`main`, `master`, …) — the branch base. */
+            default_branch: string;
+            /** @description `owner/name`. */
+            fullName: string;
+            /**
+             * Format: int64
+             * @description GitHub's immutable numeric id. Keyed on because it survives renames.
+             */
+            id: number;
+            /** @description Whether the repo is private. */
+            private?: boolean;
         };
         /**
          * @description Why a card stopped.
@@ -2397,6 +2614,34 @@ export interface components {
          * @enum {string}
          */
         StatusCategory: "todo" | "in_progress" | "done";
+        /** @description Point-in-time host resource usage. */
+        SystemStats: {
+            /**
+             * Format: float
+             * @description CPU utilisation across all cores, 0–100.
+             */
+            cpuUsagePercent: number;
+            /**
+             * Format: int64
+             * @description Total capacity of the filesystem that holds the data directory, in bytes.
+             */
+            diskTotalBytes: number;
+            /**
+             * Format: int64
+             * @description Used capacity of that filesystem, in bytes.
+             */
+            diskUsedBytes: number;
+            /**
+             * Format: int64
+             * @description Total physical memory, in bytes.
+             */
+            memoryTotalBytes: number;
+            /**
+             * Format: int64
+             * @description Memory currently in use, in bytes.
+             */
+            memoryUsedBytes: number;
+        };
         /** @description A tag row. */
         Tag: {
             colour?: null | components["schemas"]["TagColour"];
@@ -2644,6 +2889,21 @@ export interface components {
              */
             position?: number | null;
         };
+        /** @description Result of polling GitHub Releases for a newer version. */
+        UpdateStatus: {
+            /** @description The version currently running. */
+            currentVersion: string;
+            /** @description Set when the check could not be completed (network error, private repo, etc.). */
+            error?: string | null;
+            /** @description Whether `latest_version` is strictly newer than `current_version`. */
+            hasUpdate: boolean;
+            /** @description The latest published release tag (without the `v` prefix), if reachable. */
+            latestVersion?: string | null;
+            /** @description Markdown release notes from the GitHub release body. */
+            releaseNotes?: string | null;
+            /** @description URL of the GitHub release page. */
+            releaseUrl?: string | null;
+        };
         /** @description The body of `PATCH /statuses/{id}`. */
         UpdateStatusRequest: {
             category?: null | components["schemas"]["StatusCategory"];
@@ -2826,6 +3086,129 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_system: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current system statistics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemStats"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden — admins only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    check_updates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Update status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStatus"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden — admins only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    apply_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Update queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyUpdateResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden — admins only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Could not write the trigger file */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     change_password: {
         parameters: {
             query?: never;
@@ -3419,6 +3802,56 @@ export interface operations {
             };
         };
     };
+    create_branch_from_card: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key, e.g. ATLAS-42 */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The branch (created, or adopted if it already existed) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchCreatedDto"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The card's project has no linked repo, or its credential is gone */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The vault is not configured, or GitHub errored */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     card_children: {
         parameters: {
             query?: never;
@@ -3555,6 +3988,38 @@ export interface operations {
             };
             /** @description The comment is empty or too long */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    card_git_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card's git links, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardGitLinkDto"][];
+                };
+            };
+            /** @description No such card */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4325,6 +4790,59 @@ export interface operations {
             };
             /** @description No such credential */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_credential_repos: {
+        parameters: {
+            query?: {
+                /** @description 1-based page (30 per page) */
+                page?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The GitHub credential to list repositories for */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repositories, most-recently-pushed first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepoSummary"][];
+                };
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such credential, or it is not a GitHub credential */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The vault is not configured, or GitHub errored */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6046,6 +6564,122 @@ export interface operations {
             };
             /** @description The name is invalid */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_project_repo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The linked repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRepoDto"];
+                };
+            };
+            /** @description No repo is linked, or no such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    link_project_repo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkRepoRequest"];
+            };
+        };
+        responses: {
+            /** @description Linked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRepoDto"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The credential is missing or not a GitHub credential */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The vault is not configured, or GitHub errored */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unlink_project_repo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No repo was linked, or no such project */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
