@@ -10,11 +10,14 @@ import type { ApiError } from '@/lib/api'
 
 import * as cardApi from './api'
 import type {
+  BranchCreated,
   Card,
   CardPatch,
   Comment,
   ExecuteTransitionInput,
+  LinkRepoInput,
   ProjectMember,
+  ProjectRepo,
 } from './api'
 import { projectKeyOf } from './api'
 
@@ -37,6 +40,9 @@ export const cardKeys = {
   resolutions: (projectKey: string) => [...cardKeys.all, 'resolutions', projectKey] as const,
   cardTypes: (projectKey: string) => [...cardKeys.all, 'card-types', projectKey] as const,
   members: (projectKey: string) => [...cardKeys.all, 'members', projectKey] as const,
+  repo: (projectKey: string) => [...cardKeys.all, 'repo', projectKey] as const,
+  gitLinks: (key: string) => [...cardKeys.all, 'git-links', key] as const,
+  githubCredentials: () => [...cardKeys.all, 'github-credentials'] as const,
 }
 
 /** Shared options so a route loader can warm the same cache the component reads. */
@@ -128,6 +134,73 @@ export function useCardIndex(projectKey: string, enabled: boolean) {
     },
     enabled,
     staleTime: 60_000,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// GitHub: the project↔repo link and the card's branches / PRs / commits.
+// ---------------------------------------------------------------------------
+
+/** The repo linked to the card's project, or `null`. Cached briefly — it rarely changes. */
+export function useProjectRepo(projectKey: string) {
+  return useQuery({
+    queryKey: cardKeys.repo(projectKey),
+    queryFn: () => cardApi.fetchProjectRepo(projectKey),
+    staleTime: 60_000,
+  })
+}
+
+/** A card's git links (branches, PRs, commits). */
+export function useCardGitLinks(cardKey: string) {
+  return useQuery({
+    queryKey: cardKeys.gitLinks(cardKey),
+    queryFn: () => cardApi.fetchCardGitLinks(cardKey),
+  })
+}
+
+/**
+ * The GitHub credentials to pick from when linking. Fetched lazily via `enabled` — listing
+ * credentials is admin-only, so it only runs when the (admin-gated) link dialog opens.
+ */
+export function useGithubCredentials(enabled = true) {
+  return useQuery({
+    queryKey: cardKeys.githubCredentials(),
+    queryFn: cardApi.fetchGithubCredentials,
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+/** Creates a branch from the card. The branch becomes a git link, so refetch the list. */
+export function useCreateBranch(cardKey: string) {
+  const queryClient = useQueryClient()
+  return useMutation<BranchCreated, ApiError, void>({
+    mutationFn: () => cardApi.createBranch(cardKey),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardKeys.gitLinks(cardKey) })
+    },
+  })
+}
+
+/** Links a repo to the card's project, folding the result straight into the repo cache. */
+export function useLinkRepo(projectKey: string) {
+  const queryClient = useQueryClient()
+  return useMutation<ProjectRepo, ApiError, LinkRepoInput>({
+    mutationFn: (input) => cardApi.linkRepo(projectKey, input),
+    onSuccess: (repo) => {
+      queryClient.setQueryData(cardKeys.repo(projectKey), repo)
+    },
+  })
+}
+
+/** Unlinks the project's repo. */
+export function useUnlinkRepo(projectKey: string) {
+  const queryClient = useQueryClient()
+  return useMutation<void, ApiError, void>({
+    mutationFn: () => cardApi.unlinkRepo(projectKey),
+    onSuccess: () => {
+      queryClient.setQueryData(cardKeys.repo(projectKey), null)
+    },
   })
 }
 

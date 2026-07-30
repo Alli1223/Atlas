@@ -184,3 +184,72 @@ export async function fetchProjectCards(projectKey: string): Promise<Card[]> {
   )
   return page.cards
 }
+
+// ---------------------------------------------------------------------------
+// GitHub: the project↔repo link, and the card's branches / PRs / commits.
+// ---------------------------------------------------------------------------
+
+/** The repo a project is linked to. Mirrors `ProjectRepoDto`. */
+export type ProjectRepo = components['schemas']['ProjectRepoDto']
+/** A git object tied to a card. Mirrors `CardGitLinkDto`. */
+export type CardGitLink = components['schemas']['CardGitLinkDto']
+/** The branch a card→branch action created. Mirrors `BranchCreatedDto`. */
+export type BranchCreated = components['schemas']['BranchCreatedDto']
+/** A stored credential's metadata (never the secret). Mirrors `CredentialDto`. */
+export type Credential = components['schemas']['CredentialDto']
+
+/**
+ * The repo linked to a project, or `null` when none is.
+ *
+ * "No repo linked" is the common, expected state, so the endpoint's 404 is folded to `null`
+ * rather than thrown — an unlinked project is not an error the caller must handle, just an
+ * empty section to render.
+ */
+export async function fetchProjectRepo(projectKey: string): Promise<ProjectRepo | null> {
+  const result = await api.GET('/api/v1/projects/{key}/repo', {
+    params: { path: { key: projectKey } },
+  })
+  if (result.response.status === 404) return null
+  return unwrap(result)
+}
+
+/** A card's git links (branches, PRs, commits), newest first. */
+export async function fetchCardGitLinks(cardKey: string): Promise<CardGitLink[]> {
+  return unwrap(
+    await api.GET('/api/v1/cards/{key}/git-links', { params: { path: { key: cardKey } } }),
+  )
+}
+
+/** Creates a branch from a card on the linked repo. Takes no body — the card is the input. */
+export async function createBranch(cardKey: string): Promise<BranchCreated> {
+  return unwrap(await api.POST('/api/v1/cards/{key}/branch', { params: { path: { key: cardKey } } }))
+}
+
+/** The fields needed to link a repo to a project. */
+export interface LinkRepoInput {
+  credentialId: string
+  owner: string
+  repo: string
+  branchPrefix?: string | null
+}
+
+/** Links (or relinks) a project to a repo. Project owners / admins only. */
+export async function linkRepo(projectKey: string, input: LinkRepoInput): Promise<ProjectRepo> {
+  return unwrap(
+    await api.PUT('/api/v1/projects/{key}/repo', {
+      params: { path: { key: projectKey } },
+      body: input,
+    }),
+  )
+}
+
+/** Unlinks a project's repo. */
+export async function unlinkRepo(projectKey: string): Promise<void> {
+  unwrap(await api.DELETE('/api/v1/projects/{key}/repo', { params: { path: { key: projectKey } } }))
+}
+
+/** The GitHub credentials an admin can link a repo with. Admin-only on the server. */
+export async function fetchGithubCredentials(): Promise<Credential[]> {
+  const all = unwrap(await api.GET('/api/v1/credentials'))
+  return all.filter((credential) => credential.provider === 'github')
+}
