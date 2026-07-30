@@ -3,11 +3,11 @@ members = ["backend"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.94"
 authors = ["Alastair Rayner"]
-repository = "https://github.com/alastairrayner/atlas"
+repository = "https://github.com/Alli1223/Atlas"
 publish = false
 
 # ---------------------------------------------------------------------------
@@ -104,6 +104,8 @@ garde = { version = "0.23.0", features = ["derive"] }
 fractional_index = { version = "2.0.2", features = ["serde"] }
 figment = { version = "0.10", features = ["env", "toml"] }
 proptest = "1.8"
+# System telemetry (CPU, memory, disk) for the admin settings page.
+sysinfo = { version = "0.33", default-features = false, features = ["system", "disk"] }
 
 # ---------------------------------------------------------------------------
 # Lints. Inherited by members via `[lints] workspace = true`.

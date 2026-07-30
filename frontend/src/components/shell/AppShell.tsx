@@ -3,6 +3,7 @@ import {
   Bell,
   ChevronLeft,
   FolderKanban,
+  KeyRound,
   LayoutDashboard,
   type LucideIcon,
   Palette,
@@ -24,7 +25,7 @@ import { ThemeToggle } from './ThemeToggle'
 interface NavItem {
   label: string
   icon: LucideIcon
-  to?: '/' | '/styleguide' | '/projects' | '/settings'
+  to?: '/' | '/styleguide' | '/projects' | '/settings' | '/admin/settings'
 }
 
 const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
@@ -40,7 +41,8 @@ const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
     heading: 'Atlas',
     items: [
       { label: 'Style guide', to: '/styleguide', icon: Palette },
-      { label: 'Settings', to: '/settings', icon: Settings },
+      { label: 'Integrations', to: '/settings', icon: KeyRound },
+      { label: 'Settings', to: '/admin/settings', icon: Settings },
     ],
   },
 ]

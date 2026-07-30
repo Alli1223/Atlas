@@ -1,0 +1,13 @@
+[Unit]
+Description=Atlas self-update — pull, rebuild, restart
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=alli
+WorkingDirectory=/home/alli/apps/Atlas
+ExecStart=/home/alli/apps/Atlas/update.sh
+StandardOutput=journal
+StandardError=journal
+# Give a full Docker build plenty of time.
+TimeoutStartSec=1800

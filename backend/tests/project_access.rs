@@ -1381,6 +1381,12 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "POST /api/v1/credentials",
     "DELETE /api/v1/credentials/{id}",
     "POST /api/v1/credentials/{id}/validate",
+    // Instance administration: system telemetry and self-update, admin-only and
+    // not project-scoped. Guarded by RequireAdmin in the handler — an outsider is
+    // refused 403 by that guard, not 404 by the project gate.
+    "GET /api/v1/admin/system",
+    "GET /api/v1/admin/updates",
+    "POST /api/v1/admin/updates/apply",
 ];
 
 /// Every path parameter in the API, and a real value from a project the outsider
