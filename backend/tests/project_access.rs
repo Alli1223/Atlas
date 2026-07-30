@@ -2711,9 +2711,26 @@ async fn two_owners_removing_each_other_at_once_cannot_leave_zero() {
         "neither removal succeeded, so the two serialised into a deadlock rather than a queue: \
          {statuses:?}"
     );
+    // Exactly one succeeds; the other is refused — and *which* refusal is a genuine
+    // race, so both are accepted:
+    //   - CONFLICT: the loser reached the handler and the last-owner guard caught it
+    //     (both requests' authorisation read an owner before either committed).
+    //   - NOT_FOUND: the winner's removal committed *before* the loser's
+    //     authorisation check ran, so the loser is no longer an owner and the
+    //     project gate turned it away before the handler — a 404, not a 403, by the
+    //     same existence-hiding rule the rest of this file pins.
+    // Both leave exactly one owner (asserted above), which is the property that
+    // matters; neither can leave zero. Demanding CONFLICT specifically made this
+    // flaky under load, when the 404 interleaving wins.
+    let succeeded = statuses
+        .iter()
+        .filter(|s| **s == StatusCode::NO_CONTENT)
+        .count();
+    let refused = [StatusCode::CONFLICT, StatusCode::NOT_FOUND];
     assert!(
-        statuses.contains(&StatusCode::CONFLICT),
-        "one of the two removals should have found itself last and been refused: {statuses:?}\n{}\n{}",
+        succeeded == 1 && statuses.iter().any(|s| refused.contains(s)),
+        "expected exactly one removal to succeed and the other to be refused — 409 by the \
+         last-owner guard, or 404 once the winner revoked its ownership: {statuses:?}\n{}\n{}",
         removed_b.raw_body,
         removed_a.raw_body
     );
