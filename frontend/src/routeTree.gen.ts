@@ -10,17 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as StyleguideRouteImport } from './routes/styleguide'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ChangePasswordRouteImport } from './routes/change-password'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as CardsKeyRouteImport } from './routes/cards.$key'
+import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as ProjectsProjectKeyBoardRouteImport } from './routes/projects.$projectKey.board'
 
 const StyleguideRoute = StyleguideRouteImport.update({
   id: '/styleguide',
   path: '/styleguide',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -38,11 +44,6 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminSettingsRoute = AdminSettingsRouteImport.update({
-  id: '/admin/settings',
-  path: '/admin/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
   id: '/projects/',
   path: '/projects/',
@@ -51,6 +52,11 @@ const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
 const CardsKeyRoute = CardsKeyRouteImport.update({
   id: '/cards/$key',
   path: '/cards/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/admin/settings',
+  path: '/admin/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsProjectKeyBoardRoute = ProjectsProjectKeyBoardRouteImport.update({
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/change-password': typeof ChangePasswordRoute
   '/login': typeof LoginRoute
+  '/settings': typeof SettingsRoute
   '/styleguide': typeof StyleguideRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/cards/$key': typeof CardsKeyRoute
@@ -73,6 +80,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/change-password': typeof ChangePasswordRoute
   '/login': typeof LoginRoute
+  '/settings': typeof SettingsRoute
   '/styleguide': typeof StyleguideRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/cards/$key': typeof CardsKeyRoute
@@ -84,6 +92,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/change-password': typeof ChangePasswordRoute
   '/login': typeof LoginRoute
+  '/settings': typeof SettingsRoute
   '/styleguide': typeof StyleguideRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/cards/$key': typeof CardsKeyRoute
@@ -96,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/change-password'
     | '/login'
+    | '/settings'
     | '/styleguide'
     | '/admin/settings'
     | '/cards/$key'
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/change-password'
     | '/login'
+    | '/settings'
     | '/styleguide'
     | '/admin/settings'
     | '/cards/$key'
@@ -116,6 +127,7 @@ export interface FileRouteTypes {
     | '/'
     | '/change-password'
     | '/login'
+    | '/settings'
     | '/styleguide'
     | '/admin/settings'
     | '/cards/$key'
@@ -127,6 +139,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChangePasswordRoute: typeof ChangePasswordRoute
   LoginRoute: typeof LoginRoute
+  SettingsRoute: typeof SettingsRoute
   StyleguideRoute: typeof StyleguideRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   CardsKeyRoute: typeof CardsKeyRoute
@@ -141,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/styleguide'
       fullPath: '/styleguide'
       preLoaderRoute: typeof StyleguideRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -164,13 +184,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/settings': {
-      id: '/admin/settings'
-      path: '/admin/settings'
-      fullPath: '/admin/settings'
-      preLoaderRoute: typeof AdminSettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/projects/': {
       id: '/projects/'
       path: '/projects'
@@ -183,6 +196,13 @@ declare module '@tanstack/react-router' {
       path: '/cards/$key'
       fullPath: '/cards/$key'
       preLoaderRoute: typeof CardsKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/admin/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects/$projectKey/board': {
@@ -199,6 +219,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChangePasswordRoute: ChangePasswordRoute,
   LoginRoute: LoginRoute,
+  SettingsRoute: SettingsRoute,
   StyleguideRoute: StyleguideRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   CardsKeyRoute: CardsKeyRoute,

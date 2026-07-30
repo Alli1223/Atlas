@@ -1371,6 +1371,22 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "PATCH /api/v1/filters/{id}",
     "DELETE /api/v1/filters/{id}",
     "GET /api/v1/filters/{id}/results",
+    // The secrets vault: instance settings, admin-only, not project-scoped. A
+    // GitHub PAT or Claude key belongs to the instance, not to any project, so
+    // there is no project to be an "outsider" of. `{id}` here is a credential id,
+    // and the routes are guarded by RequireAdmin in the handler — an outsider is
+    // refused 403 by that guard, not 404 by the project gate, which is why they
+    // are not project-scoped probes.
+    "GET /api/v1/credentials",
+    "POST /api/v1/credentials",
+    "DELETE /api/v1/credentials/{id}",
+    "POST /api/v1/credentials/{id}/validate",
+    // Instance administration: system telemetry and self-update, admin-only and
+    // not project-scoped. Guarded by RequireAdmin in the handler — an outsider is
+    // refused 403 by that guard, not 404 by the project gate.
+    "GET /api/v1/admin/system",
+    "GET /api/v1/admin/updates",
+    "POST /api/v1/admin/updates/apply",
 ];
 
 /// Every path parameter in the API, and a real value from a project the outsider

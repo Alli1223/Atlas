@@ -626,6 +626,24 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
     (Method::PATCH, "/api/v1/filters/{id}", Scope::Unscoped),
     (Method::DELETE, "/api/v1/filters/{id}", Scope::Unscoped),
     (Method::GET, "/api/v1/filters/{id}/results", Scope::Unscoped),
+    // --- the secrets vault: instance settings, not project config ---
+    //
+    // `Unscoped`, on purpose. A GitHub PAT or a Claude API key belongs to the
+    // *instance*, not to any one project — there is no `{key}` to decide access
+    // on, and scoping a token to a project would be a category error. Access is
+    // the handler's [`crate::auth::extract::RequireAdmin`]: only an instance admin
+    // may add, list, delete, or validate a credential, which is stricter than any
+    // project role. The `id` in the delete/validate paths is a credential id, not
+    // a project key, and must not be resolved as one — hence `Unscoped`, which
+    // resolves nothing and stands aside for the handler's own guard.
+    (Method::GET, "/api/v1/credentials", Scope::Unscoped),
+    (Method::POST, "/api/v1/credentials", Scope::Unscoped),
+    (Method::DELETE, "/api/v1/credentials/{id}", Scope::Unscoped),
+    (
+        Method::POST,
+        "/api/v1/credentials/{id}/validate",
+        Scope::Unscoped,
+    ),
     // --- admin: instance-level, guarded by RequireAdmin in each handler ---
     (Method::GET, "/api/v1/admin/system", Scope::Unscoped),
     (Method::GET, "/api/v1/admin/updates", Scope::Unscoped),
