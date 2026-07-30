@@ -59,7 +59,7 @@ chrono = { version = "0.4.45", features = ["serde"] }
 # is a DIFFERENT type from rand 0.9/0.10's OsRng. See docs/research/rust-stack.md.
 argon2 = { version = "0.5.3", features = ["std"] }
 # SHA-256 for session-token digests. Session ids are hashed before storage.
-sha2 = "0.10"
+sha2 = "0.11"
 # HMAC-SHA256 for GitHub webhook signature verification (Phase 12). Pinned to
 # 0.12 (digest 0.10) to share `sha2 = 0.10` with the session-token digests —
 # hmac 0.13 pulls digest 0.11 and would fork the sha2 tree. `Mac::verify_slice`
