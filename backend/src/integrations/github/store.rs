@@ -291,6 +291,55 @@ pub async fn list_card_git_links(db: &Db, card_id: &str) -> AppResult<Vec<CardGi
     .await?)
 }
 
+// ---------------------------------------------------------------------------
+// card_worklogs
+// ---------------------------------------------------------------------------
+
+/// The fields needed to record a worklog against a card.
+#[derive(Debug)]
+pub struct NewWorklog<'a> {
+    /// The card the time is logged against.
+    pub card_id: &'a str,
+    /// Who did the work, if known. `NULL` survives that account's later deletion.
+    pub author_id: Option<&'a str>,
+    /// Minutes worked — must be positive (the column is `CHECK (minutes > 0)`).
+    pub minutes: i64,
+    /// An optional note (the words trailing a `#time 2h` directive).
+    pub note: Option<&'a str>,
+    /// Where the log came from, e.g. `smart-commit`.
+    pub source: &'a str,
+}
+
+/// Appends a worklog to a card. `card_worklogs` is append-only — no `updated_at`.
+///
+/// A non-positive duration is rejected here rather than left to the DB's
+/// `CHECK (minutes > 0)`, so the caller gets a clear error instead of an opaque 500.
+pub async fn insert_worklog(
+    tx: &mut SqliteConnection,
+    new: &NewWorklog<'_>,
+    now: DateTime<Utc>,
+) -> AppResult<()> {
+    if new.minutes <= 0 {
+        return Err(AppError::Validation(
+            "a worklog must be a positive number of minutes".to_owned(),
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO card_worklogs (id, card_id, author_id, minutes, note, source, created_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::now_v7().to_string())
+    .bind(new.card_id)
+    .bind(new.author_id)
+    .bind(new.minutes)
+    .bind(new.note)
+    .bind(new.source)
+    .bind(to_sql_timestamp(now))
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -272,31 +272,31 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 
 ## Phase 11 — Secrets vault `feat/11-secrets` 🔒 (requested)
 
-- [ ] Master key from env or OS keyring (`keyring` crate); startup fail-fast if absent
-- [ ] **XChaCha20-Poly1305** AEAD per secret, unique nonce, key id for rotation
-- [ ] `Secret<T>` wrapper: **redacted `Debug`**, `zeroize` on drop, no `Serialize`. Make leaking a compile error, not a code-review catch
-- [ ] `api_credentials`: provider, label, ciphertext, nonce, last_validated_at, status, expires_at, scopes, created_by
-- [ ] **Never return plaintext over the API** — only last-4 + metadata
-- [ ] Per-provider validation probe (cheap endpoint, no side effects)
-- [ ] **Expiry/expired/invalid warnings** (requested): scheduled revalidation, banner + notification, per-key status pill (valid / expiring in N days / expired / invalid / unchecked)
-- [ ] Settings → Integrations UI: add/replace/delete, validate-now, scope display, last-checked
-- [ ] Audit every access; rate-limit validation probes
-- [ ] Tests: ciphertext never in logs; `Debug` redaction; rotation
+- [x] Master key from env or OS keyring (`keyring` crate); startup fail-fast if absent
+- [x] **XChaCha20-Poly1305** AEAD per secret, unique nonce, key id for rotation
+- [x] `Secret<T>` wrapper: **redacted `Debug`**, `zeroize` on drop, no `Serialize`. Make leaking a compile error, not a code-review catch
+- [x] `api_credentials`: provider, label, ciphertext, nonce, last_validated_at, status, expires_at, scopes, created_by
+- [x] **Never return plaintext over the API** — only last-4 + metadata
+- [x] Per-provider validation probe (cheap endpoint, no side effects)
+- [ ] **Expiry/expired/invalid warnings** (requested): scheduled revalidation, banner + notification, per-key status pill (valid / expiring in N days / expired / invalid / unchecked) — _pill + banner done; scheduled revalidation deferred to Phase 17_
+- [x] Settings → Integrations UI: add/replace/delete, validate-now, scope display, last-checked
+- [ ] Audit every access; rate-limit validation probes — _access audited; probe rate-limiting deferred_
+- [x] Tests: ciphertext never in logs; `Debug` redaction; rotation
 
 ---
 
 ## Phase 12 — GitHub integration `feat/12-github` (requested)
 
-- [ ] PAT storage via vault; validate → `GET /user`
-- [ ] **Scope + expiry discovery from headers**: `x-oauth-scopes`, `github-authentication-token-expiration`. Parse **both** layouts seen in the wild — `2006-01-02 15:04:05 MST` and `2006-01-02 15:04:05 -0700` (`corrections.md` #3). Missing header = "no expiry info supplied", *not* "never expires" (#5)
+- [x] PAT storage via vault; validate → `GET /user`
+- [x] **Scope + expiry discovery from headers**: `x-oauth-scopes`, `github-authentication-token-expiration`. Parse **both** layouts seen in the wild — `2006-01-02 15:04:05 MST` and `2006-01-02 15:04:05 -0700` (`corrections.md` #3). Missing header = "no expiry info supplied", *not* "never expires" (#5)
 - [ ] `octocrab` client + rate-limit handling (`x-ratelimit-*`, secondary limits, retry/backoff)
-- [ ] Link project → repo; repo picker (paginated)
-- [ ] ⭐ **Create branch from card** (requested): `POST /repos/{o}/{r}/git/refs` from a base SHA. Configurable naming: `{type}/{key}-{slug}` → `feature/ATLAS-42-add-login`
+- [x] Link project → repo; repo picker (paginated)
+- [x] ⭐ **Create branch from card** (requested): `POST /repos/{o}/{r}/git/refs` from a base SHA. Configurable naming: `{type}/{key}-{slug}` → `feature/ATLAS-42-add-login`
 - [ ] Development panel on card: branches, commits, PRs, checks
 - [ ] Create PR from card; PR state (open/closed/**merged**), mergeable, reviews, CI checks
 - [ ] **Webhook receiver** (built now so a GitHub App drops in later): HMAC-SHA256 verify `x-hub-signature-256`, **constant-time compare** 🔒, replay guard by delivery id
 - [ ] Events: `push`, `pull_request`, `check_suite`, `check_run`, `create`, `delete`
-- [ ] ⭐ **Smart commits**: parse `ATLAS-42 #done #comment fixed it #time 2h` → transition/comment/worklog
+- [x] ⭐ **Smart commits**: parse `ATLAS-42 #done #comment fixed it #time 2h` → transition/comment/worklog — _parser + application landed; delivery via the webhook receiver below_
 - [ ] Auto-transition on PR open → In Review; on merge → Done
 - [ ] Poll fallback when no public webhook URL
 - [ ] Sync status + backfill; unlink
@@ -463,8 +463,8 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 8b Nested boards | `feat/07-frontend-boards` | ✅ mini-map + nested nav |
 | 9 Card detail | `feat/07-frontend-boards` | ✅ |
 | 10 Cycles | `feat/10-cycles` | ⬜ |
-| 11 Secrets | `feat/11-secrets` | ⬜ |
-| 12 GitHub | `feat/12-github` | ⬜ |
+| 11 Secrets | `feat/11-secrets` | ✅ (#12) |
+| 12 GitHub | `feat/12-github` | 🚧 vault→PAT, repo linking, create-branch, card panel (#12, #15, #16) |
 | 13 Claude agent | `feat/13-claude-agent` | ⬜ |
 | 14 Gemini | `feat/14-gemini` | ⬜ |
 | 15 Automation | `feat/15-automation` | ⬜ |
