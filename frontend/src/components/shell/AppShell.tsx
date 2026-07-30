@@ -24,7 +24,7 @@ import { ThemeToggle } from './ThemeToggle'
 interface NavItem {
   label: string
   icon: LucideIcon
-  to?: '/' | '/styleguide' | '/projects'
+  to?: '/' | '/styleguide' | '/projects' | '/admin/settings'
 }
 
 const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
@@ -40,7 +40,7 @@ const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
     heading: 'Atlas',
     items: [
       { label: 'Style guide', to: '/styleguide', icon: Palette },
-      { label: 'Settings', icon: Settings },
+      { label: 'Settings', to: '/admin/settings', icon: Settings },
     ],
   },
 ]

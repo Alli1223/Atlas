@@ -130,6 +130,12 @@ pub struct Config {
     /// Size of the reader pool. `ATLAS_READER_POOL_SIZE`. The writer pool is always 1.
     #[serde(default = "default_reader_pool_size")]
     pub reader_pool_size: u32,
+
+    /// Directory of the built frontend assets to serve. `ATLAS_STATIC_DIR`.
+    /// When absent (the default) no static files are served — the dev Vite server
+    /// proxies API calls instead. Set to `frontend/dist` in production.
+    #[serde(default)]
+    pub static_dir: Option<PathBuf>,
 }
 
 fn default_bind_addr() -> SocketAddr {
@@ -173,6 +179,7 @@ impl Default for Config {
             master_key: None,
             cors_allowed_origins: default_cors_allowed_origins(),
             reader_pool_size: default_reader_pool_size(),
+            static_dir: None,
         }
     }
 }

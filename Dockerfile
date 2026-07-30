@@ -38,7 +38,7 @@ FROM rust:1.96-slim-trixie AS chef
 # point release and then fails permanently. The base image tag is the pin.
 # hadolint ignore=DL3008
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y build-essential pkg-config \
+    && apt-get install --no-install-recommends -y build-essential pkg-config curl \
     && rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef --version 0.1.77 --locked
 
@@ -61,8 +61,15 @@ COPY . .
 # against the committed .sqlx/ metadata. This is why `just prepare` output is
 # committed — without it, this line fails.
 ENV SQLX_OFFLINE=true
-RUN cargo build --release --bin atlas \
-    && strip target/release/atlas
+# The compilation produces several GB of temporary artifacts (.rlib, .rmeta,
+# build-script outputs). On a disk-constrained host this fills the overlay FS
+# before linking finishes. Using a tmpfs mount keeps those artifacts in RAM;
+# only the final stripped binary (~20 MB) is committed to the image layer.
+RUN --mount=type=tmpfs,target=/tmp/cargo-target \
+    cp -r target/. /tmp/cargo-target/ \
+    && CARGO_TARGET_DIR=/tmp/cargo-target cargo build --release --bin atlas \
+    && strip /tmp/cargo-target/release/atlas \
+    && cp /tmp/cargo-target/release/atlas target/release/atlas
 
 # ---------------------------------------------------------------- 3. runtime
 

@@ -42,6 +42,8 @@ utoipa.workspace = true
 utoipa-axum.workspace = true
 utoipa-swagger-ui.workspace = true
 uuid.workspace = true
+sysinfo.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

@@ -75,6 +75,11 @@ garde = { version = "0.23.0", features = ["derive"] }
 fractional_index = { version = "2.0.2", features = ["serde"] }
 figment = { version = "0.10", features = ["env", "toml"] }
 proptest = "1.8"
+# System telemetry (CPU, memory, disk) for the admin settings page.
+sysinfo = { version = "0.33", default-features = false, features = ["system", "disk"] }
+# Outbound HTTP client used to poll GitHub Releases for update checks.
+# rustls-tls: pure-Rust TLS so no OpenSSL build dep is introduced.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # ---------------------------------------------------------------------------
 # Lints. Inherited by members via `[lints] workspace = true`.

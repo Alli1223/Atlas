@@ -1,5 +1,6 @@
 //! HTTP surface: router assembly, health check, and the OpenAPI document.
 
+pub mod admin;
 pub mod auth;
 pub mod board;
 pub mod cards;
@@ -20,6 +21,7 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::Json;
 use serde::Serialize;
+use tower_http::services::{ServeDir, ServeFile};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -84,7 +86,8 @@ impl AppState {
         (name = "comments", description = "Comments on cards"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
-        (name = "search", description = "AQL search, query validation, and saved filters")
+        (name = "search", description = "AQL search, query validation, and saved filters"),
+        (name = "admin", description = "Instance administration: system telemetry and self-update. Admin only")
     )
 )]
 struct ApiDoc;
@@ -172,6 +175,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())
+        .merge(admin::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::auth::project_access::authorise,
@@ -216,9 +220,18 @@ pub fn router(state: AppState) -> Router {
     crate::auth::project_access::assert_scopes_match_routes(&openapi);
     crate::auth::project_access::assert_no_route_escapes_the_gate(&openapi);
 
-    let router = router
-        .merge(SwaggerUi::new(DOCS_PATH).url(OPENAPI_JSON_PATH, openapi))
-        .fallback(not_found);
+    let router = router.merge(SwaggerUi::new(DOCS_PATH).url(OPENAPI_JSON_PATH, openapi));
+
+    // In production, serve the built frontend assets and fall back to index.html
+    // for client-side routes. In dev the Vite server handles this instead.
+    let router = if let Some(ref static_dir) = state.config.static_dir {
+        let index = static_dir.join("index.html");
+        router.fallback_service(
+            ServeDir::new(static_dir).not_found_service(ServeFile::new(index)),
+        )
+    } else {
+        router.fallback(not_found)
+    };
 
     middleware::apply(router, &state.config).with_state(state)
 }

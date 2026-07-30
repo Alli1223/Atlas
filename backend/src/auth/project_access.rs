@@ -626,6 +626,10 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
     (Method::PATCH, "/api/v1/filters/{id}", Scope::Unscoped),
     (Method::DELETE, "/api/v1/filters/{id}", Scope::Unscoped),
     (Method::GET, "/api/v1/filters/{id}/results", Scope::Unscoped),
+    // --- admin: instance-level, guarded by RequireAdmin in each handler ---
+    (Method::GET, "/api/v1/admin/system", Scope::Unscoped),
+    (Method::GET, "/api/v1/admin/updates", Scope::Unscoped),
+    (Method::POST, "/api/v1/admin/updates/apply", Scope::Unscoped),
 ];
 
 /// The scope declared for a route, or `None` if it has none — which is a bug.
