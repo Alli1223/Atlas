@@ -6,6 +6,7 @@ pub mod board;
 pub mod cards;
 pub mod comments;
 pub mod credentials;
+pub mod github;
 pub mod members;
 pub mod middleware;
 pub mod project_config;
@@ -103,6 +104,7 @@ impl AppState {
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
         (name = "search", description = "AQL search, query validation, and saved filters"),
         (name = "credentials", description = "The encrypted secrets vault: API keys and PATs. Admin only; never returns a secret"),
+        (name = "github", description = "GitHub integration: link a project to a repo, pick repos, and create a branch from a card"),
         (name = "admin", description = "Instance administration: system telemetry and self-update. Admin only")
     )
 )]
@@ -192,6 +194,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(search::routes())
         .merge(workflow::routes())
         .merge(credentials::routes())
+        .merge(github::routes())
         .merge(admin::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
