@@ -1381,6 +1381,11 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "POST /api/v1/credentials",
     "DELETE /api/v1/credentials/{id}",
     "POST /api/v1/credentials/{id}/validate",
+    // The GitHub repo picker is a credential operation, admin-only and instance-level
+    // — an outsider is refused 403 by RequireAdmin, not 404 by the project gate. The
+    // other GitHub routes (projects/{key}/repo, cards/{key}/branch) ARE project-scoped
+    // and are deliberately left off this list so the coverage test probes them.
+    "GET /api/v1/credentials/{id}/repos",
     // Instance administration: system telemetry and self-update, admin-only and
     // not project-scoped. Guarded by RequireAdmin in the handler — an outsider is
     // refused 403 by that guard, not 404 by the project gate.

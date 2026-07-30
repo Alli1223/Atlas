@@ -13,6 +13,7 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, USER_AGENT};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::error::{AppError, AppResult};
 use crate::secrets::vault::ValidationOutcome;
@@ -254,7 +255,7 @@ pub fn pr_state(state: &str, merged: bool) -> PrState {
 // ---------------------------------------------------------------------------
 
 /// A repository as the repo picker shows it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoSummary {
     /// GitHub's immutable numeric id. Keyed on because it survives renames.
@@ -456,6 +457,23 @@ impl GithubClient {
                 private: r.private,
             })
             .collect())
+    }
+
+    /// Fetches one repository's metadata: `GET /repos/{owner}/{repo}`.
+    ///
+    /// Used at link time to resolve the immutable `repo_id` and the `default_branch`
+    /// a card's branches fork from, and to confirm the token can actually push
+    /// (a token can *see* a repo it cannot write to).
+    pub async fn get_repo(&self, repo: &RepoRef) -> AppResult<RepoSummary> {
+        let path = format!("/repos/{}/{}", repo.owner, repo.repo);
+        let r: wire::Repo = self.send_json(reqwest::Method::GET, &path).await?;
+        Ok(RepoSummary {
+            id: r.id,
+            full_name: r.full_name,
+            default_branch: r.default_branch,
+            can_push: r.permissions.is_some_and(|p| p.push),
+            private: r.private,
+        })
     }
 
     /// The commit SHA at the tip of `branch` — the base a new branch forks from.

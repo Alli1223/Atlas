@@ -644,6 +644,43 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/credentials/{id}/validate",
         Scope::Unscoped,
     ),
+    // --- GitHub integration ---
+    //
+    // The repo picker is instance-level: it lists a *credential's* repos, so it is
+    // admin-only like the rest of the credentials surface (`Unscoped`, guarded by
+    // `RequireAdmin`). The project↔repo link and the card→branch action are
+    // project/card-scoped — the gate resolves `{key}` and refuses an outsider with a
+    // 404 before the handler runs.
+    (
+        Method::GET,
+        "/api/v1/credentials/{id}/repos",
+        Scope::Unscoped,
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/repo",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::PUT,
+        "/api/v1/projects/{key}/repo",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/projects/{key}/repo",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/branch",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/git-links",
+        Scope::Card(ProjectRole::Viewer),
+    ),
     // --- admin: instance-level, guarded by RequireAdmin in each handler ---
     (Method::GET, "/api/v1/admin/system", Scope::Unscoped),
     (Method::GET, "/api/v1/admin/updates", Scope::Unscoped),

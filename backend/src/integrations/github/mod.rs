@@ -32,10 +32,10 @@
 
 pub mod branch;
 pub mod client;
-// Phase 12, not yet written — declared here in the module map above but stubbed
-// out of the build so the crate compiles on this in-progress branch.
+pub mod store;
+// smart_commit is Phase 12's later half (the `ATLAS-42 #done #time 2h` parser),
+// not yet written — declared in the module map above but stubbed out of the build.
 // pub mod smart_commit;
-// pub mod store;
 pub mod validator;
 pub mod webhook;
 
