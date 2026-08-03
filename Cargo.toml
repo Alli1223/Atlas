@@ -69,7 +69,7 @@ hmac = "0.12"
 hex = "0.4"
 # Constant-time equality for anything derived from a secret.
 subtle = "2"
-base64 = "0.22.1"
+base64 = "0.23.0"
 # Secrets vault (Phase 11). XChaCha20-Poly1305 AEAD: the 192-bit nonce is safe to
 # pick at random forever, so no nonce-reuse bookkeeping. aead 0.6 API — see
 # docs/research/rust-stack.md § encryption and corrections.md. `getrandom` gates
