@@ -294,12 +294,12 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 - [x] ⭐ **Create branch from card** (requested): `POST /repos/{o}/{r}/git/refs` from a base SHA. Configurable naming: `{type}/{key}-{slug}` → `feature/ATLAS-42-add-login`
 - [ ] Development panel on card: branches, commits, PRs, checks
 - [ ] Create PR from card; PR state (open/closed/**merged**), mergeable, reviews, CI checks
-- [ ] **Webhook receiver** (built now so a GitHub App drops in later): HMAC-SHA256 verify `x-hub-signature-256`, **constant-time compare** 🔒, replay guard by delivery id
-- [ ] Events: `push`, `pull_request`, `check_suite`, `check_run`, `create`, `delete`
-- [x] ⭐ **Smart commits**: parse `ATLAS-42 #done #comment fixed it #time 2h` → transition/comment/worklog — _parser + application landed; delivery via the webhook receiver below_
-- [ ] Auto-transition on PR open → In Review; on merge → Done
+- [ ] **Webhook receiver** (built now so a GitHub App drops in later): HMAC-SHA256 verify `x-hub-signature-256`, **constant-time compare** 🔒, replay guard by delivery id — _receiver + HMAC verify done (mounted `POST /webhooks/github`, `UNGATED_PATHS`); replay guard by delivery id not yet built_
+- [ ] Events: `push`, `pull_request`, `check_suite`, `check_run`, `create`, `delete` — _`push` and `pull_request` acted on; `check_suite`/`create`/`delete` parse but are not-yet-acted-on no-ops; `check_run` not parsed_
+- [x] ⭐ **Smart commits**: parse `ATLAS-42 #done #comment fixed it #time 2h` → transition/comment/worklog — _parser + application landed, wired to `push` deliveries_
+- [x] Auto-transition on PR open → In Review; on merge → Done — _merge → Done; open/reopen → the first In-Progress-category status (Atlas has no named "In Review" state, only the three categories)_
 - [ ] Poll fallback when no public webhook URL
-- [ ] Sync status + backfill; unlink
+- [ ] Sync status + backfill; unlink — _unlink shipped in the repo-linking PR; sync status + backfill not started_
 
 ---
 

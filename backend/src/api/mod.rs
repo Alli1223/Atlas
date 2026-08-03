@@ -15,6 +15,7 @@ pub mod search;
 pub mod serde_ext;
 pub mod tags;
 pub mod users;
+pub mod webhooks;
 pub mod workflow;
 
 use std::sync::Arc;
@@ -227,6 +228,9 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
 pub fn router(state: AppState) -> Router {
     let (router, openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(healthz))
+        // The GitHub webhook receiver: top-level and unauthenticated (HMAC is its gate), so
+        // it lives outside the `/api/v1` nest and is allowlisted in `UNGATED_PATHS`.
+        .merge(webhooks::routes())
         .nest(API_V1_PREFIX, api_v1(&state))
         .split_for_parts();
 

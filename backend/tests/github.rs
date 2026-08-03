@@ -17,7 +17,10 @@ use atlas::auth::seed::{self, DEFAULT_ADMIN_USERNAME};
 use atlas::auth::session;
 use atlas::config::{Config, SecretString};
 use atlas::db::{self, Db};
-use atlas::test_support::TempDb;
+use atlas::integrations::github::store::{self, NewProjectRepo};
+use atlas::secrets::Secret;
+use atlas::secrets::vault::Vault;
+use atlas::test_support::{TempDb, now, sign_github_webhook};
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Method, Request, StatusCode, header};
@@ -353,6 +356,174 @@ async fn the_repo_picker_rejects_a_missing_or_non_github_credential() {
         ))
         .await;
     assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.raw_body);
+
+    app.db.close().await;
+}
+
+// ---------------------------------------------------------------------------
+// Webhook receiver
+// ---------------------------------------------------------------------------
+
+/// The project's id (the DTO carries it; the store queries key on it).
+async fn project_id(app: &App, admin: &str, key: &str) -> String {
+    app.send(get(&format!("/api/v1/projects/{key}"), Some(admin)))
+        .await
+        .id()
+}
+
+/// Links a repo to a project with a known webhook secret, straight in the DB — bypassing the
+/// live `get_repo` call the API link path makes, which these hermetic tests cannot reach.
+async fn link_repo_with_secret(app: &App, project_id: &str, repo_id: i64, secret: &str) {
+    let vault = Vault::from_config(&app.config).expect("the vault is live in these tests");
+    let mut tx = app.db.begin_write().await.expect("begin a write");
+    let repo = store::upsert_project_repo(
+        &mut tx,
+        &NewProjectRepo {
+            project_id,
+            credential_id: None,
+            owner: "octocat",
+            repo: "hello",
+            repo_id,
+            default_branch: "main",
+            branch_prefix: "feature",
+        },
+        now(),
+    )
+    .await
+    .expect("link the repo");
+    let sealed = vault
+        .seal_for(&repo.id, &Secret::new(secret.to_owned()))
+        .expect("seal the webhook secret");
+    store::set_webhook(&mut tx, &repo.id, 999, &sealed, now())
+        .await
+        .expect("store the webhook binding");
+    tx.commit().await.expect("commit the webhook link");
+}
+
+/// A raw, unauthenticated POST to the webhook receiver with GitHub's headers.
+fn webhook_request(body: &str, event: &str, signature: &str) -> Request<Body> {
+    Request::builder()
+        .method(Method::POST)
+        .uri("/webhooks/github")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-github-event", event)
+        .header("x-hub-signature-256", signature)
+        .header("x-github-delivery", "test-delivery")
+        .body(Body::from(body.to_owned()))
+        .expect("failed to build the webhook request")
+}
+
+/// The category (`todo`/`in_progress`/`done`) of a card's current status, via the API.
+async fn card_status_category(app: &App, admin: &str, card_key: &str) -> String {
+    let card = app
+        .send(get(&format!("/api/v1/cards/{card_key}"), Some(admin)))
+        .await;
+    let status_id = card.json()["statusId"]
+        .as_str()
+        .expect("the card has a status id")
+        .to_owned();
+    let project = card_key.rsplit_once('-').map_or(card_key, |(p, _)| p);
+    let statuses = app
+        .send(get(
+            &format!("/api/v1/projects/{project}/statuses"),
+            Some(admin),
+        ))
+        .await;
+    statuses
+        .json()
+        .as_array()
+        .expect("statuses are an array")
+        .iter()
+        .find(|status| status["id"] == status_id.as_str())
+        .and_then(|status| status["category"].as_str())
+        .expect("the card's status belongs to the project")
+        .to_owned()
+}
+
+#[tokio::test]
+async fn a_signed_push_applies_a_smart_commit() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await; // ATLAS-1
+    let pid = project_id(&app, &admin, "ATLAS").await;
+
+    let secret = "a-per-repo-webhook-secret";
+    link_repo_with_secret(&app, &pid, 12345, secret).await;
+
+    let body = json!({
+        "repository": { "id": 12345 },
+        "ref": "refs/heads/feature/ATLAS-1-add-login",
+        "commits": [ { "id": "abc", "message": format!("{card} #done"), "url": "https://x/abc" } ]
+    })
+    .to_string();
+    let signature = sign_github_webhook(secret.as_bytes(), body.as_bytes());
+
+    let reply = app.send(webhook_request(&body, "push", &signature)).await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.raw_body);
+
+    // `#done` moved the card into a Done-category status.
+    assert_eq!(card_status_category(&app, &admin, &card).await, "done");
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn a_delivery_signed_with_the_wrong_secret_is_refused_and_changes_nothing() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await;
+    let pid = project_id(&app, &admin, "ATLAS").await;
+    link_repo_with_secret(&app, &pid, 12345, "the-real-secret").await;
+
+    let body = json!({
+        "repository": { "id": 12345 },
+        "ref": "refs/heads/x",
+        "commits": [ { "id": "abc", "message": format!("{card} #done"), "url": "" } ]
+    })
+    .to_string();
+    // Right shape, signed under a key the server does not hold.
+    let forged = sign_github_webhook(b"attacker-guess", body.as_bytes());
+
+    let reply = app.send(webhook_request(&body, "push", &forged)).await;
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED, "{}", reply.raw_body);
+    assert_ne!(
+        card_status_category(&app, &admin, &card).await,
+        "done",
+        "an unverified delivery must never move a card"
+    );
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn a_merged_pull_request_moves_the_card_to_done() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await; // ATLAS-1
+    let pid = project_id(&app, &admin, "ATLAS").await;
+
+    let secret = "s";
+    link_repo_with_secret(&app, &pid, 12345, secret).await;
+
+    let body = json!({
+        "repository": { "id": 12345 },
+        "action": "closed",
+        "pull_request": {
+            "number": 7, "title": "Add login", "html_url": "https://x/7",
+            "merged": true, "head": { "ref": format!("feature/{card}-add-login") }
+        }
+    })
+    .to_string();
+    let signature = sign_github_webhook(secret.as_bytes(), body.as_bytes());
+
+    let reply = app
+        .send(webhook_request(&body, "pull_request", &signature))
+        .await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.raw_body);
+    assert_eq!(card_status_category(&app, &admin, &card).await, "done");
 
     app.db.close().await;
 }

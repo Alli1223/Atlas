@@ -78,3 +78,24 @@ impl Drop for TempDb {
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
+
+/// The crate's canonical "now", for integration tests that must pass a timestamp into a
+/// domain function. The subsecond truncation matters — see [`crate::auth::now`].
+#[must_use]
+pub fn now() -> chrono::DateTime<chrono::Utc> {
+    crate::auth::now()
+}
+
+/// The `sha256=<hex>` HMAC a GitHub webhook delivery would carry for `body` under `secret` —
+/// for integration tests that drive the real receiver end to end. This is the *inverse* of
+/// [`crate::integrations::github::webhook::verify_signature`]: the receiver verifies, so a
+/// test that exercises it has to be able to sign.
+#[must_use]
+pub fn sign_github_webhook(secret: &[u8], body: &[u8]) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    let mut mac = <Hmac<Sha256>>::new_from_slice(secret).expect("HMAC accepts any key length");
+    mac.update(body);
+    format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
+}
