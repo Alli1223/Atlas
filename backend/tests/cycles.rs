@@ -471,3 +471,58 @@ async fn completing_carries_an_incomplete_card_into_a_brand_new_cycle_and_reopen
     assert_eq!(reopened.json()["startDate"], "2026-01-01");
     assert_eq!(reopened.json()["endDate"], "2026-01-21");
 }
+
+#[tokio::test]
+async fn completing_carries_an_incomplete_card_into_an_existing_cycle() {
+    // A regression test for `CarryToRequest::ExistingCycle`'s wire shape: every other
+    // request body in this API is camelCase, and this variant's `cycle_id` field was
+    // briefly an exception (a `#[serde(rename_all)]` on an enum renames its variants, not
+    // a struct variant's own fields, so it needs its own attribute too).
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    project(&app, &admin, "ATLAS", "programming").await;
+    let type_id = default_type(&app, &admin, "ATLAS").await;
+    let card_key = card(&app, &admin, "ATLAS", &type_id, "Carried over").await;
+    let closing = create_cycle(&app, &admin, "ATLAS", "Sprint 1").await;
+    let closing_id = closing["id"].as_str().unwrap().to_owned();
+    let target = create_cycle(&app, &admin, "ATLAS", "Sprint 2").await;
+    let target_id = target["id"].as_str().unwrap().to_owned();
+
+    let added = app
+        .send(post(
+            &format!("/api/v1/cards/{card_key}/cycle"),
+            Some(&admin),
+            json!({ "cycleId": closing_id }),
+        ))
+        .await;
+    assert_eq!(added.status, StatusCode::NO_CONTENT, "{}", added.raw_body);
+
+    let started = app
+        .send(post(
+            &format!("/api/v1/cycles/{closing_id}/start"),
+            Some(&admin),
+            json!({ "startDate": "2026-01-01", "endDate": "2026-01-14" }),
+        ))
+        .await;
+    assert_eq!(started.status, StatusCode::OK, "{}", started.raw_body);
+
+    // Never marked done, so it is incomplete when the cycle closes.
+    let completed = app
+        .send(post(
+            &format!("/api/v1/cycles/{closing_id}/complete"),
+            Some(&admin),
+            json!({ "carryTo": { "kind": "existingCycle", "cycleId": target_id } }),
+        ))
+        .await;
+    assert_eq!(completed.status, StatusCode::OK, "{}", completed.raw_body);
+    assert_eq!(completed.json()["state"], "closed");
+
+    let now_in = app
+        .send(get(
+            &format!("/api/v1/cards/{card_key}/cycle"),
+            Some(&admin),
+        ))
+        .await;
+    assert_eq!(now_in.status, StatusCode::OK, "{}", now_in.raw_body);
+    assert_eq!(now_in.json()["id"], target_id);
+}

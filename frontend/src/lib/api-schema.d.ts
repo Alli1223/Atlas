@@ -359,6 +359,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{key}/cycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The cycle a card currently belongs to, if any. */
+        get: operations["card_cycle"];
+        put?: never;
+        /** Adds a card to a cycle (or refreshes its membership, if it was previously removed). */
+        post: operations["add_card_to_cycle"];
+        /** Removes a card from its current cycle. A no-op (still `204`) if it was not in one. */
+        delete: operations["remove_card_from_cycle"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{key}/git-links": {
         parameters: {
             query?: never;
@@ -679,6 +698,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cycles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Renames a cycle and/or edits its goal. Legal in any state. */
+        patch: operations["update_cycle"];
+        trace?: never;
+    };
+    "/api/v1/cycles/{id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Completes a cycle: `active -> closed`, carrying any incomplete cards as directed. */
+        post: operations["complete_cycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cycles/{id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reopens a closed cycle: `closed -> active`, replanning its end date. */
+        post: operations["reopen_cycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cycles/{id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts a cycle: `future -> active`. */
+        post: operations["start_cycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/filters": {
         parameters: {
             query?: never;
@@ -948,6 +1035,24 @@ export interface paths {
         put?: never;
         /** Creates a card. */
         post: operations["create_card"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/cycles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's cycles: active first, then future, then closed. */
+        get: operations["list_cycles"];
+        put?: never;
+        /** Creates a cycle. Requires the project to have cycles enabled. */
+        post: operations["create_cycle"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1443,6 +1548,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The body of `POST /cards/{key}/cycle`. */
+        AddCardToCycleRequest: {
+            /** @description The cycle to add this card to. Must belong to the card's project. */
+            cycleId: string;
+        };
         /** @description The body of `POST /projects/{key}/members`. */
         AddMemberRequest: {
             /**
@@ -1748,6 +1858,24 @@ export interface components {
             /** @description The owning project. */
             projectId: string;
         };
+        /**
+         * @description Where a completing cycle's incomplete cards go — the wire shape of
+         *     [`CarryTo`].
+         */
+        CarryToRequest: {
+            /** @enum {string} */
+            kind: "backlog";
+        } | {
+            /** @description The target cycle's id. */
+            cycle_id: string;
+            /** @enum {string} */
+            kind: "existingCycle";
+        } | {
+            /** @enum {string} */
+            kind: "newCycle";
+            /** @description The new cycle's name. */
+            name: string;
+        };
         /** @description The body of `POST /auth/change-password`. */
         ChangePasswordRequest: {
             /**
@@ -1846,6 +1974,10 @@ export interface components {
             /** @description The full SHA. */
             sha: string;
         };
+        /** @description The body of `POST /cycles/{id}/complete`. */
+        CompleteCycleRequest: {
+            carryTo: components["schemas"]["CarryToRequest"];
+        };
         /** @description The body of `POST /projects/{key}/boards`. */
         CreateBoardRequest: {
             /** @description The saved AQL quick filter, or omitted for none. */
@@ -1937,6 +2069,13 @@ export interface components {
              * @example ghp_your_token_here
              */
             secret: string;
+        };
+        /** @description The body of `POST /projects/{key}/cycles`. */
+        CreateCycleRequest: {
+            /** @description An optional sprint goal. */
+            goal?: string | null;
+            /** @description The cycle's name, e.g. `"Sprint 14"`. */
+            name: string;
         };
         /** @description The body of `POST /filters`. */
         CreateFilterRequest: {
@@ -2125,6 +2264,40 @@ export interface components {
              */
             updatedAt: string;
         };
+        /** @description A row of `cycles`. */
+        Cycle: {
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date
+             * @description `None` until started; replanned on [`reopen`].
+             */
+            endDate?: string | null;
+            goal?: string | null;
+            /** @description UUID v7, as text. */
+            id: string;
+            name: string;
+            /**
+             * Format: int64
+             * @description Display order within the project's cycle list.
+             */
+            position: number;
+            /** @description The owning project. */
+            projectId: string;
+            /**
+             * Format: date
+             * @description `None` until started.
+             */
+            startDate?: string | null;
+            state: components["schemas"]["CycleState"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /**
+         * @description A cycle's lifecycle state.
+         * @enum {string}
+         */
+        CycleState: "future" | "active" | "closed";
         /**
          * @description How a project's single `estimate` field is interpreted.
          *
@@ -2515,6 +2688,14 @@ export interface components {
             /** @description The new name. */
             name: string;
         };
+        /** @description The body of `POST /cycles/{id}/reopen`. */
+        ReopenCycleRequest: {
+            /**
+             * Format: date
+             * @description The replanned end date. The start date is kept as it was.
+             */
+            endDate: string;
+        };
         /** @description The body of `POST /cards/{key}/reparent`. */
         ReparentRequest: {
             /**
@@ -2668,6 +2849,13 @@ export interface components {
             lastSeenAt: string;
             /** @description The creating client's `User-Agent`, if it sent one. */
             userAgent?: string | null;
+        };
+        /** @description The body of `POST /cycles/{id}/start`. */
+        StartCycleRequest: {
+            /** Format: date */
+            endDate: string;
+            /** Format: date */
+            startDate: string;
         };
         /** @description A column on a project's board. */
         Status: {
@@ -2920,6 +3108,13 @@ export interface components {
             /** @description Whether new cards default to this type. */
             isDefault?: boolean | null;
             /** @description The name. */
+            name?: string | null;
+        };
+        /** @description The body of `PATCH /cycles/{id}`. At least one field must be present. */
+        UpdateCycleRequest: {
+            /** @description Absent leaves the goal alone, `null` clears it, a value sets it. */
+            goal?: string | null;
+            /** @description A new name. */
             name?: string | null;
         };
         /** @description The body of `PATCH /filters/{id}`. */
@@ -4139,6 +4334,156 @@ export interface operations {
             };
         };
     };
+    card_cycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card's current cycle */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cycle"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such card, or it is not in a cycle */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    add_card_to_cycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCardToCycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Added */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot change cycle membership */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such card, or no such cycle */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The cycle is closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    remove_card_from_cycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed, or already not in a cycle */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot change cycle membership */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     card_git_links: {
         parameters: {
             query?: never;
@@ -5094,6 +5439,276 @@ export interface operations {
             };
             /** @description The secrets vault is not configured, or the secret could not be decrypted */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_cycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cycle id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cycle"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot edit cycles */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such cycle */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name is invalid, or nothing was sent */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    complete_cycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cycle id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteCycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cycle"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot complete cycles */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such cycle */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not an active cycle */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The carry-to cycle does not exist in this project, or is closed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reopen_cycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cycle id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReopenCycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Reopened */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cycle"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot reopen cycles */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such cycle */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a closed cycle, or another cycle is already active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    start_cycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cycle id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartCycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cycle"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot start cycles */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such cycle */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a future cycle, or another cycle is already active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The end date is before the start date */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6292,6 +6907,110 @@ export interface operations {
                 };
             };
             /** @description The request is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_cycles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's cycles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cycle"][];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_cycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cycle"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot create cycles */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name is invalid, or cycles are not enabled */
             422: {
                 headers: {
                     [name: string]: unknown;
