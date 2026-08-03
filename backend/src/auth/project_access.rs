@@ -177,6 +177,9 @@ pub(crate) enum Scope {
 
     /// `{id}` is a saved board's id; the project is the one that owns it.
     Board(ProjectRole),
+
+    /// `{id}` is a cycle id; the project is the one that owns it.
+    Cycle(ProjectRole),
 }
 
 impl Scope {
@@ -199,7 +202,8 @@ impl Scope {
             | Self::Config(..)
             | Self::Workflow(_)
             | Self::Transition(_)
-            | Self::Board(_) => Some("id"),
+            | Self::Board(_)
+            | Self::Cycle(_) => Some("id"),
         }
     }
 
@@ -214,7 +218,8 @@ impl Scope {
             | Self::Config(_, role)
             | Self::Workflow(role)
             | Self::Transition(role)
-            | Self::Board(role) => Some(role),
+            | Self::Board(role)
+            | Self::Cycle(role) => Some(role),
         }
     }
 }
@@ -603,6 +608,53 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
     (
         Method::POST,
         "/api/v1/cards/{key}/transitions/{id}",
+        Scope::Card(ProjectRole::Member),
+    ),
+    // --- cycles: reading is Viewer, everything else is Member (sprint planning, not
+    // structural configuration — the same tier as a saved board) ---
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/cycles",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/cycles",
+        Scope::Project(ProjectRole::Member),
+    ),
+    (
+        Method::PATCH,
+        "/api/v1/cycles/{id}",
+        Scope::Cycle(ProjectRole::Member),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cycles/{id}/start",
+        Scope::Cycle(ProjectRole::Member),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cycles/{id}/complete",
+        Scope::Cycle(ProjectRole::Member),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cycles/{id}/reopen",
+        Scope::Cycle(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/cycle",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/cycle",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/cards/{key}/cycle",
         Scope::Card(ProjectRole::Member),
     ),
     // --- AQL search and saved filters ---
@@ -1066,6 +1118,14 @@ async fn resolve_target(db: &Db, scope: Scope, value: &str) -> AppResult<Target>
             .bind(value)
             .fetch_optional(db.reader())
             .await?
+        }
+
+        // A cycle is owned directly by a project.
+        Scope::Cycle(_) => {
+            sqlx::query_scalar("SELECT project_id FROM cycles WHERE id = ?")
+                .bind(value)
+                .fetch_optional(db.reader())
+                .await?
         }
     };
 

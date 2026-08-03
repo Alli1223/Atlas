@@ -1414,6 +1414,7 @@ struct Targets {
     workflow_id: String,
     transition_id: String,
     board_id: String,
+    cycle_id: String,
 }
 
 impl Targets {
@@ -1447,6 +1448,7 @@ impl Targets {
                     // both name a transition.
                     ("transitions", "{id}") => &self.transition_id,
                     ("boards", "{id}") => &self.board_id,
+                    ("cycles", "{id}") => &self.cycle_id,
                     _ => {
                         return Err(format!(
                             "no value known for {segment} after /{previous} in {path}. Teach \
@@ -1549,6 +1551,7 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
 
     let (workflow_id, transition_id) = furnish_workflow(app, admin, key, &theirs.status_id).await;
     let board_id = furnish_board(app, admin, key).await;
+    let cycle_id = furnish_cycle(app, admin, key).await;
 
     Targets {
         project_key: theirs.key.clone(),
@@ -1564,6 +1567,7 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
         workflow_id,
         transition_id,
         board_id,
+        cycle_id,
     }
 }
 
@@ -1572,6 +1576,19 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
 async fn furnish_board(app: &App, admin: &str, key: &str) -> String {
     app.send(post(
         &format!("/api/v1/projects/{key}/boards"),
+        Some(admin),
+        json!({ "name": "Probe" }),
+    ))
+    .await
+    .id()
+}
+
+/// Creates a cycle in a project, so `/cycles/{id}` resolves to a real row
+/// rather than 404ing for an unrelated reason. The `programming` template
+/// `project()` builds has cycles enabled.
+async fn furnish_cycle(app: &App, admin: &str, key: &str) -> String {
+    app.send(post(
+        &format!("/api/v1/projects/{key}/cycles"),
         Some(admin),
         json!({ "name": "Probe" }),
     ))
@@ -2319,6 +2336,7 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
 
     let (workflow_id, transition_id) = furnish_workflow(&app, &admin, &p.key, &p.status_id).await;
     let board_id = furnish_board(&app, &admin, &p.key).await;
+    let cycle_id = furnish_cycle(&app, &admin, &p.key).await;
 
     let targets = Targets {
         project_key: p.key.clone(),
@@ -2334,6 +2352,7 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
         workflow_id,
         transition_id,
         board_id,
+        cycle_id,
     };
 
     let mut probed = 0;
