@@ -268,7 +268,9 @@ export async function fetchGithubCredentials(): Promise<Credential[]> {
 export type CardCommit = components['schemas']['CommitSummary']
 /** The single CI badge a card shows. Mirrors `CiState`. */
 export type CiState = components['schemas']['CiState']
-/** A card's live commits and the CI state of the newest one. Mirrors `CardActivityDto`. */
+/** The single review badge a card shows. Mirrors `ReviewState`. */
+export type ReviewState = components['schemas']['ReviewState']
+/** A card's live commits, CI state, mergeability and review rollup. Mirrors `CardActivityDto`. */
 export type CardActivity = components['schemas']['CardActivityDto']
 
 /**

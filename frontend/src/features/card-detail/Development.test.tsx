@@ -202,4 +202,46 @@ describe('Development', () => {
     expect(screen.queryByText(/^Checks /)).not.toBeInTheDocument()
     expect(calls).not.toContain('GET /api/v1/cards/ATLAS-1/activity')
   })
+
+  it('shows the review rollup alongside the CI badge', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([makeGitLink()]),
+      'GET /api/v1/cards/ATLAS-1/activity': () =>
+        jsonResponse(makeActivity({ reviewState: 'changesrequested' })),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    expect(await screen.findByText('Changes requested')).toBeInTheDocument()
+  })
+
+  it('warns of merge conflicts only when mergeable is explicitly false', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([makeGitLink()]),
+      'GET /api/v1/cards/ATLAS-1/activity': () => jsonResponse(makeActivity({ mergeable: false })),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    expect(await screen.findByText('This PR has merge conflicts.')).toBeInTheDocument()
+  })
+
+  it('never shows a conflict warning while mergeable is still unknown', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([makeGitLink()]),
+      // mergeable is absent — GitHub has not finished computing it yet.
+      'GET /api/v1/cards/ATLAS-1/activity': () => jsonResponse(makeActivity({ ciStatus: 'passed' })),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    await screen.findByText('Checks passed')
+    expect(screen.queryByText(/merge conflicts/i)).not.toBeInTheDocument()
+  })
 })

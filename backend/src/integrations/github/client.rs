@@ -251,6 +251,67 @@ pub fn pr_state(state: &str, merged: bool) -> PrState {
 }
 
 // ---------------------------------------------------------------------------
+// Pure interpretation: review rollup
+// ---------------------------------------------------------------------------
+
+/// One review on a PR, reduced to the two fields the rollup needs. Matches the shape of one
+/// element of `GET /pulls/{number}/reviews` closely enough to deserialize it directly —
+/// extra fields (`body`, `submitted_at`, `commit_id`, …) are simply ignored.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Review {
+    /// Who left it.
+    pub user: ReviewUser,
+    /// `APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED | PENDING`.
+    pub state: String,
+}
+
+/// The reviewer, reduced to the id the rollup groups by.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReviewUser {
+    pub id: i64,
+}
+
+/// The single review badge a card shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewState {
+    /// At least one reviewer's latest review is an approval, and none currently ask for
+    /// changes.
+    Approved,
+    /// At least one reviewer's latest review asks for changes. Wins over any number of
+    /// approvals — the same failure-first precedent as [`ci_rollup`].
+    ChangesRequested,
+    /// Nothing conclusive: no reviews at all, or every review so far is a comment (which
+    /// does not count as a verdict) — the two are folded together rather than given
+    /// separate states, since neither blocks and neither clears a merge.
+    Pending,
+}
+
+/// Folds a PR's reviews into one badge, per `docs/research/github-api.md` §10: group by
+/// reviewer, keep only each one's **latest** review that is `APPROVED` or
+/// `CHANGES_REQUESTED` (`COMMENTED`/`DISMISSED`/`PENDING` never count, and a later comment
+/// does not erase an earlier approval or change request from the same person — GitHub's
+/// reviews list is chronological, and iterating it in order with a plain overwrite keeps
+/// exactly the latest qualifying state per reviewer).
+#[must_use]
+pub fn review_rollup(reviews: &[Review]) -> ReviewState {
+    let mut latest: std::collections::HashMap<i64, &str> = std::collections::HashMap::new();
+    for review in reviews {
+        if review.state == "APPROVED" || review.state == "CHANGES_REQUESTED" {
+            latest.insert(review.user.id, review.state.as_str());
+        }
+    }
+
+    if latest.values().any(|state| *state == "CHANGES_REQUESTED") {
+        ReviewState::ChangesRequested
+    } else if latest.values().any(|state| *state == "APPROVED") {
+        ReviewState::Approved
+    } else {
+        ReviewState::Pending
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Pure interpretation: rate-limit retry
 // ---------------------------------------------------------------------------
 
@@ -395,6 +456,11 @@ mod wire {
         pub merged: bool,
         #[serde(default)]
         pub merged_at: Option<String>,
+        // Present only on the single-PR GET, never on a list response — absent there,
+        // which `#[serde(default)]` reads as `None`, exactly the "unknown" this field means
+        // on a fresh PR anyway.
+        #[serde(default)]
+        pub mergeable: Option<bool>,
     }
 
     #[derive(Deserialize)]
@@ -586,6 +652,27 @@ impl GithubClient {
         );
         let pulls: Vec<wire::Pull> = self.send_json(reqwest::Method::GET, &path).await?;
         Ok(pulls.into_iter().next().map(Self::pull_to_summary))
+    }
+
+    /// Whether a PR can merge cleanly, as of right now.
+    ///
+    /// `None` means GitHub has not finished computing it — a background job that runs after
+    /// the PR opens or its base updates — **not** "cannot merge". Only the single-PR `GET`
+    /// carries this field at all; the list endpoint never does
+    /// (`docs/research/github-api.md` item 4). Deliberately not retried: unlike the
+    /// rate-limit wait in [`Self::execute`], there is no header telling us when the
+    /// computation will finish, so the only honest answer here is "not yet known" rather
+    /// than blocking the request on a job with no ETA.
+    pub async fn mergeable(&self, repo: &RepoRef, number: i64) -> AppResult<Option<bool>> {
+        let path = format!("/repos/{}/{}/pulls/{number}", repo.owner, repo.repo);
+        let pull: wire::Pull = self.send_json(reqwest::Method::GET, &path).await?;
+        Ok(pull.mergeable)
+    }
+
+    /// A PR's reviews, in submission order — the input [`review_rollup`] folds.
+    pub async fn reviews(&self, repo: &RepoRef, number: i64) -> AppResult<Vec<Review>> {
+        let path = format!("/repos/{}/{}/pulls/{number}/reviews", repo.owner, repo.repo);
+        self.send_json(reqwest::Method::GET, &path).await
     }
 
     /// Lists commits reachable from a branch tip.
@@ -902,6 +989,79 @@ mod tests {
         // The trap: closed without merged is NOT a merge.
         assert_ne!(pr_state("closed", false), PrState::Merged);
         assert_eq!(pr_state("closed", true), PrState::Merged);
+    }
+
+    // --- review rollup --------------------------------------------------------
+
+    fn review(user_id: i64, state: &str) -> Review {
+        Review {
+            user: ReviewUser { id: user_id },
+            state: state.to_owned(),
+        }
+    }
+
+    #[test]
+    fn no_reviews_at_all_is_pending() {
+        assert_eq!(review_rollup(&[]), ReviewState::Pending);
+    }
+
+    #[test]
+    fn a_lone_comment_does_not_count_as_a_verdict() {
+        assert_eq!(
+            review_rollup(&[review(1, "COMMENTED")]),
+            ReviewState::Pending
+        );
+    }
+
+    #[test]
+    fn a_single_approval_is_approved() {
+        assert_eq!(
+            review_rollup(&[review(1, "APPROVED")]),
+            ReviewState::Approved
+        );
+    }
+
+    #[test]
+    fn any_outstanding_changes_requested_wins_over_any_number_of_approvals() {
+        assert_eq!(
+            review_rollup(&[
+                review(1, "APPROVED"),
+                review(2, "APPROVED"),
+                review(3, "CHANGES_REQUESTED"),
+            ]),
+            ReviewState::ChangesRequested
+        );
+    }
+
+    #[test]
+    fn only_the_latest_review_per_reviewer_counts() {
+        // The same reviewer approves, then later asks for changes: the change request wins,
+        // because it is their CURRENT verdict, not because change-requests always win.
+        assert_eq!(
+            review_rollup(&[review(1, "APPROVED"), review(1, "CHANGES_REQUESTED")]),
+            ReviewState::ChangesRequested
+        );
+        // And the reverse: a change request the same reviewer later retracts by approving.
+        assert_eq!(
+            review_rollup(&[review(1, "CHANGES_REQUESTED"), review(1, "APPROVED")]),
+            ReviewState::Approved
+        );
+    }
+
+    #[test]
+    fn a_later_comment_does_not_erase_an_earlier_approval_from_the_same_reviewer() {
+        assert_eq!(
+            review_rollup(&[review(1, "APPROVED"), review(1, "COMMENTED")]),
+            ReviewState::Approved
+        );
+    }
+
+    #[test]
+    fn dismissed_and_pending_states_never_count() {
+        assert_eq!(
+            review_rollup(&[review(1, "DISMISSED"), review(2, "PENDING")]),
+            ReviewState::Pending
+        );
     }
 
     // --- rate-limit retry --------------------------------------------------------

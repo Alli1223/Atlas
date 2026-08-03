@@ -31,7 +31,7 @@ use crate::error::{AppError, AppResult, Problem};
 use crate::integrations::github::RepoRef;
 use crate::integrations::github::branch;
 use crate::integrations::github::client::{
-    CiState, CommitSummary, GithubClient, PrState, RepoSummary,
+    CiState, CommitSummary, GithubClient, PrState, RepoSummary, ReviewState, review_rollup,
 };
 use crate::integrations::github::store::{
     self, CardGitLink, NewCardGitLink, NewProjectRepo, ProjectRepo,
@@ -509,6 +509,12 @@ pub struct CardActivityDto {
     pub commits: Vec<CommitSummary>,
     /// The CI state of the newest commit, or `null` if the branch has no commits at all.
     pub ci_status: Option<CiState>,
+    /// Whether the card's PR can merge cleanly, or `null` when there is no PR yet **or**
+    /// GitHub has not finished computing it — the two are indistinguishable here, and both
+    /// mean "nothing to show", never "conflicts".
+    pub mergeable: Option<bool>,
+    /// The card's PR review rollup, or `null` when there is no PR yet.
+    pub review_state: Option<ReviewState>,
 }
 
 /// A card's live commits and CI status, read straight from GitHub — nothing here is cached
@@ -564,7 +570,27 @@ async fn card_activity(
         None => None,
     };
 
-    Ok(Json(CardActivityDto { commits, ci_status }))
+    // Mergeable state and reviews only exist once a PR does. A card can have a branch with
+    // no PR yet, which is a normal state here, not an error.
+    let pr_number = links
+        .iter()
+        .find(|link| link.kind == "pr")
+        .and_then(|link| link.git_ref.parse::<i64>().ok());
+    let (mergeable, review_state) = match pr_number {
+        Some(number) => {
+            let mergeable = client.mergeable(&repo_ref, number).await?;
+            let reviews = client.reviews(&repo_ref, number).await?;
+            (mergeable, Some(review_rollup(&reviews)))
+        }
+        None => (None, None),
+    };
+
+    Ok(Json(CardActivityDto {
+        commits,
+        ci_status,
+        mergeable,
+        review_state,
+    }))
 }
 
 // ---------------------------------------------------------------------------
