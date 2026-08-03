@@ -95,4 +95,69 @@ describe('Development', () => {
     await user.click(screen.getByRole('button', { name: 'Create branch' }))
     expect(await screen.findByText('GitHub is unreachable')).toBeInTheDocument()
   })
+
+  it('offers no Create PR action before a branch exists', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([]),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    await screen.findByText('octocat/hello')
+    expect(screen.queryByRole('button', { name: 'Create PR' })).not.toBeInTheDocument()
+  })
+
+  it('offers Create PR once a branch exists, and creates one on click', async () => {
+    const user = userEvent.setup()
+    const { calls } = stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([makeGitLink()]),
+      'POST /api/v1/cards/ATLAS-1/pr': () =>
+        jsonResponse(
+          makeGitLink({ kind: 'pr', reference: '9', url: 'https://github.com/octocat/hello/pull/9' }),
+        ),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    const prButton = await screen.findByRole('button', { name: 'Create PR' })
+    await user.click(prButton)
+    await waitFor(() => expect(calls).toContain('POST /api/v1/cards/ATLAS-1/pr'))
+  })
+
+  it('hides Create PR once a PR is already recorded', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () =>
+        jsonResponse([makeGitLink(), makeGitLink({ kind: 'pr', reference: '9' })]),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    await screen.findByText('octocat/hello')
+    expect(screen.queryByRole('button', { name: 'Create PR' })).not.toBeInTheDocument()
+  })
+
+  it('surfaces a create-PR failure instead of silently doing nothing', async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([makeGitLink()]),
+      'POST /api/v1/cards/ATLAS-1/pr': () =>
+        problemResponse('urn:atlas:error:conflict', 409, 'the linked repo has no usable credential'),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    const prButton = await screen.findByRole('button', { name: 'Create PR' })
+    await user.click(prButton)
+    expect(
+      await screen.findByText('the linked repo has no usable credential'),
+    ).toBeInTheDocument()
+  })
 })

@@ -225,6 +225,16 @@ export async function createBranch(cardKey: string): Promise<BranchCreated> {
   return unwrap(await api.POST('/api/v1/cards/{key}/branch', { params: { path: { key: cardKey } } }))
 }
 
+/**
+ * Opens a PR from the card's branch, or returns the one already recorded for it.
+ *
+ * Idempotent on the server: a second click after the PR already exists returns that same
+ * link rather than erroring, so there is nothing here for the caller to special-case either.
+ */
+export async function createPr(cardKey: string): Promise<CardGitLink> {
+  return unwrap(await api.POST('/api/v1/cards/{key}/pr', { params: { path: { key: cardKey } } }))
+}
+
 /** The fields needed to link a repo to a project. */
 export interface LinkRepoInput {
   credentialId: string

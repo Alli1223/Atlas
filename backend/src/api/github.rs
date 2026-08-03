@@ -30,7 +30,7 @@ use crate::domain::card;
 use crate::error::{AppError, AppResult, Problem};
 use crate::integrations::github::RepoRef;
 use crate::integrations::github::branch;
-use crate::integrations::github::client::{GithubClient, RepoSummary};
+use crate::integrations::github::client::{GithubClient, PrState, RepoSummary};
 use crate::integrations::github::store::{
     self, CardGitLink, NewCardGitLink, NewProjectRepo, ProjectRepo,
 };
@@ -381,6 +381,101 @@ async fn create_branch_from_card(
     }))
 }
 
+/// Opens a pull request from a card's branch into the repo's default branch.
+///
+/// **Idempotent at the Atlas layer**: if a PR is already recorded against this card, that
+/// record is returned as-is and GitHub is never called again — clicking the button twice
+/// must not risk a confusing "a pull request already exists" error surfacing as an opaque
+/// 500 (`GithubClient::error_for_status` never echoes GitHub's error body to the client).
+#[utoipa::path(
+    post,
+    path = "/cards/{key}/pr",
+    tag = "github",
+    params(("key" = String, Path, description = "The card key, e.g. ATLAS-42")),
+    responses(
+        (status = 200, description = "The PR — newly opened, or the one already recorded for this card", body = CardGitLinkDto),
+        (status = 404, description = "No such card", body = Problem),
+        (status = 409, description = "No repo linked, no usable credential, or the card has no branch yet", body = Problem),
+        (status = 500, description = "The vault is not configured, or GitHub errored", body = Problem),
+    )
+)]
+async fn create_pr_from_card(
+    State(state): State<AppState>,
+    _current: CurrentUser,
+    Path(key): Path<String>,
+) -> AppResult<Json<CardGitLinkDto>> {
+    let vault = require_vault(&state)?;
+    let now = now();
+
+    let card = card::find_by_key(&state.db, &key)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let repo = store::find_project_repo(&state.db, &card.project_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::Conflict("no GitHub repo is linked to this card's project".to_owned())
+        })?;
+
+    let links = store::list_card_git_links(&state.db, &card.id).await?;
+    if let Some(existing) = links.iter().find(|link| link.kind == "pr") {
+        return Ok(Json(CardGitLinkDto::from_row(existing)));
+    }
+    let branch = links
+        .iter()
+        .find(|link| link.kind == "branch")
+        .ok_or_else(|| {
+            AppError::Conflict(
+                "create a branch from this card before opening a pull request".to_owned(),
+            )
+        })?;
+
+    let credential_id = repo
+        .credential_id
+        .as_deref()
+        .ok_or_else(|| AppError::Conflict("the linked repo has no usable credential".to_owned()))?;
+    let credential = secrets::find_by_id(&state.db, credential_id)
+        .await?
+        .ok_or_else(|| AppError::Conflict("the repo's credential no longer exists".to_owned()))?;
+
+    let client = GithubClient::new(vault.open(&credential)?)?;
+    let repo_ref = repo.repo_ref();
+    let pr = client
+        .create_pr(
+            &repo_ref,
+            &branch.git_ref,
+            &repo.default_branch,
+            &card.summary,
+            Some(&format!("Opened from {} on Atlas.", card.key)),
+        )
+        .await?;
+
+    let number = pr.number.to_string();
+    let pr_state = match pr.state {
+        PrState::Open => "open",
+        PrState::Merged => "merged",
+        PrState::Closed => "closed",
+    };
+
+    let mut tx = state.db.begin_write().await?;
+    let stored = store::upsert_card_git_link(
+        &mut tx,
+        &NewCardGitLink {
+            card_id: &card.id,
+            kind: "pr",
+            git_ref: &number,
+            url: Some(&pr.html_url),
+            state: Some(pr_state),
+            meta: Some(&pr.title),
+        },
+        now,
+    )
+    .await?;
+    tx.commit().await?;
+
+    tracing::info!(card = %card.key, pr = pr.number, "opened a pull request from a card");
+    Ok(Json(CardGitLinkDto::from_row(&stored)))
+}
+
 /// Lists the git objects (branches, PRs, commits) linked to a card.
 #[utoipa::path(
     get,
@@ -426,5 +521,6 @@ pub fn routes() -> OpenApiRouter<AppState> {
             unlink_project_repo
         ))
         .routes(routes!(create_branch_from_card))
+        .routes(routes!(create_pr_from_card))
         .routes(routes!(card_git_links))
 }

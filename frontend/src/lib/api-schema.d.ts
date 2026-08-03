@@ -397,6 +397,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{key}/pr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Opens a pull request from a card's branch into the repo's default branch.
+         * @description **Idempotent at the Atlas layer**: if a PR is already recorded against this card, that
+         *     record is returned as-is and GitHub is never called again — clicking the button twice
+         *     must not risk a confusing "a pull request already exists" error surfacing as an opaque
+         *     500 (`GithubClient::error_for_status` never echoes GitHub's error body to the client).
+         */
+        post: operations["create_pr_from_card"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{key}/reparent": {
         parameters: {
             query?: never;
@@ -1373,6 +1396,23 @@ export interface paths {
         get: operations["healthz"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Receives a GitHub webhook delivery. */
+        post: operations["receive"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4133,6 +4173,56 @@ export interface operations {
             };
             /** @description The request is invalid */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_pr_from_card: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key, e.g. ATLAS-42 */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The PR — newly opened, or the one already recorded for this card */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardGitLinkDto"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No repo linked, no usable credential, or the card has no branch yet */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The vault is not configured, or GitHub errored */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8250,6 +8340,56 @@ export interface operations {
             };
             /** @description The database could not be reached */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    receive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The raw GitHub webhook JSON delivery */
+        requestBody: {
+            content: {
+                "application/json": string;
+            };
+        };
+        responses: {
+            /** @description Delivery accepted — processed, or acknowledged and ignored */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed payload or missing event header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or invalid signature */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The repo is not linked, or has no webhook secret */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
