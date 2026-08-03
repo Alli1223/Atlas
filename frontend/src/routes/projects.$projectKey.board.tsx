@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { Banner, Select, Spinner } from '@/components/ui'
@@ -156,13 +156,24 @@ function BoardRoute() {
 
         <div className={styles.controls}>
           <QuickFilters active={activeFilters} onToggle={toggleFilter} />
-          <div className={styles.swimlaneControl}>
-            <Select
-              aria-label="Swimlanes"
-              options={SWIMLANE_OPTIONS}
-              value={search.swimlane}
-              onChange={(event) => setSwimlane(event.target.value)}
-            />
+          <div className={styles.controlsEnd}>
+            {project.data?.cyclesEnabled === true && (
+              <Link
+                to="/projects/$projectKey/cycles"
+                params={{ projectKey }}
+                className={styles.cyclesLink}
+              >
+                Cycles
+              </Link>
+            )}
+            <div className={styles.swimlaneControl}>
+              <Select
+                aria-label="Swimlanes"
+                options={SWIMLANE_OPTIONS}
+                value={search.swimlane}
+                onChange={(event) => setSwimlane(event.target.value)}
+              />
+            </div>
           </div>
         </div>
       </header>

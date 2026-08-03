@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { type ReactNode } from 'react'
 
 import { Avatar, Lozenge, type StatusCategory as LozengeCategory } from '@/components/ui'
+import { CardCycleField } from '@/features/cycles'
 import { TagPicker } from '@/features/tags'
 import {
   useAttachTag,
@@ -160,6 +161,8 @@ export function Sidebar({ card, projectKey, parentLookup }: SidebarProps) {
       )}
 
       <Development card={card} projectKey={projectKey} />
+
+      <CardCycleField cardKey={card.key} projectKey={projectKey} />
 
       <div className={styles.timestamps}>
         <div title={formatDateTime(card.createdAt)}>Created {formatDate(card.createdAt)}</div>
