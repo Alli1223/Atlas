@@ -282,6 +282,26 @@ export interface paths {
         patch: operations["update_card"];
         trace?: never;
     };
+    "/api/v1/cards/{key}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A card's live commits and CI status, read straight from GitHub — nothing here is cached
+         *     or stored, since a check's state is only ever meaningful as of right now.
+         */
+        get: operations["card_activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{key}/branch": {
         parameters: {
             query?: never;
@@ -1576,6 +1596,12 @@ export interface components {
             /** @description The browser URL for the branch. */
             url: string;
         };
+        /** @description Live GitHub activity for a card's branch: its commits, and the CI state of the latest one. */
+        CardActivityDto: {
+            ciStatus?: null | components["schemas"]["CiState"];
+            /** @description The branch's commits, newest first (capped at 100 by GitHub). */
+            commits: components["schemas"]["CommitSummary"][];
+        };
         /** @description A card as the API describes it. */
         CardDto: {
             /**
@@ -1753,6 +1779,11 @@ export interface components {
              */
             total: number;
         };
+        /**
+         * @description The single CI badge a card shows, folded from the two disjoint GitHub systems.
+         * @enum {string}
+         */
+        CiState: "passed" | "running" | "failed" | "neutral";
         /** @description A comment on a card. */
         Comment: {
             /** @description Who wrote it. */
@@ -1798,6 +1829,15 @@ export interface components {
              *     never stored as HTML.
              */
             body: string;
+        };
+        /** @description A commit on a card's branch. */
+        CommitSummary: {
+            /** @description The browser URL. */
+            htmlUrl: string;
+            /** @description The first line of the message. */
+            message: string;
+            /** @description The full SHA. */
+            sha: string;
         };
         /** @description The body of `POST /projects/{key}/boards`. */
         CreateBoardRequest: {
@@ -3833,6 +3873,56 @@ export interface operations {
             };
             /** @description The request is invalid */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    card_activity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key, e.g. ATLAS-42 */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The branch's commits and the newest one's CI state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardActivityDto"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No repo linked, no branch created yet, or the credential is gone */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The vault is not configured, or GitHub errored */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

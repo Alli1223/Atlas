@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ADMIN, jsonResponse, problemResponse, stubFetch } from '@/features/auth/test-support'
 
 import { Development } from './Development'
-import { makeCard, makeGitLink, makeRepo, renderWithClient } from './test-support'
+import { makeActivity, makeCard, makeGitLink, makeRepo, renderWithClient } from './test-support'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -159,5 +159,47 @@ describe('Development', () => {
     expect(
       await screen.findByText('the linked repo has no usable credential'),
     ).toBeInTheDocument()
+  })
+
+  it('shows a CI badge and the commit list once a branch has activity', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([makeGitLink()]),
+      'GET /api/v1/cards/ATLAS-1/activity': () =>
+        jsonResponse(
+          makeActivity({
+            ciStatus: 'failed',
+            commits: [
+              {
+                sha: 'aaa1111',
+                message: 'Add the login form',
+                htmlUrl: 'https://github.com/octocat/hello/commit/aaa1111',
+              },
+            ],
+          }),
+        ),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    expect(await screen.findByText('Checks failed')).toBeInTheDocument()
+    const commit = await screen.findByText('Add the login form')
+    expect(commit).toHaveAttribute('href', 'https://github.com/octocat/hello/commit/aaa1111')
+  })
+
+  it('never asks for activity before a branch exists', async () => {
+    const { calls } = stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([]),
+      'GET /api/v1/cards/ATLAS-1/activity': () => jsonResponse(makeActivity()),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    await screen.findByText('octocat/hello')
+    expect(screen.queryByText(/^Checks /)).not.toBeInTheDocument()
+    expect(calls).not.toContain('GET /api/v1/cards/ATLAS-1/activity')
   })
 })

@@ -44,6 +44,7 @@ export const cardKeys = {
   repo: (projectKey: string) => [...cardKeys.all, 'repo', projectKey] as const,
   gitLinks: (key: string) => [...cardKeys.all, 'git-links', key] as const,
   githubCredentials: () => [...cardKeys.all, 'github-credentials'] as const,
+  activity: (key: string) => [...cardKeys.all, 'activity', key] as const,
 }
 
 /** Shared options so a route loader can warm the same cache the component reads. */
@@ -169,6 +170,22 @@ export function useGithubCredentials(enabled = true) {
     queryFn: cardApi.fetchGithubCredentials,
     enabled,
     staleTime: 60_000,
+  })
+}
+
+/**
+ * A card's live commits and CI status. Only enable this once the card has a branch — the
+ * server 409s otherwise, and there is nothing to show before then anyway.
+ *
+ * Polls every 15s while the CI state is still `running`, so a check that finishes shows up
+ * without the user having to reload; it stops polling the moment it isn't.
+ */
+export function useCardActivity(cardKey: string, enabled: boolean) {
+  return useQuery({
+    queryKey: cardKeys.activity(cardKey),
+    queryFn: () => cardApi.fetchCardActivity(cardKey),
+    enabled,
+    refetchInterval: (query) => (query.state.data?.ciStatus === 'running' ? 15_000 : false),
   })
 }
 

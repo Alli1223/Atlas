@@ -686,6 +686,11 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/cards/{key}/git-links",
         Scope::Card(ProjectRole::Viewer),
     ),
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/activity",
+        Scope::Card(ProjectRole::Viewer),
+    ),
     // --- admin: instance-level, guarded by RequireAdmin in each handler ---
     (Method::GET, "/api/v1/admin/system", Scope::Unscoped),
     (Method::GET, "/api/v1/admin/updates", Scope::Unscoped),

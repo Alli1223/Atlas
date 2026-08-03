@@ -743,3 +743,41 @@ async fn two_deliveries_with_different_ids_are_both_processed() {
 
     app.db.close().await;
 }
+
+// ---------------------------------------------------------------------------
+// Card activity (live commits + CI status)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn card_activity_without_a_linked_repo_is_a_conflict() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await;
+
+    let reply = app
+        .send(get(&format!("/api/v1/cards/{card}/activity"), Some(&admin)))
+        .await;
+    assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.raw_body);
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn card_activity_before_a_branch_exists_is_a_conflict() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await;
+    let pid = project_id(&app, &admin, "ATLAS").await;
+    link_repo_with_secret(&app, &pid, 12345, "s").await;
+
+    // A repo is linked, but no branch has been created from this card yet — nothing to ask
+    // GitHub for commits or CI status about.
+    let reply = app
+        .send(get(&format!("/api/v1/cards/{card}/activity"), Some(&admin)))
+        .await;
+    assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.raw_body);
+
+    app.db.close().await;
+}

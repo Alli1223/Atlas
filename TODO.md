@@ -292,8 +292,8 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 - [ ] `octocrab` client + rate-limit handling (`x-ratelimit-*`, secondary limits, retry/backoff)
 - [x] Link project → repo; repo picker (paginated)
 - [x] ⭐ **Create branch from card** (requested): `POST /repos/{o}/{r}/git/refs` from a base SHA. Configurable naming: `{type}/{key}-{slug}` → `feature/ATLAS-42-add-login`
-- [ ] Development panel on card: branches, commits, PRs, checks — _branches + PRs list, live; commits and CI checks not yet surfaced_
-- [x] Create PR from card; PR state (open/closed/**merged**), mergeable, reviews, CI checks — _create + state (open/closed/merged) done; mergeable, reviews, and CI checks not yet surfaced_
+- [x] Development panel on card: branches, commits, PRs, checks — _branches/PRs (stored) + live commits and a CI badge (via `GET /cards/{key}/activity`, polling while a check runs); polled live rather than webhook-driven for now_
+- [x] Create PR from card; PR state (open/closed/**merged**), mergeable, reviews, CI checks — _create + state (open/closed/merged) + CI badge done; mergeable and reviews not yet surfaced_
 - [x] **Webhook receiver** (built now so a GitHub App drops in later): HMAC-SHA256 verify `x-hub-signature-256`, **constant-time compare** 🔒, replay guard by delivery id — _mounted `POST /webhooks/github` (`UNGATED_PATHS`); a redelivered `x-github-delivery` id is acknowledged (202) but not reprocessed (`webhook_deliveries` table, no retention sweep yet)_
 - [ ] Events: `push`, `pull_request`, `check_suite`, `check_run`, `create`, `delete` — _`push` and `pull_request` acted on; `check_suite`/`create`/`delete` parse but are not-yet-acted-on no-ops; `check_run` not parsed_
 - [x] ⭐ **Smart commits**: parse `ATLAS-42 #done #comment fixed it #time 2h` → transition/comment/worklog — _parser + application landed, wired to `push` deliveries_

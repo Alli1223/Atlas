@@ -168,7 +168,7 @@ pub struct CheckRun {
 }
 
 /// The single CI badge a card shows, folded from the two disjoint GitHub systems.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CiState {
     /// At least one thing succeeded and nothing failed or is still running.
@@ -289,7 +289,7 @@ pub struct PrSummary {
 }
 
 /// A commit on a card's branch.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitSummary {
     /// The full SHA.
