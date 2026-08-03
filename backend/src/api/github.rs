@@ -30,7 +30,9 @@ use crate::domain::card;
 use crate::error::{AppError, AppResult, Problem};
 use crate::integrations::github::RepoRef;
 use crate::integrations::github::branch;
-use crate::integrations::github::client::{GithubClient, PrState, RepoSummary};
+use crate::integrations::github::client::{
+    CiState, CommitSummary, GithubClient, PrState, RepoSummary,
+};
 use crate::integrations::github::store::{
     self, CardGitLink, NewCardGitLink, NewProjectRepo, ProjectRepo,
 };
@@ -499,6 +501,72 @@ async fn card_git_links(
     Ok(Json(links.iter().map(CardGitLinkDto::from_row).collect()))
 }
 
+/// Live GitHub activity for a card's branch: its commits, and the CI state of the latest one.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CardActivityDto {
+    /// The branch's commits, newest first (capped at 100 by GitHub).
+    pub commits: Vec<CommitSummary>,
+    /// The CI state of the newest commit, or `null` if the branch has no commits at all.
+    pub ci_status: Option<CiState>,
+}
+
+/// A card's live commits and CI status, read straight from GitHub — nothing here is cached
+/// or stored, since a check's state is only ever meaningful as of right now.
+#[utoipa::path(
+    get,
+    path = "/cards/{key}/activity",
+    tag = "github",
+    params(("key" = String, Path, description = "The card key, e.g. ATLAS-42")),
+    responses(
+        (status = 200, description = "The branch's commits and the newest one's CI state", body = CardActivityDto),
+        (status = 404, description = "No such card", body = Problem),
+        (status = 409, description = "No repo linked, no branch created yet, or the credential is gone", body = Problem),
+        (status = 500, description = "The vault is not configured, or GitHub errored", body = Problem),
+    )
+)]
+async fn card_activity(
+    State(state): State<AppState>,
+    _current: CurrentUser,
+    Path(key): Path<String>,
+) -> AppResult<Json<CardActivityDto>> {
+    let vault = require_vault(&state)?;
+
+    let card = card::find_by_key(&state.db, &key)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let repo = store::find_project_repo(&state.db, &card.project_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::Conflict("no GitHub repo is linked to this card's project".to_owned())
+        })?;
+    let links = store::list_card_git_links(&state.db, &card.id).await?;
+    let branch = links
+        .iter()
+        .find(|link| link.kind == "branch")
+        .ok_or_else(|| AppError::Conflict("this card has no branch yet".to_owned()))?;
+    let credential_id = repo
+        .credential_id
+        .as_deref()
+        .ok_or_else(|| AppError::Conflict("the linked repo has no usable credential".to_owned()))?;
+    let credential = secrets::find_by_id(&state.db, credential_id)
+        .await?
+        .ok_or_else(|| AppError::Conflict("the repo's credential no longer exists".to_owned()))?;
+
+    let client = GithubClient::new(vault.open(&credential)?)?;
+    let repo_ref = repo.repo_ref();
+    let commits = client.commits(&repo_ref, &branch.git_ref).await?;
+    // GitHub's commits endpoint is newest-first, so the head of the list is the tip — exactly
+    // the commit a CI badge should reflect. No branch has zero commits in practice (it forks
+    // from a real base), but an empty response is handled rather than assumed away.
+    let ci_status = match commits.first() {
+        Some(tip) => Some(client.ci_status(&repo_ref, &tip.sha).await?),
+        None => None,
+    };
+
+    Ok(Json(CardActivityDto { commits, ci_status }))
+}
+
 // ---------------------------------------------------------------------------
 
 /// The vault, or a 500 explaining it is unconfigured. A GitHub call needs a PAT,
@@ -523,4 +591,5 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(create_branch_from_card))
         .routes(routes!(create_pr_from_card))
         .routes(routes!(card_git_links))
+        .routes(routes!(card_activity))
 }

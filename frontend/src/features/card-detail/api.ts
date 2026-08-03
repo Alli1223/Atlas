@@ -263,3 +263,23 @@ export async function fetchGithubCredentials(): Promise<Credential[]> {
   const all = unwrap(await api.GET('/api/v1/credentials'))
   return all.filter((credential) => credential.provider === 'github')
 }
+
+/** A commit on a card's branch. Mirrors `CommitSummary`. */
+export type CardCommit = components['schemas']['CommitSummary']
+/** The single CI badge a card shows. Mirrors `CiState`. */
+export type CiState = components['schemas']['CiState']
+/** A card's live commits and the CI state of the newest one. Mirrors `CardActivityDto`. */
+export type CardActivity = components['schemas']['CardActivityDto']
+
+/**
+ * A card's live GitHub activity: its branch's commits and the newest one's CI state.
+ *
+ * Nothing here is cached server-side — a check's state is only ever meaningful as of right
+ * now — so this always makes a real GitHub call. Only call it once the card has a branch;
+ * the server 409s otherwise.
+ */
+export async function fetchCardActivity(cardKey: string): Promise<CardActivity> {
+  return unwrap(
+    await api.GET('/api/v1/cards/{key}/activity', { params: { path: { key: cardKey } } }),
+  )
+}

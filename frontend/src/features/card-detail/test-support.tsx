@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { type ReactElement } from 'react'
 
-import type { Card, CardGitLink, Credential, ProjectRepo } from './api'
+import type { Card, CardActivity, CardGitLink, Credential, ProjectRepo } from './api'
 
 /**
  * Test helpers for card-detail components that need a QueryClient but not the router.
@@ -92,6 +92,21 @@ export function makeCredential(overrides: Partial<Credential> = {}): Credential 
     lastValidatedAt: null,
     createdAt: '2026-07-01T10:00:00Z',
     updatedAt: '2026-07-16T10:00:00Z',
+    ...overrides,
+  }
+}
+
+/** A card's live GitHub activity (commits + CI status), overridable per test. */
+export function makeActivity(overrides: Partial<CardActivity> = {}): CardActivity {
+  return {
+    commits: [
+      {
+        sha: 'abc1234567890',
+        message: 'Add the login form',
+        htmlUrl: 'https://github.com/octocat/hello/commit/abc1234',
+      },
+    ],
+    ciStatus: 'passed',
     ...overrides,
   }
 }

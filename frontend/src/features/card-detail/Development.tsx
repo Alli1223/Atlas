@@ -1,14 +1,15 @@
 import { GitBranch, GitCommitHorizontal, GitPullRequest, type LucideIcon, Plus } from 'lucide-react'
 import { useState } from 'react'
 
-import { Banner, Button, Spinner } from '@/components/ui'
+import { Banner, Button, Lozenge, type LozengeAppearance, Spinner } from '@/components/ui'
 import { useCurrentUser } from '@/features/auth/queries'
 import { ICON, ICON_SMALL } from '@/lib/icon'
 
-import type { Card } from './api'
+import type { Card, CiState } from './api'
 import styles from './Development.module.css'
 import { LinkRepoDialog } from './LinkRepoDialog'
 import {
+  useCardActivity,
   useCardGitLinks,
   useCreateBranch,
   useCreatePr,
@@ -21,6 +22,21 @@ function kindIcon(kind: string): LucideIcon {
   if (kind === 'pr') return GitPullRequest
   if (kind === 'commit') return GitCommitHorizontal
   return GitBranch
+}
+
+/** The CI badge's colour, borrowed from the same status-pill idiom as a card's status field. */
+const CI_APPEARANCE: Record<CiState, LozengeAppearance> = {
+  passed: 'success',
+  running: 'inprogress',
+  failed: 'removed',
+  neutral: 'default',
+}
+
+const CI_LABEL: Record<CiState, string> = {
+  passed: 'Checks passed',
+  running: 'Checks running',
+  failed: 'Checks failed',
+  neutral: 'No checks',
 }
 
 /**
@@ -48,6 +64,10 @@ export function Development({ card, projectKey }: { card: Card; projectKey: stri
   // pointless click.
   const hasBranch = links.data?.some((link) => link.kind === 'branch') ?? false
   const hasPr = links.data?.some((link) => link.kind === 'pr') ?? false
+
+  // Live GitHub data — nothing here is stored, so it is only worth asking for once a branch
+  // exists, and it self-refreshes while a check is still running.
+  const activity = useCardActivity(card.key, hasBranch)
 
   return (
     <section className={styles.development} aria-labelledby={`dev-${card.key}`}>
@@ -114,6 +134,14 @@ export function Development({ card, projectKey }: { card: Card; projectKey: stri
             </Banner>
           )}
 
+          {activity.data?.ciStatus && (
+            <div>
+              <Lozenge appearance={CI_APPEARANCE[activity.data.ciStatus]} isBold>
+                {CI_LABEL[activity.data.ciStatus]}
+              </Lozenge>
+            </div>
+          )}
+
           {links.data && links.data.length > 0 && (
             <ul className={styles.links}>
               {links.data.map((link) => {
@@ -139,6 +167,25 @@ export function Development({ card, projectKey }: { card: Card; projectKey: stri
                   </li>
                 )
               })}
+            </ul>
+          )}
+
+          {activity.data && activity.data.commits.length > 0 && (
+            <ul className={styles.links}>
+              {activity.data.commits.map((commit) => (
+                <li key={commit.sha} className={styles.link}>
+                  <GitCommitHorizontal {...ICON_SMALL} aria-hidden="true" />
+                  <a
+                    className={styles.linkRef}
+                    href={commit.htmlUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={commit.message}
+                  >
+                    {commit.message}
+                  </a>
+                </li>
+              ))}
             </ul>
           )}
         </div>
