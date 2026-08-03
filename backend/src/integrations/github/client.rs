@@ -251,6 +251,53 @@ pub fn pr_state(state: &str, merged: bool) -> PrState {
 }
 
 // ---------------------------------------------------------------------------
+// Pure interpretation: rate-limit retry
+// ---------------------------------------------------------------------------
+
+/// Whether — and how long — to wait before retrying a response, per GitHub's documented
+/// rate-limit handling (`docs/research/github-api.md` §8).
+///
+/// `429` is unambiguous and always retried. A `403` is retried **only** when it carries a
+/// rate-limit-specific signal — `retry-after`, or `x-ratelimit-remaining: 0` — because an
+/// ordinary permissions 403 (a token missing a scope) has neither, and GitHub's own docs
+/// warn that retrying that forever is a real failure mode, not resilience.
+///
+/// Wait order: `retry-after` (seconds) first; else, if `x-ratelimit-remaining` reads `0`,
+/// the time until `x-ratelimit-reset` (an epoch-seconds deadline); else a 60s default. The
+/// result doubles per attempt beyond the first — "exponential backoff with a retry cap",
+/// where the cap itself is [`GithubClient::execute`]'s concern, not this function's: this
+/// reports what GitHub is asking for, unconditionally, and lets the caller decide whether
+/// that is a wait worth honouring inline.
+///
+/// `now` is a parameter rather than read here, so a fixed `x-ratelimit-reset` deadline can
+/// be tested against a controlled clock instead of a moving one.
+#[must_use]
+fn retry_wait(
+    status: reqwest::StatusCode,
+    headers: &HeaderMap,
+    attempt: u32,
+    now: DateTime<Utc>,
+) -> Option<std::time::Duration> {
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+
+    let is_secondary_limit_403 = status == reqwest::StatusCode::FORBIDDEN
+        && (header("retry-after").is_some() || header("x-ratelimit-remaining") == Some("0"));
+    if status != reqwest::StatusCode::TOO_MANY_REQUESTS && !is_secondary_limit_403 {
+        return None;
+    }
+
+    let base = if let Some(secs) = header("retry-after").and_then(|v| v.parse::<u64>().ok()) {
+        std::time::Duration::from_secs(secs)
+    } else if let Some(reset) = header("x-ratelimit-reset").and_then(|v| v.parse::<i64>().ok()) {
+        std::time::Duration::from_secs((reset - now.timestamp()).max(0).cast_unsigned())
+    } else {
+        std::time::Duration::from_mins(1)
+    };
+
+    Some(base * 2u32.pow(attempt.saturating_sub(1)))
+}
+
+// ---------------------------------------------------------------------------
 // Atlas-facing summary DTOs
 // ---------------------------------------------------------------------------
 
@@ -434,10 +481,8 @@ impl GithubClient {
     /// [`Validator`]: crate::secrets::Validator
     pub async fn validate(&self) -> AppResult<ValidationOutcome> {
         let resp = self
-            .request(reqwest::Method::GET, "/user")
-            .send()
-            .await
-            .map_err(AppError::internal)?;
+            .execute(self.request(reqwest::Method::GET, "/user"))
+            .await?;
         interpret_user_response(resp.status(), resp.headers())
     }
 
@@ -495,11 +540,8 @@ impl GithubClient {
         let path = format!("/repos/{}/{}/git/refs", repo.owner, repo.repo);
         let body = serde_json::json!({ "ref": format!("refs/heads/{name}"), "sha": from_sha });
         let resp = self
-            .request(reqwest::Method::POST, &path)
-            .json(&body)
-            .send()
-            .await
-            .map_err(AppError::internal)?;
+            .execute(self.request(reqwest::Method::POST, &path).json(&body))
+            .await?;
         if resp.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
             return Ok(());
         }
@@ -523,11 +565,8 @@ impl GithubClient {
             "body": body.unwrap_or(""),
         });
         let resp = self
-            .request(reqwest::Method::POST, &path)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(AppError::internal)?;
+            .execute(self.request(reqwest::Method::POST, &path).json(&payload))
+            .await?;
         let resp = Self::error_for_status(resp).await?;
         let pull: wire::Pull = resp.json().await.map_err(AppError::internal)?;
         Ok(Self::pull_to_summary(pull))
@@ -602,11 +641,8 @@ impl GithubClient {
             },
         });
         let resp = self
-            .request(reqwest::Method::POST, &path)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(AppError::internal)?;
+            .execute(self.request(reqwest::Method::POST, &path).json(&payload))
+            .await?;
         let resp = Self::error_for_status(resp).await?;
         let hook: wire::Hook = resp.json().await.map_err(AppError::internal)?;
         Ok(hook.id)
@@ -618,13 +654,51 @@ impl GithubClient {
         method: reqwest::Method,
         path: &str,
     ) -> AppResult<T> {
-        let resp = self
-            .request(method, path)
-            .send()
-            .await
-            .map_err(AppError::internal)?;
+        let resp = self.execute(self.request(method, path)).await?;
         let resp = Self::error_for_status(resp).await?;
         resp.json().await.map_err(AppError::internal)
+    }
+
+    /// Sends a request, retrying inline on GitHub's documented rate-limit signals — never
+    /// on an ordinary error.
+    ///
+    /// This runs inside a synchronous Atlas API request, not a batch job, so a wait GitHub
+    /// says will take minutes must fail fast rather than hang the request that triggered
+    /// it. So the retry is deliberately narrow: at most two extra attempts, and only when
+    /// [`retry_wait`] asks for no more than a few seconds — anything longer is returned
+    /// as-is, to be classified as an ordinary error by [`Self::error_for_status`] the same
+    /// as any ready-made non-2xx response.
+    async fn execute(&self, request: reqwest::RequestBuilder) -> AppResult<reqwest::Response> {
+        const MAX_ATTEMPTS: u32 = 3;
+        const MAX_INLINE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let sent = request
+                .try_clone()
+                .ok_or_else(|| {
+                    AppError::internal(anyhow::anyhow!(
+                        "a GitHub request body could not be cloned for a retry"
+                    ))
+                })?
+                .send()
+                .await
+                .map_err(AppError::internal)?;
+
+            let wait = retry_wait(sent.status(), sent.headers(), attempt, Utc::now());
+            match wait {
+                Some(wait) if attempt < MAX_ATTEMPTS && wait <= MAX_INLINE_WAIT => {
+                    tracing::debug!(
+                        ?wait,
+                        attempt,
+                        "GitHub rate-limited a request; retrying inline"
+                    );
+                    tokio::time::sleep(wait).await;
+                }
+                _ => return Ok(sent),
+            }
+        }
     }
 
     /// Maps a non-2xx response to an error whose body is **not** echoed to the
@@ -828,5 +902,126 @@ mod tests {
         // The trap: closed without merged is NOT a merge.
         assert_ne!(pr_state("closed", false), PrState::Merged);
         assert_eq!(pr_state("closed", true), PrState::Merged);
+    }
+
+    // --- rate-limit retry --------------------------------------------------------
+
+    fn now() -> DateTime<Utc> {
+        DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap()
+    }
+
+    #[test]
+    fn an_ordinary_403_with_no_rate_limit_signal_is_not_retried() {
+        // A permissions 403 — a token missing a scope — carries neither header. Retrying
+        // this forever is the exact failure mode the docs warn against.
+        assert_eq!(
+            retry_wait(StatusCode::FORBIDDEN, &headers(&[]), 1, now()),
+            None
+        );
+        assert_eq!(
+            retry_wait(
+                StatusCode::FORBIDDEN,
+                &headers(&[("x-ratelimit-remaining", "5")]),
+                1,
+                now()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_403_with_retry_after_is_retried_for_exactly_that_long() {
+        assert_eq!(
+            retry_wait(
+                StatusCode::FORBIDDEN,
+                &headers(&[("retry-after", "30")]),
+                1,
+                now()
+            ),
+            Some(std::time::Duration::from_secs(30))
+        );
+    }
+
+    #[test]
+    fn a_403_with_remaining_zero_waits_until_the_reset_deadline() {
+        let reset = now().timestamp() + 45;
+        assert_eq!(
+            retry_wait(
+                StatusCode::FORBIDDEN,
+                &headers(&[
+                    ("x-ratelimit-remaining", "0"),
+                    ("x-ratelimit-reset", &reset.to_string()),
+                ]),
+                1,
+                now()
+            ),
+            Some(std::time::Duration::from_secs(45))
+        );
+    }
+
+    #[test]
+    fn a_reset_deadline_already_in_the_past_clamps_to_zero_rather_than_wrapping() {
+        let reset = now().timestamp() - 1000;
+        assert_eq!(
+            retry_wait(
+                StatusCode::FORBIDDEN,
+                &headers(&[
+                    ("x-ratelimit-remaining", "0"),
+                    ("x-ratelimit-reset", &reset.to_string()),
+                ]),
+                1,
+                now()
+            ),
+            Some(std::time::Duration::from_secs(0))
+        );
+    }
+
+    #[test]
+    fn retry_after_wins_over_remaining_and_reset_when_both_are_present() {
+        assert_eq!(
+            retry_wait(
+                StatusCode::FORBIDDEN,
+                &headers(&[
+                    ("retry-after", "5"),
+                    ("x-ratelimit-remaining", "0"),
+                    ("x-ratelimit-reset", &(now().timestamp() + 9999).to_string()),
+                ]),
+                1,
+                now()
+            ),
+            Some(std::time::Duration::from_secs(5))
+        );
+    }
+
+    #[test]
+    fn a_429_with_no_headers_at_all_still_gets_the_default_minute() {
+        // 429 is unambiguous on its own — no header is needed to know this is a rate limit.
+        assert_eq!(
+            retry_wait(StatusCode::TOO_MANY_REQUESTS, &headers(&[]), 1, now()),
+            Some(std::time::Duration::from_mins(1))
+        );
+    }
+
+    #[test]
+    fn a_successful_response_is_never_retried_no_matter_the_headers() {
+        assert_eq!(
+            retry_wait(StatusCode::OK, &headers(&[("retry-after", "30")]), 1, now()),
+            None
+        );
+    }
+
+    #[test]
+    fn the_wait_doubles_with_each_attempt() {
+        let with_attempt = |attempt: u32| {
+            retry_wait(
+                StatusCode::TOO_MANY_REQUESTS,
+                &headers(&[("retry-after", "10")]),
+                attempt,
+                now(),
+            )
+        };
+        assert_eq!(with_attempt(1), Some(std::time::Duration::from_secs(10)));
+        assert_eq!(with_attempt(2), Some(std::time::Duration::from_secs(20)));
+        assert_eq!(with_attempt(3), Some(std::time::Duration::from_secs(40)));
     }
 }
