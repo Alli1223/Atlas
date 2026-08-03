@@ -781,3 +781,84 @@ async fn card_activity_before_a_branch_exists_is_a_conflict() {
 
     app.db.close().await;
 }
+
+// ---------------------------------------------------------------------------
+// check_suite handling
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_completed_check_suite_is_recorded_against_the_cards_branch() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await; // ATLAS-1
+    let pid = project_id(&app, &admin, "ATLAS").await;
+    let secret = "s";
+    link_repo_with_secret(&app, &pid, 12345, secret).await;
+
+    let body = json!({
+        "repository": { "id": 12345 },
+        "check_suite": {
+            "head_sha": "abc123def",
+            "head_branch": format!("feature/{card}-add-login"),
+            "conclusion": "success",
+        }
+    })
+    .to_string();
+    let signature = sign_github_webhook(secret.as_bytes(), body.as_bytes());
+
+    let reply = app
+        .send(webhook_request(&body, "check_suite", &signature))
+        .await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.raw_body);
+
+    let links = app
+        .send(get(
+            &format!("/api/v1/cards/{card}/git-links"),
+            Some(&admin),
+        ))
+        .await;
+    assert_eq!(links.status, StatusCode::OK, "{}", links.raw_body);
+    let recorded = links
+        .json()
+        .as_array()
+        .expect("git-links are an array")
+        .iter()
+        .find(|link| link["kind"] == "commit")
+        .cloned()
+        .expect("a commit git-link was recorded");
+    assert_eq!(recorded["reference"], "abc123def");
+    assert_eq!(recorded["state"], "success");
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn a_check_suite_on_a_branch_with_no_matching_card_is_silently_ignored() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    create_card(&app, &admin, "ATLAS", &type_id).await;
+    let pid = project_id(&app, &admin, "ATLAS").await;
+    let secret = "s";
+    link_repo_with_secret(&app, &pid, 12345, secret).await;
+
+    let body = json!({
+        "repository": { "id": 12345 },
+        "check_suite": {
+            "head_sha": "abc123def",
+            "head_branch": "main",
+            "conclusion": "success",
+        }
+    })
+    .to_string();
+    let signature = sign_github_webhook(secret.as_bytes(), body.as_bytes());
+
+    // Acknowledged, not failed, even though no card key is embedded in "main".
+    let reply = app
+        .send(webhook_request(&body, "check_suite", &signature))
+        .await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.raw_body);
+
+    app.db.close().await;
+}

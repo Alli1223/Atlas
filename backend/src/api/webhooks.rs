@@ -133,7 +133,24 @@ async fn dispatch(state: &AppState, project_id: &str, event: WebhookEvent) -> Ap
             )
             .await?;
         }
-        // check_suite / create / delete are parsed but not yet acted on.
+        WebhookEvent::CheckSuite {
+            head_sha,
+            head_branch,
+            conclusion,
+        } => {
+            handle_check_suite(
+                state,
+                project_id,
+                &head_sha,
+                head_branch.as_deref(),
+                conclusion.as_deref(),
+            )
+            .await?;
+        }
+        // create / delete are parsed but not yet acted on. check_run is not parsed at all —
+        // check_suite already aggregates every check_run underneath it into the one
+        // conclusion Atlas's single folded CI badge needs, so individual check_run events
+        // would only add noise for a per-check breakdown nothing in the UI shows yet.
         _ => {}
     }
     Ok(())
@@ -197,6 +214,54 @@ async fn handle_pull_request(
         smart_commit::move_to_category(&state.db, &card, category, &card.creator_id, now()).await?;
     }
 
+    Ok(())
+}
+
+/// Records a check suite's conclusion against the card whose branch it ran on — a
+/// webhook-pushed counterpart to `GET /cards/{key}/activity`'s live poll, so the *stored*
+/// git-links list (`GET /cards/{key}/git-links`, no outbound GitHub call) also reflects the
+/// last-known CI result rather than only ever showing it on demand.
+///
+/// Repo webhooks only ever deliver `check_suite.completed` (never `requested`/
+/// `rerequested`), so `conclusion` is effectively always present by the time this runs —
+/// still handled as `Option` because the payload technically allows it.
+async fn handle_check_suite(
+    state: &AppState,
+    project_id: &str,
+    head_sha: &str,
+    head_branch: Option<&str>,
+    conclusion: Option<&str>,
+) -> AppResult<()> {
+    // A check suite with no branch (e.g. one that ran on a tag, or a commit not on any
+    // branch Atlas knows) has no card to record it against.
+    let Some(branch) = head_branch else {
+        return Ok(());
+    };
+    let Some(key) = smart_commit::key_in_branch(branch) else {
+        return Ok(());
+    };
+    let Some(card) = card::find_by_key(&state.db, &key).await? else {
+        return Ok(());
+    };
+    if card.project_id != project_id {
+        return Ok(());
+    }
+
+    let mut tx = state.db.begin_write().await?;
+    store::upsert_card_git_link(
+        &mut tx,
+        &store::NewCardGitLink {
+            card_id: &card.id,
+            kind: "commit",
+            git_ref: head_sha,
+            url: None,
+            state: conclusion,
+            meta: None,
+        },
+        now(),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
