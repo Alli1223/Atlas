@@ -1867,7 +1867,7 @@ export interface components {
             kind: "backlog";
         } | {
             /** @description The target cycle's id. */
-            cycle_id: string;
+            cycleId: string;
             /** @enum {string} */
             kind: "existingCycle";
         } | {
