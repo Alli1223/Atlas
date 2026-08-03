@@ -64,7 +64,7 @@ sha2 = "0.10"
 # 0.12 (digest 0.10) to share `sha2 = 0.10` with the session-token digests —
 # hmac 0.13 pulls digest 0.11 and would fork the sha2 tree. `Mac::verify_slice`
 # is itself constant-time; `subtle` covers the per-repo secret lookup.
-hmac = "0.12"
+hmac = "0.13"
 # Hex decoding of the `sha256=` webhook signature header.
 hex = "0.4"
 # Constant-time equality for anything derived from a secret.
