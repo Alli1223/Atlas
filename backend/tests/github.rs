@@ -527,3 +527,92 @@ async fn a_merged_pull_request_moves_the_card_to_done() {
 
     app.db.close().await;
 }
+
+// ---------------------------------------------------------------------------
+// Create PR from card
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn creating_a_pr_without_a_linked_repo_is_a_conflict() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await;
+
+    let reply = app
+        .send(post(
+            &format!("/api/v1/cards/{card}/pr"),
+            Some(&admin),
+            json!({}),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.raw_body);
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn creating_a_pr_before_a_branch_exists_is_a_conflict() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await;
+    let pid = project_id(&app, &admin, "ATLAS").await;
+    link_repo_with_secret(&app, &pid, 12345, "s").await;
+
+    // A repo is linked, but no branch has been created from this card yet.
+    let reply = app
+        .send(post(
+            &format!("/api/v1/cards/{card}/pr"),
+            Some(&admin),
+            json!({}),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.raw_body);
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn a_pr_already_recorded_against_the_card_is_returned_without_calling_github() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await; // ATLAS-1
+    let pid = project_id(&app, &admin, "ATLAS").await;
+    let secret = "s";
+    link_repo_with_secret(&app, &pid, 12345, secret).await;
+
+    // Record a "pr" git link the same way the webhook receiver would — no outbound GitHub
+    // call is made by this. If POST /pr subsequently tried to reach api.github.com, this
+    // hermetic test would hang or fail rather than pass.
+    let body = json!({
+        "repository": { "id": 12345 },
+        "action": "opened",
+        "pull_request": {
+            "number": 9, "title": "Add login", "html_url": "https://x/9",
+            "merged": false, "head": { "ref": format!("feature/{card}-add-login") }
+        }
+    })
+    .to_string();
+    let signature = sign_github_webhook(secret.as_bytes(), body.as_bytes());
+    let reply = app
+        .send(webhook_request(&body, "pull_request", &signature))
+        .await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.raw_body);
+
+    let reply = app
+        .send(post(
+            &format!("/api/v1/cards/{card}/pr"),
+            Some(&admin),
+            json!({}),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+    let recorded = reply.json();
+    assert_eq!(recorded["kind"], "pr");
+    assert_eq!(recorded["reference"], "9");
+    assert_eq!(recorded["url"], "https://x/9");
+
+    app.db.close().await;
+}

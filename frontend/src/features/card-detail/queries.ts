@@ -12,6 +12,7 @@ import * as cardApi from './api'
 import type {
   BranchCreated,
   Card,
+  CardGitLink,
   CardPatch,
   Comment,
   ExecuteTransitionInput,
@@ -176,6 +177,17 @@ export function useCreateBranch(cardKey: string) {
   const queryClient = useQueryClient()
   return useMutation<BranchCreated, ApiError, void>({
     mutationFn: () => cardApi.createBranch(cardKey),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardKeys.gitLinks(cardKey) })
+    },
+  })
+}
+
+/** Opens a PR from the card's branch, folding the result straight into the git-links cache. */
+export function useCreatePr(cardKey: string) {
+  const queryClient = useQueryClient()
+  return useMutation<CardGitLink, ApiError, void>({
+    mutationFn: () => cardApi.createPr(cardKey),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: cardKeys.gitLinks(cardKey) })
     },

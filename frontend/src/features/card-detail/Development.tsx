@@ -8,7 +8,13 @@ import { ICON, ICON_SMALL } from '@/lib/icon'
 import type { Card } from './api'
 import styles from './Development.module.css'
 import { LinkRepoDialog } from './LinkRepoDialog'
-import { useCardGitLinks, useCreateBranch, useProjectRepo, useUnlinkRepo } from './queries'
+import {
+  useCardGitLinks,
+  useCreateBranch,
+  useCreatePr,
+  useProjectRepo,
+  useUnlinkRepo,
+} from './queries'
 
 /** The lucide glyph for a git link, by its kind. `GitBranch` is the sensible default. */
 function kindIcon(kind: string): LucideIcon {
@@ -33,8 +39,15 @@ export function Development({ card, projectKey }: { card: Card; projectKey: stri
   const repo = useProjectRepo(projectKey)
   const links = useCardGitLinks(card.key)
   const createBranch = useCreateBranch(card.key)
+  const createPr = useCreatePr(card.key)
   const unlink = useUnlinkRepo(projectKey)
   const [linking, setLinking] = useState(false)
+
+  // A PR needs a branch to open from, and there is nothing left to do once one is already
+  // recorded — the action would just be idempotent, so it disappears rather than inviting a
+  // pointless click.
+  const hasBranch = links.data?.some((link) => link.kind === 'branch') ?? false
+  const hasPr = links.data?.some((link) => link.kind === 'pr') ?? false
 
   return (
     <section className={styles.development} aria-labelledby={`dev-${card.key}`}>
@@ -67,6 +80,17 @@ export function Development({ card, projectKey }: { card: Card; projectKey: stri
             >
               Create branch
             </Button>
+            {hasBranch && !hasPr && (
+              <Button
+                appearance="default"
+                size="compact"
+                iconBefore={<GitPullRequest {...ICON} aria-hidden="true" />}
+                isLoading={createPr.isPending}
+                onClick={() => createPr.mutate()}
+              >
+                Create PR
+              </Button>
+            )}
             {isAdmin && (
               <Button
                 appearance="subtle"
@@ -82,6 +106,11 @@ export function Development({ card, projectKey }: { card: Card; projectKey: stri
           {createBranch.isError && (
             <Banner appearance="error">
               {createBranch.error.problem?.detail ?? 'Could not create the branch.'}
+            </Banner>
+          )}
+          {createPr.isError && (
+            <Banner appearance="error">
+              {createPr.error.problem?.detail ?? 'Could not open the pull request.'}
             </Banner>
           )}
 

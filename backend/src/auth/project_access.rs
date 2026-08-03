@@ -677,6 +677,11 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         Scope::Card(ProjectRole::Member),
     ),
     (
+        Method::POST,
+        "/api/v1/cards/{key}/pr",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
         Method::GET,
         "/api/v1/cards/{key}/git-links",
         Scope::Card(ProjectRole::Viewer),
