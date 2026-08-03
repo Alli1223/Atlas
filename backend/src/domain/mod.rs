@@ -44,6 +44,7 @@ pub mod board;
 pub mod card;
 pub mod comment;
 pub mod config;
+pub mod cycle;
 pub mod filter;
 pub mod hierarchy;
 pub mod history;
