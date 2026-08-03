@@ -463,7 +463,7 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 8 Boards | `feat/07-frontend-boards` | ✅ |
 | 8b Nested boards | `feat/07-frontend-boards` | ✅ mini-map + nested nav |
 | 9 Card detail | `feat/07-frontend-boards` | ✅ |
-| 10 Cycles | `feat/10-cycles` | 🚧 backend done: state machine (start/complete/reopen), scope tracking (`card_cycle`), carry-over, full REST API. Remaining: daily `cycle_snapshot` writes (needs a scheduler), a direct time-logging path, reports, and the frontend UI |
+| 10 Cycles | `feat/10-cycles`, `feat/10-cycles-ui` | 🚧 backend + core UI done: state machine (start/complete/reopen), scope tracking (`card_cycle`), carry-over, full REST API, a `/cycles` lifecycle page, and card-detail sidebar integration (add/remove one card at a time). Remaining: a drag-and-drop backlog board for bulk card↔cycle moves, daily `cycle_snapshot` writes (needs a scheduler), a direct time-logging path, and reports |
 | 11 Secrets | `feat/11-secrets` | ✅ (#12) |
 | 12 GitHub | `feat/12-github` | 🚧 substantially done: vault→PAT, repo linking (+ picker), branch/PR creation, mergeable+reviews, dev panel (live commits/CI), rate-limit handling, webhooks (receiver, installable, replay guard, push/PR/check_suite) (#12, #15–#17, #25–#33). Remaining: poll fallback + sync/backfill, both blocked on a background task scheduler Atlas doesn't have yet |
 | 13 Claude agent | `feat/13-claude-agent` | ⬜ |
