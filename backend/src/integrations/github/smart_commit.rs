@@ -126,6 +126,41 @@ fn card_key(token: &str) -> Option<String> {
     shaped.then(|| token.to_ascii_uppercase())
 }
 
+/// The first card key embedded anywhere in free text, by shape — for tying a PR to the card
+/// its branch was cut from (`feature/ATLAS-42-add-login` → `ATLAS-42`).
+///
+/// Unlike [`parse`], the key need not lead the text: this scans for the first maximal
+/// `LETTER (LETTER|DIGIT)* '-' DIGIT+` run at a word boundary. Whether it resolves to a real
+/// card is, as ever, the caller's to check.
+#[must_use]
+pub fn key_in_branch(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    for start in 0..bytes.len() {
+        // A key starts at the beginning or just after a non-alphanumeric byte, with a letter.
+        let at_boundary = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+        if !at_boundary || !bytes[start].is_ascii_alphabetic() {
+            continue;
+        }
+        // The project part: letters and digits.
+        let mut dash = start + 1;
+        while dash < bytes.len() && bytes[dash].is_ascii_alphanumeric() {
+            dash += 1;
+        }
+        if dash >= bytes.len() || bytes[dash] != b'-' {
+            continue;
+        }
+        // The number part: one or more digits.
+        let mut end = dash + 1;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+        if end > dash + 1 {
+            return Some(text[start..end].to_ascii_uppercase());
+        }
+    }
+    None
+}
+
 /// Splits the post-keys remainder into commands on `#`. Text before the first `#` (stray
 /// prose between the keys and the first command) is ignored.
 fn parse_commands(rest: &str) -> Vec<Command> {
@@ -308,9 +343,7 @@ pub async fn apply_to_card(
     Ok(applied)
 }
 
-/// Moves a card to the status a directive names, if the workflow allows it. Returns the
-/// status name moved to, or `None` if the directive is unknown, the card is already there,
-/// or the move is not permitted.
+/// Applies a smart-commit transition directive by mapping it to a status category.
 async fn apply_transition(
     db: &Db,
     card: &Card,
@@ -318,10 +351,25 @@ async fn apply_transition(
     actor: &str,
     now: DateTime<Utc>,
 ) -> AppResult<Option<String>> {
-    let Some(category) = directive_category(directive) else {
-        return Ok(None);
-    };
+    match directive_category(directive) {
+        Some(category) => move_to_category(db, card, category, actor, now).await,
+        None => Ok(None),
+    }
+}
 
+/// Moves a card into the first status of `category`, if the workflow permits it.
+///
+/// The shared primitive behind a `#done` smart commit and a PR-driven auto-transition (open →
+/// In Progress, merge → Done). Returns the status name moved to, or `None` when there is no
+/// status in that category, the card is already there, or the workflow refuses the move.
+/// Best-effort: a refused move is a `None`, not an error.
+pub async fn move_to_category(
+    db: &Db,
+    card: &Card,
+    category: StatusCategory,
+    actor: &str,
+    now: DateTime<Utc>,
+) -> AppResult<Option<String>> {
     let mut tx = db.begin_write().await?;
     let Some(target) =
         config::first_status_in_category_tx(&mut tx, &card.project_id, category).await?

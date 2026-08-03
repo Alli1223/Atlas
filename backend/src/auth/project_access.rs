@@ -888,7 +888,13 @@ pub fn assert_scopes_match_routes(openapi: &utoipa::openapi::OpenApi) {
 /// answer before anybody has signed in — it is a liveness probe for a load
 /// balancer. That is the entire list, and [`assert_no_route_escapes_the_gate`]
 /// keeps it that way.
-const UNGATED_PATHS: &[&str] = &["/healthz"];
+const UNGATED_PATHS: &[&str] = &[
+    "/healthz",
+    // The GitHub webhook receiver is unauthenticated by design: GitHub has no Atlas session,
+    // so an HMAC-SHA256 signature over the raw body (verified in `api::webhooks`) is its whole
+    // gate. It mounts at the top level, outside every `/api/v1` layer, on purpose.
+    "/webhooks/github",
+];
 
 /// Panics if any route is served outside the three `/api/v1` layers.
 ///

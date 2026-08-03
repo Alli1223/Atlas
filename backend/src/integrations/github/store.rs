@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::auth::to_sql_timestamp;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
+use crate::secrets::crypto::Sealed;
 
 use super::RepoRef;
 
@@ -335,6 +336,65 @@ pub async fn insert_worklog(
     .bind(new.note)
     .bind(new.source)
     .bind(to_sql_timestamp(now))
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Webhook binding
+// ---------------------------------------------------------------------------
+
+/// A repo's webhook binding: the project it drives, and the sealed secret its deliveries are
+/// signed with. Read by the receiver, which must find the repo (by GitHub's immutable id, off
+/// the unverified payload) before it can open the secret and verify the signature.
+#[derive(Debug, Clone, FromRow)]
+pub struct RepoWebhook {
+    /// The `project_repos.id` — the AAD the secret is bound to.
+    pub id: String,
+    /// The project whose cards the webhook acts on.
+    pub project_id: String,
+    /// The sealed webhook secret. `None` until a hook is installed.
+    pub webhook_secret_ciphertext: Option<Vec<u8>>,
+    /// The nonce the secret was sealed under.
+    pub webhook_secret_nonce: Option<Vec<u8>>,
+    /// The key version that sealed it.
+    pub webhook_secret_key_version: Option<i64>,
+}
+
+/// Finds a repo's webhook binding by GitHub's immutable numeric id.
+///
+/// `LIMIT 1`: a repo linked to two projects (each with its own hook) is a rare edge the
+/// receiver does not try to disambiguate here — the first binding wins.
+pub async fn find_repo_webhook_by_repo_id(db: &Db, repo_id: i64) -> AppResult<Option<RepoWebhook>> {
+    Ok(sqlx::query_as::<_, RepoWebhook>(
+        "SELECT id, project_id, webhook_secret_ciphertext, webhook_secret_nonce, \
+                webhook_secret_key_version \
+         FROM project_repos WHERE repo_id = ? LIMIT 1",
+    )
+    .bind(repo_id)
+    .fetch_optional(db.reader())
+    .await?)
+}
+
+/// Stores a repo's installed webhook: its GitHub id and the sealed delivery secret.
+pub async fn set_webhook(
+    tx: &mut SqliteConnection,
+    project_repo_id: &str,
+    webhook_id: i64,
+    sealed: &Sealed,
+    now: DateTime<Utc>,
+) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE project_repos SET webhook_id = ?, webhook_secret_ciphertext = ?, \
+         webhook_secret_nonce = ?, webhook_secret_key_version = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(webhook_id)
+    .bind(&sealed.ciphertext)
+    .bind(&sealed.nonce)
+    .bind(sealed.key_version)
+    .bind(to_sql_timestamp(now))
+    .bind(project_repo_id)
     .execute(&mut *tx)
     .await?;
     Ok(())
