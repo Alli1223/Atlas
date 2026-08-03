@@ -5,7 +5,7 @@ import { Banner, Button, Input, Select } from '@/components/ui'
 import { ICON } from '@/lib/icon'
 
 import styles from './LinkRepoDialog.module.css'
-import { useGithubCredentials, useLinkRepo } from './queries'
+import { useCredentialRepos, useGithubCredentials, useLinkRepo } from './queries'
 
 export interface LinkRepoDialogProps {
   projectKey: string
@@ -51,6 +51,15 @@ export function LinkRepoDialog({ projectKey, onClose }: LinkRepoDialogProps) {
     credentialId !== '' ? credentialId : (credentials.data?.[0]?.id ?? '')
 
   const noCredentials = credentials.isSuccess && (credentials.data?.length ?? 0) === 0
+
+  // The repo picker: an assistive shortcut, not the only way in. It fills owner/repo when a
+  // repo is chosen, but both fields stay editable — a repo further back than the first page,
+  // or reachable only by typing (the picker's own fetch failed), still works.
+  const repos = useCredentialRepos(selectedCredentialId, selectedCredentialId !== '')
+  const pushableRepos = (repos.data ?? []).filter((repo) => repo.canPush)
+  const showPicker =
+    selectedCredentialId !== '' && (repos.isPending || pushableRepos.length > 0)
+
   const canSubmit =
     selectedCredentialId !== '' &&
     owner.trim().length > 0 &&
@@ -76,6 +85,19 @@ export function LinkRepoDialog({ projectKey, onClose }: LinkRepoDialogProps) {
     label: credential.label,
     value: credential.id,
   }))
+
+  const repoOptions = pushableRepos.map((repo) => ({
+    label: repo.private ? `${repo.fullName} (private)` : repo.fullName,
+    value: String(repo.id),
+  }))
+
+  function onPickRepo(id: string) {
+    const picked = pushableRepos.find((repo) => String(repo.id) === id)
+    if (!picked) return
+    const [pickedOwner, pickedRepo] = picked.fullName.split('/')
+    setOwner(pickedOwner ?? '')
+    setRepo(pickedRepo ?? '')
+  }
 
   return (
     <div className={styles.blanket} onClick={onClose}>
@@ -121,6 +143,17 @@ export function LinkRepoDialog({ projectKey, onClose }: LinkRepoDialogProps) {
               options={options}
               placeholder={credentials.isPending ? 'Loading…' : 'Choose a credential'}
               helpMessage="The GitHub token Atlas acts with."
+            />
+          )}
+
+          {showPicker && (
+            <Select
+              label="Pick a repository"
+              value=""
+              onChange={(event) => onPickRepo(event.target.value)}
+              options={repoOptions}
+              placeholder={repos.isPending ? 'Loading…' : 'Choose one, or type below'}
+              helpMessage="Fills in owner/repository below. Only your 30 most recently pushed repos are listed — type below for anything further back."
             />
           )}
 
