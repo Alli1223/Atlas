@@ -312,10 +312,10 @@ Every flag below is verified against the local CLI (v2.1.211) — see `docs/rese
 - [ ] Workspace manager: clone repo → `~/.atlas/workspaces/{project}`, background job + progress, fetch/pull, disk quota
 - [ ] Spawn: `claude -p "<task>" --output-format stream-json --verbose`
   - **`--verbose` is mandatory** with `-p` + `stream-json`; the CLI hard-errors without it
-- [ ] NDJSON parser for stdout (stdout is clean JSON; **all warnings go to stderr** — parse them separately)
-- [ ] Event types: `system`(init) · `assistant` · `user`(tool *results* arrive as `user`, not a distinct type) · `stream_event` · `rate_limit_event` · `result`
-- [ ] 🚩 **Branch on `is_error` + `terminal_reason`, never `subtype`** — the CLI emits `subtype:"success"` *with* `is_error:true` on API/auth failure
-- [ ] 🚩 `result` key is **absent** (not null) on error subtypes → `Option<String>` in Rust
+- [x] NDJSON parser for stdout (stdout is clean JSON; **all warnings go to stderr** — parse them separately) — _`agent::claude_code::parse_line`; the actual subprocess spawn (and draining stderr concurrently) is still not started_
+- [x] Event types: `system`(init) · `assistant` · `user`(tool *results* arrive as `user`, not a distinct type) · `stream_event` · `rate_limit_event` · `result` — _`agent::claude_code::Event`, with a mandatory `#[serde(other)]` catch-all since the upstream union is open and still growing_
+- [x] 🚩 **Branch on `is_error` + `terminal_reason`, never `subtype`** — the CLI emits `subtype:"success"` *with* `is_error:true` on API/auth failure — _`agent::claude_code::outcome`, also catches the quieter trap of a silent `permission_denials` while `is_error` stays false_
+- [x] 🚩 `result` key is **absent** (not null) on error subtypes → `Option<String>` in Rust — _done in `ResultEvent`_
 - [ ] 🚩 **`--resume` is CWD-scoped** — must respawn with the identical repo cwd or it fails with non-JSON stderr + exit 1
 - [ ] Auth: inherit `~/.claude/.credentials.json` (OAuth, `apiKeySource:"none"`). ⚠️ Setting `ANTHROPIC_API_KEY` **silently overrides the Max subscription and bills the API** — surface this in the UI as an explicit choice
 - [ ] Capture `total_cost_usd`, `usage`, `modelUsage`, `num_turns`, `duration_ms` per run → cost dashboard
@@ -466,7 +466,7 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 10 Cycles | `feat/10-cycles`, `feat/10-cycles-ui` | 🚧 backend + core UI done: state machine (start/complete/reopen), scope tracking (`card_cycle`), carry-over, full REST API, a `/cycles` lifecycle page, and card-detail sidebar integration (add/remove one card at a time). Remaining: a drag-and-drop backlog board for bulk card↔cycle moves, daily `cycle_snapshot` writes (needs a scheduler), a direct time-logging path, and reports |
 | 11 Secrets | `feat/11-secrets` | ✅ (#12) |
 | 12 GitHub | `feat/12-github` | 🚧 substantially done: vault→PAT, repo linking (+ picker), branch/PR creation, mergeable+reviews, dev panel (live commits/CI), rate-limit handling, webhooks (receiver, installable, replay guard, push/PR/check_suite) (#12, #15–#17, #25–#33). Remaining: poll fallback + sync/backfill, both blocked on a background task scheduler Atlas doesn't have yet |
-| 13 Claude agent | `feat/13-claude-agent` | ⬜ |
+| 13 Claude agent | `feat/13-claude-agent` | 🚧 just started: the `stream-json` NDJSON event parser and the `is_error`/`terminal_reason`/`permission_denials` interpretation layer, tested against the CLI's real documented output shapes. Everything that actually spawns the CLI, manages workspaces, and drives a live session is not started |
 | 14 Gemini | `feat/14-gemini` | ⬜ |
 | 15 Automation | `feat/15-automation` | ⬜ |
 | 16 Reports | `feat/16-reports` | ⬜ |
