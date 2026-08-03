@@ -18,7 +18,9 @@
 //!   and never returned over the wire.
 //! - [`telemetry`] — tracing setup and the HTTP request span.
 //! - [`api`] — router, middleware, OpenAPI.
+//! - [`agent`] — running Claude Code against a card (`TODO.md` Phase 13).
 
+pub mod agent;
 pub mod api;
 pub mod aql;
 pub mod auth;
