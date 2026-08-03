@@ -107,6 +107,12 @@ pub struct Config {
     #[serde(default = "default_workspace_dir")]
     pub workspace_dir: PathBuf,
 
+    /// Total size, in MB, `workspace_dir` may grow to before a new clone is refused.
+    /// `ATLAS_WORKSPACE_QUOTA_MB`. An approximate directory-walk figure — catching runaway
+    /// growth across many cloned projects matters far more here than a byte-exact number.
+    #[serde(default = "default_workspace_quota_mb")]
+    pub workspace_quota_mb: u64,
+
     /// `tracing` filter directives. `ATLAS_LOG_LEVEL`. `RUST_LOG` overrides this.
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -167,6 +173,10 @@ fn default_workspace_dir() -> PathBuf {
     PathBuf::from("workspaces")
 }
 
+fn default_workspace_quota_mb() -> u64 {
+    10_000
+}
+
 fn default_log_level() -> String {
     "info,atlas=debug,tower_http=info,sqlx=warn".to_owned()
 }
@@ -186,6 +196,7 @@ impl Default for Config {
             database_url: default_database_url(),
             data_dir: default_data_dir(),
             workspace_dir: default_workspace_dir(),
+            workspace_quota_mb: default_workspace_quota_mb(),
             log_level: default_log_level(),
             log_format: None,
             env: AppEnv::default(),
