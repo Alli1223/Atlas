@@ -105,7 +105,7 @@ fractional_index = { version = "2.0.2", features = ["serde"] }
 figment = { version = "0.10", features = ["env", "toml"] }
 proptest = "1.8"
 # System telemetry (CPU, memory, disk) for the admin settings page.
-sysinfo = { version = "0.33", default-features = false, features = ["system", "disk"] }
+sysinfo = { version = "0.38", default-features = false, features = ["system", "disk"] }
 
 # ---------------------------------------------------------------------------
 # Lints. Inherited by members via `[lints] workspace = true`.
