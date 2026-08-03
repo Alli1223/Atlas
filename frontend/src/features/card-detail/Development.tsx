@@ -5,7 +5,7 @@ import { Banner, Button, Lozenge, type LozengeAppearance, Spinner } from '@/comp
 import { useCurrentUser } from '@/features/auth/queries'
 import { ICON, ICON_SMALL } from '@/lib/icon'
 
-import type { Card, CiState } from './api'
+import type { Card, CiState, ReviewState } from './api'
 import styles from './Development.module.css'
 import { LinkRepoDialog } from './LinkRepoDialog'
 import {
@@ -37,6 +37,20 @@ const CI_LABEL: Record<CiState, string> = {
   running: 'Checks running',
   failed: 'Checks failed',
   neutral: 'No checks',
+}
+
+/** The review badge's colour. `changesrequested` (no camelCase) is serde's `rename_all =
+ * "lowercase"` output for `ChangesRequested` — not a typo. */
+const REVIEW_APPEARANCE: Record<ReviewState, LozengeAppearance> = {
+  approved: 'success',
+  changesrequested: 'removed',
+  pending: 'default',
+}
+
+const REVIEW_LABEL: Record<ReviewState, string> = {
+  approved: 'Approved',
+  changesrequested: 'Changes requested',
+  pending: 'Review pending',
 }
 
 /**
@@ -134,12 +148,26 @@ export function Development({ card, projectKey }: { card: Card; projectKey: stri
             </Banner>
           )}
 
-          {activity.data?.ciStatus && (
-            <div>
-              <Lozenge appearance={CI_APPEARANCE[activity.data.ciStatus]} isBold>
-                {CI_LABEL[activity.data.ciStatus]}
-              </Lozenge>
+          {(activity.data?.ciStatus ?? activity.data?.reviewState) && (
+            <div className={styles.badges}>
+              {activity.data.ciStatus && (
+                <Lozenge appearance={CI_APPEARANCE[activity.data.ciStatus]} isBold>
+                  {CI_LABEL[activity.data.ciStatus]}
+                </Lozenge>
+              )}
+              {activity.data.reviewState && (
+                <Lozenge appearance={REVIEW_APPEARANCE[activity.data.reviewState]} isBold>
+                  {REVIEW_LABEL[activity.data.reviewState]}
+                </Lozenge>
+              )}
             </div>
+          )}
+
+          {/* Strictly `=== false`: `null`/`undefined` means "not yet known", never
+              "conflicts" (docs/research/github-api.md §10) — showing a warning there would
+              be a phantom conflict on every freshly-opened PR. */}
+          {activity.data?.mergeable === false && (
+            <Banner appearance="warning">This PR has merge conflicts.</Banner>
           )}
 
           {links.data && links.data.length > 0 && (

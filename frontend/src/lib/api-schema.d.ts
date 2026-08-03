@@ -1601,6 +1601,13 @@ export interface components {
             ciStatus?: null | components["schemas"]["CiState"];
             /** @description The branch's commits, newest first (capped at 100 by GitHub). */
             commits: components["schemas"]["CommitSummary"][];
+            /**
+             * @description Whether the card's PR can merge cleanly, or `null` when there is no PR yet **or**
+             *     GitHub has not finished computing it — the two are indistinguishable here, and both
+             *     mean "nothing to show", never "conflicts".
+             */
+            mergeable?: boolean | null;
+            reviewState?: null | components["schemas"]["ReviewState"];
         };
         /** @description A card as the API describes it. */
         CardDto: {
@@ -2561,6 +2568,11 @@ export interface components {
             /** @description The owning project. */
             projectId: string;
         };
+        /**
+         * @description The single review badge a card shows.
+         * @enum {string}
+         */
+        ReviewState: "approved" | "changesrequested" | "pending";
         /**
          * @description What a user is allowed to do, instance-wide.
          *

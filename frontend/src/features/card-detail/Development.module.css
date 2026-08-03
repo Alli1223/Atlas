@@ -49,6 +49,13 @@
   gap: var(--ds-space-075);
 }
 
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-075);
+}
+
 .empty {
   margin: 0;
   font: var(--ds-font-body-small);
