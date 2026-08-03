@@ -45,6 +45,8 @@ export const cardKeys = {
   gitLinks: (key: string) => [...cardKeys.all, 'git-links', key] as const,
   githubCredentials: () => [...cardKeys.all, 'github-credentials'] as const,
   activity: (key: string) => [...cardKeys.all, 'activity', key] as const,
+  credentialRepos: (credentialId: string) =>
+    [...cardKeys.all, 'credential-repos', credentialId] as const,
 }
 
 /** Shared options so a route loader can warm the same cache the component reads. */
@@ -186,6 +188,21 @@ export function useCardActivity(cardKey: string, enabled: boolean) {
     queryFn: () => cardApi.fetchCardActivity(cardKey),
     enabled,
     refetchInterval: (query) => (query.state.data?.ciStatus === 'running' ? 15_000 : false),
+  })
+}
+
+/**
+ * The repos a chosen credential can see, for the link dialog's picker. Only the first page
+ * (30, most-recently-pushed) — enough to cover the repo someone just pushed a project to,
+ * which is the common case; anything further back is still reachable by typing owner/repo
+ * directly, so this is a convenience, not the only way in.
+ */
+export function useCredentialRepos(credentialId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: cardKeys.credentialRepos(credentialId),
+    queryFn: () => cardApi.fetchCredentialRepos(credentialId),
+    enabled,
+    staleTime: 30_000,
   })
 }
 

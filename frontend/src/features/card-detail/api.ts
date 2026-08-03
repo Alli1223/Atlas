@@ -283,3 +283,21 @@ export async function fetchCardActivity(cardKey: string): Promise<CardActivity> 
     await api.GET('/api/v1/cards/{key}/activity', { params: { path: { key: cardKey } } }),
   )
 }
+
+/** A repo a GitHub credential can see, for the link picker. Mirrors `RepoSummary`. */
+export type GithubRepo = components['schemas']['RepoSummary']
+
+/**
+ * The repositories a GitHub credential can see, most-recently-pushed first. Admin-only on
+ * the server, so only call this once an admin has chosen a credential.
+ */
+export async function fetchCredentialRepos(
+  credentialId: string,
+  page = 1,
+): Promise<GithubRepo[]> {
+  return unwrap(
+    await api.GET('/api/v1/credentials/{id}/repos', {
+      params: { path: { id: credentialId }, query: { page } },
+    }),
+  )
+}
