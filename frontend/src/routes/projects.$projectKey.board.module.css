@@ -36,6 +36,24 @@
   flex-wrap: wrap;
 }
 
+.controlsEnd {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-150);
+}
+
+.cyclesLink {
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-semibold);
+  color: var(--ds-link);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.cyclesLink:hover {
+  text-decoration: underline;
+}
+
 .swimlaneControl {
   flex: none;
   width: 200px;

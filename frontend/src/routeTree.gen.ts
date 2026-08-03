@@ -17,6 +17,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as CardsKeyRouteImport } from './routes/cards.$key'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
+import { Route as ProjectsProjectKeyCyclesRouteImport } from './routes/projects.$projectKey.cycles'
 import { Route as ProjectsProjectKeyBoardRouteImport } from './routes/projects.$projectKey.board'
 
 const StyleguideRoute = StyleguideRouteImport.update({
@@ -59,6 +60,12 @@ const AdminSettingsRoute = AdminSettingsRouteImport.update({
   path: '/admin/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProjectsProjectKeyCyclesRoute =
+  ProjectsProjectKeyCyclesRouteImport.update({
+    id: '/projects/$projectKey/cycles',
+    path: '/projects/$projectKey/cycles',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ProjectsProjectKeyBoardRoute = ProjectsProjectKeyBoardRouteImport.update({
   id: '/projects/$projectKey/board',
   path: '/projects/$projectKey/board',
@@ -75,6 +82,7 @@ export interface FileRoutesByFullPath {
   '/cards/$key': typeof CardsKeyRoute
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
+  '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,6 +94,7 @@ export interface FileRoutesByTo {
   '/cards/$key': typeof CardsKeyRoute
   '/projects': typeof ProjectsIndexRoute
   '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
+  '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,6 +107,7 @@ export interface FileRoutesById {
   '/cards/$key': typeof CardsKeyRoute
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
+  '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/cards/$key'
     | '/projects/'
     | '/projects/$projectKey/board'
+    | '/projects/$projectKey/cycles'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,6 +133,7 @@ export interface FileRouteTypes {
     | '/cards/$key'
     | '/projects'
     | '/projects/$projectKey/board'
+    | '/projects/$projectKey/cycles'
   id:
     | '__root__'
     | '/'
@@ -133,6 +145,7 @@ export interface FileRouteTypes {
     | '/cards/$key'
     | '/projects/'
     | '/projects/$projectKey/board'
+    | '/projects/$projectKey/cycles'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +158,7 @@ export interface RootRouteChildren {
   CardsKeyRoute: typeof CardsKeyRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
   ProjectsProjectKeyBoardRoute: typeof ProjectsProjectKeyBoardRoute
+  ProjectsProjectKeyCyclesRoute: typeof ProjectsProjectKeyCyclesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -205,6 +219,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/projects/$projectKey/cycles': {
+      id: '/projects/$projectKey/cycles'
+      path: '/projects/$projectKey/cycles'
+      fullPath: '/projects/$projectKey/cycles'
+      preLoaderRoute: typeof ProjectsProjectKeyCyclesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projects/$projectKey/board': {
       id: '/projects/$projectKey/board'
       path: '/projects/$projectKey/board'
@@ -225,6 +246,7 @@ const rootRouteChildren: RootRouteChildren = {
   CardsKeyRoute: CardsKeyRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
   ProjectsProjectKeyBoardRoute: ProjectsProjectKeyBoardRoute,
+  ProjectsProjectKeyCyclesRoute: ProjectsProjectKeyCyclesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
