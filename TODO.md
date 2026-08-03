@@ -308,18 +308,18 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 
 Every flag below is verified against the local CLI (v2.1.211) — see `docs/research/claude-code-cli.md`.
 
-- [ ] `AgentRunner` trait; `LocalRunner` now, `DockerRunner` later (as decided)
-- [ ] Workspace manager: clone repo → `~/.atlas/workspaces/{project}`, background job + progress, fetch/pull, disk quota
-- [ ] Spawn: `claude -p "<task>" --output-format stream-json --verbose`
-  - **`--verbose` is mandatory** with `-p` + `stream-json`; the CLI hard-errors without it
-- [x] NDJSON parser for stdout (stdout is clean JSON; **all warnings go to stderr** — parse them separately) — _`agent::claude_code::parse_line`; the actual subprocess spawn (and draining stderr concurrently) is still not started_
+- [x] `AgentRunner` trait; `LocalRunner` now, `DockerRunner` later (as decided) — _object-safe (boxed future, like `secrets::vault::Validator`) so it can be held as `Arc<dyn AgentRunner>`; `DockerRunner` itself not started_
+- [ ] Workspace manager: clone repo → `~/.atlas/workspaces/{project}`, background job + progress, fetch/pull, disk quota — _`LocalRunner` takes a `working_dir` as given; nothing populates one yet_
+- [x] Spawn: `claude -p "<task>" --output-format stream-json --verbose`
+  - **`--verbose` is mandatory** with `-p` + `stream-json`; the CLI hard-errors without it — _always passed_
+- [x] NDJSON parser for stdout (stdout is clean JSON; **all warnings go to stderr** — parse them separately) — _`agent::claude_code::parse_line`, wired into `LocalRunner`; stderr is drained on its own task so a chatty child cannot deadlock the pipe_
 - [x] Event types: `system`(init) · `assistant` · `user`(tool *results* arrive as `user`, not a distinct type) · `stream_event` · `rate_limit_event` · `result` — _`agent::claude_code::Event`, with a mandatory `#[serde(other)]` catch-all since the upstream union is open and still growing_
 - [x] 🚩 **Branch on `is_error` + `terminal_reason`, never `subtype`** — the CLI emits `subtype:"success"` *with* `is_error:true` on API/auth failure — _`agent::claude_code::outcome`, also catches the quieter trap of a silent `permission_denials` while `is_error` stays false_
 - [x] 🚩 `result` key is **absent** (not null) on error subtypes → `Option<String>` in Rust — _done in `ResultEvent`_
-- [ ] 🚩 **`--resume` is CWD-scoped** — must respawn with the identical repo cwd or it fails with non-JSON stderr + exit 1
-- [ ] Auth: inherit `~/.claude/.credentials.json` (OAuth, `apiKeySource:"none"`). ⚠️ Setting `ANTHROPIC_API_KEY` **silently overrides the Max subscription and bills the API** — surface this in the UI as an explicit choice
-- [ ] Capture `total_cost_usd`, `usage`, `modelUsage`, `num_turns`, `duration_ms` per run → cost dashboard
-- [ ] `process-wrap` 9.1.0 for process groups (**not** `command-group` — deprecated in favour of it, `corrections.md` #10); graceful cancel, orphan prevention, timeout
+- [x] 🚩 **`--resume` is CWD-scoped** — must respawn with the identical repo cwd or it fails with non-JSON stderr + exit 1 — _`RunRequest.resume_session_id` replaces `--session-id` with `--resume` rather than sending both; `working_dir` is a required field precisely because of this. Persisting the (session_id, cwd) pair across an Atlas restart is the workspace manager's job, not started_
+- [ ] Auth: inherit `~/.claude/.credentials.json` (OAuth, `apiKeySource:"none"`). ⚠️ Setting `ANTHROPIC_API_KEY` **silently overrides the Max subscription and bills the API** — surface this in the UI as an explicit choice — _`LocalRunner` always `env_remove`s it so inherited OAuth is what runs by default; no UI exists yet to make API-key billing an explicit opt-in_
+- [ ] Capture `total_cost_usd`, `usage`, `modelUsage`, `num_turns`, `duration_ms` per run → cost dashboard — _`ResultEvent` carries all of these (mostly as raw JSON pending a real consumer); nothing persists or displays them yet_
+- [x] `process-wrap` 9.1.0 for process groups (**not** `command-group` — deprecated in favour of it, `corrections.md` #10); graceful cancel, orphan prevention — _`ProcessGroup::leader()` + `KillOnDrop`, `RunHandle::cancel` killpg's the whole group. An outer wall-clock timeout (belt-and-suspenders alongside `--max-turns`/`--max-budget-usd`) is not added yet_
 - [ ] `tokio::sync::broadcast` → N WebSocket subscribers; ring buffer for late joiners
 - [ ] Live session UI: streaming transcript, tool-call rendering, cost/token meter, cancel button
 - [ ] Persist transcripts; resume across restarts; per-session status on card
@@ -466,7 +466,7 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 10 Cycles | `feat/10-cycles`, `feat/10-cycles-ui` | 🚧 backend + core UI done: state machine (start/complete/reopen), scope tracking (`card_cycle`), carry-over, full REST API, a `/cycles` lifecycle page, and card-detail sidebar integration (add/remove one card at a time). Remaining: a drag-and-drop backlog board for bulk card↔cycle moves, daily `cycle_snapshot` writes (needs a scheduler), a direct time-logging path, and reports |
 | 11 Secrets | `feat/11-secrets` | ✅ (#12) |
 | 12 GitHub | `feat/12-github` | 🚧 substantially done: vault→PAT, repo linking (+ picker), branch/PR creation, mergeable+reviews, dev panel (live commits/CI), rate-limit handling, webhooks (receiver, installable, replay guard, push/PR/check_suite) (#12, #15–#17, #25–#33). Remaining: poll fallback + sync/backfill, both blocked on a background task scheduler Atlas doesn't have yet |
-| 13 Claude agent | `feat/13-claude-agent` | 🚧 just started: the `stream-json` NDJSON event parser and the `is_error`/`terminal_reason`/`permission_denials` interpretation layer, tested against the CLI's real documented output shapes. Everything that actually spawns the CLI, manages workspaces, and drives a live session is not started |
+| 13 Claude agent | `feat/13-claude-agent` | 🚧 the runner core: `stream-json` event parsing + `is_error`/`terminal_reason`/`permission_denials` interpretation, and `AgentRunner`/`LocalRunner` actually spawning the CLI as its own killable process group, tested against shell-script stand-ins (no real subprocess or API cost in CI). Remaining: workspace management, WebSocket-driven live session UI, transcript persistence, the Atlas MCP server, card→task binding, and per-project permission-mode configuration |
 | 14 Gemini | `feat/14-gemini` | ⬜ |
 | 15 Automation | `feat/15-automation` | ⬜ |
 | 16 Reports | `feat/16-reports` | ⬜ |
