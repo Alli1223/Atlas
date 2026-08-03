@@ -106,6 +106,10 @@ figment = { version = "0.10", features = ["env", "toml"] }
 proptest = "1.8"
 # System telemetry (CPU, memory, disk) for the admin settings page.
 sysinfo = { version = "0.38", default-features = false, features = ["system", "disk"] }
+# Process-group spawn/kill for the Claude Code agent runner (Phase 13). NOT
+# command-group: it is formally deprecated in favour of this, same author,
+# versioning continued from command-group at 6.0.0 — see corrections.md #10.
+process-wrap = { version = "9.1.0", features = ["tokio1"] }
 
 # ---------------------------------------------------------------------------
 # Lints. Inherited by members via `[lints] workspace = true`.
