@@ -80,6 +80,24 @@ async fn receive(
         return Err(AppError::Unauthorized);
     }
 
+    // The replay guard: GitHub redelivers on a timeout or a 5xx, and may occasionally deliver
+    // twice on its own. Recording the delivery id and skipping a repeat stops a redelivered
+    // `#time 2h` from logging twice, or a redelivered merge from re-firing an auto-transition
+    // already applied. A delivery with no id (should not happen — GitHub always sends one, but
+    // "cannot dedupe" must not mean "silently drop") is processed rather than rejected.
+    if let Some(delivery_id) = header(&headers, webhook::DELIVERY_HEADER) {
+        let mut tx = state.db.begin_write().await?;
+        let is_new = store::record_delivery(&mut tx, delivery_id, now()).await?;
+        tx.commit().await?;
+        if !is_new {
+            tracing::info!(
+                delivery_id,
+                "ignoring a redelivered webhook — already processed"
+            );
+            return Ok(StatusCode::ACCEPTED);
+        }
+    }
+
     if let Some(event) = webhook::parse_event(event_name, &body)? {
         dispatch(&state, &binding.project_id, event).await?;
     }

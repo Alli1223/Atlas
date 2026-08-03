@@ -402,13 +402,23 @@ async fn link_repo_with_secret(app: &App, project_id: &str, repo_id: i64, secret
 
 /// A raw, unauthenticated POST to the webhook receiver with GitHub's headers.
 fn webhook_request(body: &str, event: &str, signature: &str) -> Request<Body> {
+    webhook_request_with_delivery(body, event, signature, "test-delivery")
+}
+
+/// The same, with an explicit delivery id — for exercising the replay guard, which keys on it.
+fn webhook_request_with_delivery(
+    body: &str,
+    event: &str,
+    signature: &str,
+    delivery_id: &str,
+) -> Request<Body> {
     Request::builder()
         .method(Method::POST)
         .uri("/webhooks/github")
         .header(header::CONTENT_TYPE, "application/json")
         .header("x-github-event", event)
         .header("x-hub-signature-256", signature)
-        .header("x-github-delivery", "test-delivery")
+        .header("x-github-delivery", delivery_id)
         .body(Body::from(body.to_owned()))
         .expect("failed to build the webhook request")
 }
@@ -613,6 +623,123 @@ async fn a_pr_already_recorded_against_the_card_is_returned_without_calling_gith
     assert_eq!(recorded["kind"], "pr");
     assert_eq!(recorded["reference"], "9");
     assert_eq!(recorded["url"], "https://x/9");
+
+    app.db.close().await;
+}
+
+// ---------------------------------------------------------------------------
+// Webhook replay guard
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_redelivered_webhook_is_acknowledged_but_not_reprocessed() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await; // ATLAS-1
+    let pid = project_id(&app, &admin, "ATLAS").await;
+    let secret = "s";
+    link_repo_with_secret(&app, &pid, 12345, secret).await;
+
+    // `#comment` has no natural idempotence of its own (unlike a transition, which no-ops
+    // once already at the target status) — a second application would visibly add a second
+    // comment, which is exactly the observable the replay guard exists to prevent.
+    let body = json!({
+        "repository": { "id": 12345 },
+        "ref": "refs/heads/x",
+        "commits": [ { "id": "abc", "message": format!("{card} #comment reviewed"), "url": "" } ]
+    })
+    .to_string();
+    let signature = sign_github_webhook(secret.as_bytes(), body.as_bytes());
+
+    let first = app
+        .send(webhook_request_with_delivery(
+            &body,
+            "push",
+            &signature,
+            "delivery-abc",
+        ))
+        .await;
+    assert_eq!(first.status, StatusCode::ACCEPTED, "{}", first.raw_body);
+
+    // The exact same delivery, redelivered — same id, same signature, same body.
+    let second = app
+        .send(webhook_request_with_delivery(
+            &body,
+            "push",
+            &signature,
+            "delivery-abc",
+        ))
+        .await;
+    assert_eq!(
+        second.status,
+        StatusCode::ACCEPTED,
+        "a redelivery is still acknowledged, not rejected: {}",
+        second.raw_body
+    );
+
+    let comments = app
+        .send(get(&format!("/api/v1/cards/{card}/comments"), Some(&admin)))
+        .await;
+    assert_eq!(comments.status, StatusCode::OK, "{}", comments.raw_body);
+    assert_eq!(
+        comments
+            .json()
+            .as_array()
+            .expect("comments are an array")
+            .len(),
+        1,
+        "the redelivery must not have added a second comment"
+    );
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn two_deliveries_with_different_ids_are_both_processed() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let type_id = create_project(&app, &admin, "ATLAS").await;
+    let card = create_card(&app, &admin, "ATLAS", &type_id).await;
+    let pid = project_id(&app, &admin, "ATLAS").await;
+    let secret = "s";
+    link_repo_with_secret(&app, &pid, 12345, secret).await;
+
+    let body = |n: u32| {
+        json!({
+            "repository": { "id": 12345 },
+            "ref": "refs/heads/x",
+            "commits": [ { "id": n.to_string(), "message": format!("{card} #comment note {n}"), "url": "" } ]
+        })
+        .to_string()
+    };
+
+    for (n, delivery_id) in [(1u32, "delivery-1"), (2, "delivery-2")] {
+        let payload = body(n);
+        let signature = sign_github_webhook(secret.as_bytes(), payload.as_bytes());
+        let reply = app
+            .send(webhook_request_with_delivery(
+                &payload,
+                "push",
+                &signature,
+                delivery_id,
+            ))
+            .await;
+        assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.raw_body);
+    }
+
+    let comments = app
+        .send(get(&format!("/api/v1/cards/{card}/comments"), Some(&admin)))
+        .await;
+    assert_eq!(
+        comments
+            .json()
+            .as_array()
+            .expect("comments are an array")
+            .len(),
+        2,
+        "two genuinely distinct deliveries must both be processed"
+    );
 
     app.db.close().await;
 }
