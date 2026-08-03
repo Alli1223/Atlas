@@ -37,7 +37,7 @@ use crate::integrations::github::store::{
     self, CardGitLink, NewCardGitLink, NewProjectRepo, ProjectRepo,
 };
 use crate::secrets::vault::Vault;
-use crate::secrets::{self, Provider};
+use crate::secrets::{self, Provider, Secret};
 
 // ---------------------------------------------------------------------------
 // DTOs
@@ -278,7 +278,87 @@ async fn link_project_repo(
     tx.commit().await?;
 
     tracing::info!(project = %key, repo = %format!("{owner}/{repo}"), "linked project to a GitHub repo");
+
+    // Install a webhook only if Atlas knows where GitHub could reach it. Most instances
+    // are behind NAT or otherwise have no public address — that is a normal deployment,
+    // not a misconfiguration, so this is skipped rather than required.
+    let stored = match &state.config.public_url {
+        Some(public_url) => {
+            install_webhook(&state, vault, &client, &repo_ref, &stored, public_url, now).await
+        }
+        None => stored,
+    };
+
     Ok(Json(ProjectRepoDto::from_row(&stored)))
+}
+
+/// The events Atlas's webhook receiver actually interprets (`webhook::parse_event`).
+/// Deliberately not a longer list: subscribing to an event `dispatch` would silently drop
+/// (`status`, `pull_request_review`, `check_run`) would just be noise GitHub sends and
+/// Atlas discards.
+const WEBHOOK_EVENTS: &[&str] = &["push", "pull_request", "check_suite", "create", "delete"];
+
+/// Creates a GitHub webhook for a newly-linked repo and stores its sealed secret.
+///
+/// Best-effort: a failure here (a token missing `admin:repo_hook`, a transient GitHub
+/// error) is logged and swallowed rather than failing the whole link — the repo link
+/// itself already succeeded and is useful without a webhook (manual branch/PR creation
+/// still works), so losing that over a secondary concern would be the wrong trade.
+async fn install_webhook(
+    state: &AppState,
+    vault: &Vault,
+    client: &GithubClient,
+    repo_ref: &RepoRef,
+    repo: &ProjectRepo,
+    public_url: &str,
+    now: DateTime<Utc>,
+) -> ProjectRepo {
+    let webhook_url = format!("{}/webhooks/github", public_url.trim_end_matches('/'));
+    let secret = generate_webhook_secret();
+
+    let result: AppResult<()> = async {
+        let webhook_id = client
+            .create_hook(repo_ref, &webhook_url, &secret, WEBHOOK_EVENTS)
+            .await?;
+        let sealed = vault.seal_for(&repo.id, &Secret::new(secret))?;
+        let mut tx = state.db.begin_write().await?;
+        store::set_webhook(&mut tx, &repo.id, webhook_id, &sealed, now).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+    .await;
+
+    match result {
+        Ok(()) => store::find_project_repo(&state.db, &repo.project_id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| repo.clone()),
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                repo = %format!("{}/{}", repo_ref.owner, repo_ref.repo),
+                "failed to install a GitHub webhook for a newly-linked repo; \
+                 the repo is still linked, just without push-driven updates"
+            );
+            repo.clone()
+        }
+    }
+}
+
+/// Generates a webhook secret: 256 bits of OS entropy, base64url, unpadded.
+///
+/// `OsRng` here is argon2's re-export (`rand_core` 0.6) — the same one
+/// [`crate::auth::session`]'s token generator uses, so Atlas still does not depend on
+/// `rand` at all for this.
+fn generate_webhook_secret() -> String {
+    use argon2::password_hash::rand_core::{OsRng, RngCore};
+    use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// Unlinks a project's repo.
@@ -618,4 +698,33 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(create_pr_from_card))
         .routes(routes!(card_git_links))
         .routes(routes!(card_activity))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_webhook_secret_is_256_bits_url_safe_and_never_repeats() {
+        let a = generate_webhook_secret();
+        let b = generate_webhook_secret();
+
+        assert_ne!(a, b, "two secrets must not collide");
+        // 32 bytes, base64url, unpadded: ceil(32 * 4 / 3) = 43 characters.
+        assert_eq!(a.len(), 43);
+        assert!(
+            a.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+            "must be URL-safe: {a:?}"
+        );
+    }
+
+    #[test]
+    fn the_webhook_event_list_is_exactly_what_parse_event_understands() {
+        // A subscription the receiver would just discard is silent waste, not a feature.
+        assert_eq!(
+            WEBHOOK_EVENTS,
+            &["push", "pull_request", "check_suite", "create", "delete"]
+        );
+    }
 }

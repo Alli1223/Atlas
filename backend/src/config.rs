@@ -136,6 +136,19 @@ pub struct Config {
     /// proxies API calls instead. Set to `frontend/dist` in production.
     #[serde(default)]
     pub static_dir: Option<PathBuf>,
+
+    /// This instance's externally-reachable base URL (e.g. `https://atlas.example.com`),
+    /// no trailing slash. `ATLAS_PUBLIC_URL`.
+    ///
+    /// The one piece of self-knowledge Atlas cannot derive from `bind_addr` — a loopback
+    /// or LAN bind address tells GitHub nothing about where to actually reach this
+    /// instance. When set, linking a project to a repo also installs a GitHub webhook
+    /// pointed at `{public_url}/webhooks/github`. When absent (the default — most
+    /// instances are behind NAT or have no public address at all), no webhook is
+    /// installed and Atlas has no push-driven updates for that repo until the poll
+    /// fallback exists.
+    #[serde(default)]
+    pub public_url: Option<String>,
 }
 
 fn default_bind_addr() -> SocketAddr {
@@ -180,6 +193,7 @@ impl Default for Config {
             cors_allowed_origins: default_cors_allowed_origins(),
             reader_pool_size: default_reader_pool_size(),
             static_dir: None,
+            public_url: None,
         }
     }
 }
