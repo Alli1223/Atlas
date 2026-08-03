@@ -36,7 +36,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
 
-use process_wrap::tokio::{CommandWrap, KillOnDrop, ProcessGroup};
+use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop, ProcessGroup};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
@@ -204,8 +204,7 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
     command.wrap(ProcessGroup::leader());
     command.wrap(KillOnDrop);
 
-    let mut child = command
-        .spawn()
+    let mut child = spawn_with_etxtbsy_retry(&mut command)
         .map_err(|err| AppError::internal(anyhow::anyhow!("failed to spawn {program}: {err}")))?;
 
     let stdout = child.stdout().take().ok_or_else(|| {
@@ -262,6 +261,28 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
         events: events_rx,
         cancel: Some(cancel_tx),
     })
+}
+
+/// Retries a spawn a few times on `ETXTBSY` (errno 26).
+///
+/// This is a well-documented multi-threaded fork/exec race, not a sign `program` is actually
+/// unavailable: an unrelated `fork()` anywhere else in this process can transiently duplicate
+/// a write file descriptor onto the very file being exec'd here, even though nothing in Atlas
+/// ever opens `program` for writing itself. The window is microseconds; a genuinely missing
+/// or non-executable program fails immediately with a different errno, so this never masks a
+/// real failure — only a handful of short retries clear the race.
+fn spawn_with_etxtbsy_retry(command: &mut CommandWrap) -> std::io::Result<Box<dyn ChildWrapper>> {
+    const ETXTBSY: i32 = 26;
+    for attempt in 0..5 {
+        match command.spawn() {
+            Ok(child) => return Ok(child),
+            Err(err) if err.raw_os_error() == Some(ETXTBSY) && attempt < 4 => {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("the loop above always returns on its last iteration")
 }
 
 #[cfg(test)]

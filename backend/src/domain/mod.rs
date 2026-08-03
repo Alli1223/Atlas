@@ -14,6 +14,9 @@
 //!   rollup, swimlanes), and the thin saved-board CRUD around it.
 //! - [`history`] — the `card_history` changelog.
 //! - [`comment`] — the `comments` row.
+//! - [`agent_session`] — `agent_sessions`: one Claude Code run against a card, its status
+//!   and terminal outcome. Knows nothing of [`crate::agent`], the same direction every
+//!   domain module keeps with [`crate::integrations`].
 //! - [`tag`] — free-text labels, and the presets each template seeds.
 //! - [`template`] — the four project templates' seed data.
 //! - [`workflow`] — the workflow engine: transitions and their conditions,
@@ -40,6 +43,7 @@
 //! `AssertSqlSafe` in this module is a real signal that no SQL is built by
 //! formatting.
 
+pub mod agent_session;
 pub mod board;
 pub mod card;
 pub mod comment;
