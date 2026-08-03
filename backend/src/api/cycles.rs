@@ -74,6 +74,7 @@ pub enum CarryToRequest {
     /// Out of any cycle, back to the plain backlog.
     Backlog,
     /// An existing cycle in the same project.
+    #[serde(rename_all = "camelCase")]
     ExistingCycle {
         /// The target cycle's id.
         cycle_id: String,
