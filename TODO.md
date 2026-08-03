@@ -255,18 +255,19 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 
 ## Phase 10 — Cycles & estimation `feat/10-cycles`
 
-- [ ] `cycles`: name, goal, start, end, state (future/active/closed), project. **Renameable + disableable per project**
-- [ ] State machine: future →start→ active →complete→ closed (start requires dates). Note: not strictly one-way — Jira permits reopening a closed sprint (`corrections.md` #7)
+- [x] `cycles`: name, goal, start, end, state (future/active/closed), project. **Renameable + disableable per project** — _`domain::cycle` + `POST/PATCH /projects/{key}/cycles`, `PATCH /cycles/{id}`; per-project disable is the pre-existing `PATCH /projects/{key}` `cyclesEnabled` toggle, enforced on `insert`_
+- [x] State machine: future →start→ active →complete→ closed (start requires dates). Note: not strictly one-way — Jira permits reopening a closed sprint (`corrections.md` #7) — _`start`/`complete`/`reopen` all landed, incl. the single-active-cycle-per-project rule and reopen's "replan end date, keep start date" behaviour_
 - [ ] **Scope snapshots** (§D3):
   ```sql
   card_cycle(card_id, cycle_id, added_at, removed_at NULL, in_scope_at_start BOOL)
   cycle_snapshot(cycle_id, taken_at, card_id, estimate, status_category)  -- daily
   ```
   Committed-vs-completed and scope-creep are **not** derivable from current state afterwards
-- [ ] Complete-cycle: carry incomplete → backlog / next / new cycle
-- [ ] Estimation field: points/hours/days/t-shirt(XS–XL→numeric)/count/**none**. One field, never two
-- [ ] Time tracking (store seconds; parse `2w 3d 4h 30m`)
-- [ ] Reports render only when cycles + estimation are both on; **degrade to count-based burndown when estimation=none**
+  — _`card_cycle` is done and live (`in_scope_at_start` set on `start`, membership add/remove via `POST/DELETE /cards/{key}/cycle`). `cycle_snapshot`'s table exists (migration 0012) but nothing writes to it yet — daily snapshotting needs a background scheduler Atlas doesn't have (same blocker as Phase 12's poll fallback)_
+- [x] Complete-cycle: carry incomplete → backlog / next / new cycle — _`POST /cycles/{id}/complete` with `carryTo: backlog | existingCycle | newCycle`_
+- [x] Estimation field: points/hours/days/t-shirt(XS–XL→numeric)/count/**none**. One field, never two — _already in place from earlier card/project work: `EstimationUnit` on the project, `estimate` on the card, wired through the card and project-settings APIs_
+- [ ] Time tracking (store seconds; parse `2w 3d 4h 30m`) — _partial, from Phase 12: a `#time 2h` smart-commit directive parses and stores a `card_worklogs` row (in **minutes**, not seconds), but only via a git push — there is no direct API/UI to log time outside a commit message yet_
+- [ ] Reports render only when cycles + estimation are both on; **degrade to count-based burndown when estimation=none** — _not started; Atlas has no reports feature at all yet, and this also wants the snapshot data above_
 
 ---
 
@@ -462,9 +463,9 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 8 Boards | `feat/07-frontend-boards` | ✅ |
 | 8b Nested boards | `feat/07-frontend-boards` | ✅ mini-map + nested nav |
 | 9 Card detail | `feat/07-frontend-boards` | ✅ |
-| 10 Cycles | `feat/10-cycles` | ⬜ |
+| 10 Cycles | `feat/10-cycles` | 🚧 backend done: state machine (start/complete/reopen), scope tracking (`card_cycle`), carry-over, full REST API. Remaining: daily `cycle_snapshot` writes (needs a scheduler), a direct time-logging path, reports, and the frontend UI |
 | 11 Secrets | `feat/11-secrets` | ✅ (#12) |
-| 12 GitHub | `feat/12-github` | 🚧 vault→PAT, repo linking, create-branch, card panel (#12, #15, #16) |
+| 12 GitHub | `feat/12-github` | 🚧 substantially done: vault→PAT, repo linking (+ picker), branch/PR creation, mergeable+reviews, dev panel (live commits/CI), rate-limit handling, webhooks (receiver, installable, replay guard, push/PR/check_suite) (#12, #15–#17, #25–#33). Remaining: poll fallback + sync/backfill, both blocked on a background task scheduler Atlas doesn't have yet |
 | 13 Claude agent | `feat/13-claude-agent` | ⬜ |
 | 14 Gemini | `feat/14-gemini` | ⬜ |
 | 15 Automation | `feat/15-automation` | ⬜ |

@@ -6,6 +6,7 @@ pub mod board;
 pub mod cards;
 pub mod comments;
 pub mod credentials;
+pub mod cycles;
 pub mod github;
 pub mod members;
 pub mod middleware;
@@ -103,6 +104,7 @@ impl AppState {
         (name = "comments", description = "Comments on cards"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
+        (name = "cycles", description = "Cycles (sprints/iterations): their lifecycle, and which cards belong to them"),
         (name = "search", description = "AQL search, query validation, and saved filters"),
         (name = "credentials", description = "The encrypted secrets vault: API keys and PATs. Admin only; never returns a secret"),
         (name = "github", description = "GitHub integration: link a project to a repo, pick repos, and create a branch from a card"),
@@ -194,6 +196,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())
+        .merge(cycles::routes())
         .merge(credentials::routes())
         .merge(github::routes())
         .merge(admin::routes())
