@@ -400,6 +400,30 @@ pub async fn set_webhook(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// webhook_deliveries — the replay guard
+// ---------------------------------------------------------------------------
+
+/// Records a webhook delivery id, returning whether it was newly recorded (`true`) or had
+/// already been seen (`false`) — the whole replay guard in one call.
+///
+/// `INSERT OR IGNORE`: a duplicate id is expected traffic (GitHub redelivering after a
+/// timeout, or occasionally on its own), not a fault, so it is silently absorbed rather than
+/// surfaced as a constraint-violation error the caller would have to specifically catch.
+pub async fn record_delivery(
+    tx: &mut SqliteConnection,
+    delivery_id: &str,
+    now: DateTime<Utc>,
+) -> AppResult<bool> {
+    let result =
+        sqlx::query("INSERT OR IGNORE INTO webhook_deliveries (id, received_at) VALUES (?, ?)")
+            .bind(delivery_id)
+            .bind(to_sql_timestamp(now))
+            .execute(&mut *tx)
+            .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,6 +524,38 @@ mod tests {
 
         let mut tx = db.begin_write().await.unwrap();
         assert!(!delete_project_repo(&mut tx, &project_id).await.unwrap());
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_delivery_id_is_recorded_once_and_a_repeat_is_reported_as_already_seen() {
+        let (db, _temp) = db().await;
+
+        let mut tx = db.begin_write().await.unwrap();
+        assert!(
+            record_delivery(&mut tx, "delivery-1", crate::auth::now())
+                .await
+                .unwrap(),
+            "the first sighting of a delivery id is newly recorded"
+        );
+        tx.commit().await.unwrap();
+
+        let mut tx = db.begin_write().await.unwrap();
+        assert!(
+            !record_delivery(&mut tx, "delivery-1", crate::auth::now())
+                .await
+                .unwrap(),
+            "a redelivery of the same id is reported as already seen, not an error"
+        );
+        tx.commit().await.unwrap();
+
+        // A different id is unaffected by the first's presence.
+        let mut tx = db.begin_write().await.unwrap();
+        assert!(
+            record_delivery(&mut tx, "delivery-2", crate::auth::now())
+                .await
+                .unwrap()
+        );
         tx.commit().await.unwrap();
     }
 }
