@@ -17,6 +17,8 @@
 //! - [`agent_session`] — `agent_sessions`: one Claude Code run against a card, its status
 //!   and terminal outcome. Knows nothing of [`crate::agent`], the same direction every
 //!   domain module keeps with [`crate::integrations`].
+//! - [`agent_session_transcript`] — `agent_session_transcript`: the full `stream-json`
+//!   transcript behind an [`agent_session`] row, one line per line the CLI wrote.
 //! - [`cycle_snapshot`] — daily point-in-time snapshots of an active cycle's in-scope cards,
 //!   what a burndown chart and Phase 16's reports are computed from. Driven by
 //!   [`crate::scheduler`].
@@ -47,6 +49,7 @@
 //! formatting.
 
 pub mod agent_session;
+pub mod agent_session_transcript;
 pub mod board;
 pub mod card;
 pub mod comment;

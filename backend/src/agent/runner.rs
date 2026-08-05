@@ -75,10 +75,15 @@ pub struct RunRequest {
 /// One line of the CLI's stdout, already interpreted — or the reason it could not be.
 #[derive(Debug)]
 pub enum RunEvent {
+    /// The raw line, alongside its interpretation. Kept even once parsed — not just for the
+    /// `Unparseable` case — because `agent::orchestrator`'s transcript persistence wants the
+    /// CLI's exact wire output, not a re-serialization of `Event` that could drift from it in
+    /// formatting or field order.
+    //
     // Boxed: `Event`'s `Result` variant carries several maps and vecs, and `RunEvent` is sent
     // through a channel constantly for the life of a run — boxing keeps the common
     // `Unparseable` case from paying to move a much larger enum around.
-    Parsed(Box<Event>),
+    Parsed(String, Box<Event>),
     /// A line that did not parse as any known shape. Carries the raw text rather than being
     /// dropped or treated as fatal: the upstream schema is open, and one malformed line must
     /// not end an otherwise-healthy run.
@@ -234,12 +239,11 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
                 line = lines.next_line() => {
                     let Ok(Some(line)) = line else { break };
                     let event = match claude_code::parse_line(&line) {
-                        Ok(Some(event)) => RunEvent::Parsed(Box::new(event)),
+                        Ok(Some(event)) => RunEvent::Parsed(line, Box::new(event)),
                         Ok(None) => continue,
                         Err(_) => RunEvent::Unparseable(line),
                     };
-                    let is_terminal =
-                        matches!(&event, RunEvent::Parsed(event) if matches!(event.as_ref(), Event::Result(_)));
+                    let is_terminal = matches!(&event, RunEvent::Parsed(_, event) if matches!(event.as_ref(), Event::Result(_)));
                     if events_tx.send(event).await.is_err() {
                         // Nobody is listening any more. `child` drops with this task, and
                         // KillOnDrop + the process group take care of the rest.
@@ -327,7 +331,7 @@ mod tests {
     /// tests below reading as plain `Event` matches instead of reaching through the `Box`.
     fn parsed(event: RunEvent) -> Event {
         match event {
-            RunEvent::Parsed(event) => *event,
+            RunEvent::Parsed(_, event) => *event,
             RunEvent::Unparseable(line) => panic!("expected a parsed event, got: {line}"),
         }
     }

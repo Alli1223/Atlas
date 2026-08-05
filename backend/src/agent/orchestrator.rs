@@ -22,6 +22,15 @@
 //! not silent data loss: the CLI's own child process is not orphaned regardless
 //! ([`crate::agent::runner`]'s `KillOnDrop` + process-group kill), so nothing keeps spending
 //! after Atlas is gone.
+//!
+//! # Transcript persistence
+//!
+//! Every raw line the CLI wrote — not just the terminal `result` — is written to
+//! [`crate::domain::agent_session_transcript`] once the run ends, in one transaction, rather
+//! than one row per line as they arrive: a run's lines live only in memory for its duration
+//! (bounded by how long a run itself is), and batching means a transcript write can never
+//! race the outcome write that follows it. A restart mid-run loses the in-flight lines the
+//! same way it loses the outcome (see above) — there is nothing to batch-write yet.
 
 use crate::agent::claude_code::{self, Event, Outcome, ResultEvent};
 use crate::agent::runner::{AgentRunner, RunEvent, RunHandle, RunLimits, RunRequest};
@@ -31,6 +40,7 @@ use crate::db::Db;
 use crate::domain::agent_session::{
     self, AgentSession, AgentSessionStatus, NewAgentSession, SessionOutcome,
 };
+use crate::domain::agent_session_transcript;
 use crate::domain::card::Card;
 use crate::error::AppResult;
 use crate::secrets::vault::Vault;
@@ -91,16 +101,25 @@ pub async fn start(
     Ok(session)
 }
 
-/// Drains a run's events to its terminal `result` event (if any) and records the outcome.
+/// Drains a run's events to its terminal `result` event (if any), persists every raw line as
+/// the session's transcript, and records the outcome.
 ///
-/// Best-effort past the run itself finishing: a failure recording the outcome is logged, not
-/// surfaced — there is no request left to answer by the time a detached task's own write
-/// fails.
+/// Best-effort past the run itself finishing: a failure persisting the transcript or
+/// recording the outcome is logged, not surfaced — there is no request left to answer by the
+/// time a detached task's own write fails.
 fn spawn_drain(db: Db, session: AgentSession, handle: RunHandle) {
     tokio::spawn(async move {
-        let result_event = drain_to_result(handle).await;
-        let outcome = outcome_for(result_event.as_ref());
+        let drained = drain_to_result(handle).await;
 
+        if let Err(err) = persist_transcript(&db, &session.id, &drained.lines).await {
+            tracing::error!(
+                session = %session.id,
+                error = %err,
+                "failed to persist an agent session's transcript"
+            );
+        }
+
+        let outcome = outcome_for(drained.result.as_ref());
         if let Err(err) = finish(&db, &session, &outcome).await {
             tracing::error!(
                 session = %session.id,
@@ -111,7 +130,15 @@ fn spawn_drain(db: Db, session: AgentSession, handle: RunHandle) {
     });
 }
 
-/// Reads every event until the channel closes, keeping the last (only) `result` event seen.
+/// What draining a run's events to completion produced: every raw line, in arrival order, and
+/// the terminal `result` event if the run reached one.
+struct Drained {
+    lines: Vec<String>,
+    result: Option<ResultEvent>,
+}
+
+/// Reads every event until the channel closes, collecting each raw line and keeping the last
+/// (only) `result` event seen.
 ///
 /// Takes the whole [`RunHandle`], not just its `events` receiver, and never touches
 /// `handle.cancel` — on purpose. An `async fn`'s generator transform drops a value as soon as
@@ -122,16 +149,40 @@ fn spawn_drain(db: Db, session: AgentSession, handle: RunHandle) {
 /// look identical to its `tokio::select!` — so the run would be killed and its events
 /// truncated before this had read any of them. Keeping the whole handle alive keeps the
 /// sender alive for exactly as long as a real caller holding it would.
-async fn drain_to_result(mut handle: RunHandle) -> Option<ResultEvent> {
+async fn drain_to_result(mut handle: RunHandle) -> Drained {
+    let mut lines = Vec::new();
     let mut result_event = None;
     while let Some(event) = handle.events.recv().await {
-        if let RunEvent::Parsed(event) = event
-            && let Event::Result(result) = *event
-        {
-            result_event = Some(result);
+        match event {
+            RunEvent::Parsed(line, event) => {
+                lines.push(line);
+                if let Event::Result(result) = *event {
+                    result_event = Some(result);
+                }
+            }
+            RunEvent::Unparseable(line) => lines.push(line),
         }
     }
-    result_event
+    Drained {
+        lines,
+        result: result_event,
+    }
+}
+
+/// Writes a run's whole transcript in one transaction — see the module doc for why this is
+/// batched rather than appended line-by-line as events arrive.
+async fn persist_transcript(db: &Db, session_id: &str, lines: &[String]) -> AppResult<()> {
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let mut tx = db.begin_write().await?;
+    for (seq, line) in lines.iter().enumerate() {
+        let seq =
+            i64::try_from(seq).expect("a transcript will never remotely approach i64::MAX lines");
+        agent_session_transcript::append(&mut tx, session_id, seq, line, now()).await?;
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 /// The status/outcome fields to record, as owned values — kept alive in the caller's scope so
@@ -393,6 +444,39 @@ mod tests {
         assert_eq!(finished.num_turns, Some(2));
         assert!(finished.error_message.is_none());
         assert!(finished.ended_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn every_raw_line_is_persisted_to_the_transcript_in_arrival_order() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        let program = fake_program(
+            &scripts.0,
+            r#"
+            echo '{"type":"system","subtype":"init","session_id":"whatever"}'
+            echo 'this is not json'
+            echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"whatever","total_cost_usd":0.01,"terminal_reason":"completed"}'
+            "#,
+        );
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let preparer = FixedWorkspace(std::env::temp_dir());
+
+        let session = start(&db, &vault, &runner, &preparer, request(&card, "do it"))
+            .await
+            .unwrap();
+        wait_for_finish(&db, &session.id).await;
+
+        let lines = agent_session_transcript::list_for_session(&db, &session.id)
+            .await
+            .unwrap();
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert_eq!(lines[0].seq, 0);
+        assert!(lines[0].line.contains(r#""subtype":"init""#));
+        assert_eq!(lines[1].seq, 1);
+        assert_eq!(lines[1].line, "this is not json");
+        assert_eq!(lines[2].seq, 2);
+        assert!(lines[2].line.contains(r#""type":"result""#));
     }
 
     #[tokio::test]

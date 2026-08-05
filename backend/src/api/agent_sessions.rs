@@ -29,6 +29,7 @@ use crate::agent::runner::RunLimits;
 use crate::api::AppState;
 use crate::auth::CurrentUser;
 use crate::domain::agent_session::{self, AgentSession};
+use crate::domain::agent_session_transcript::{self, TranscriptLine};
 use crate::domain::card;
 use crate::error::{AppError, AppResult, Problem};
 
@@ -160,11 +161,35 @@ async fn get_agent_session(
     Ok(Json(session))
 }
 
+/// A session's full `stream-json` transcript, in arrival order.
+#[utoipa::path(
+    get,
+    path = "/agent-sessions/{id}/transcript",
+    tag = "agent-sessions",
+    params(("id" = String, Path, description = "The session id")),
+    responses(
+        (status = 200, description = "The session's transcript lines, in arrival order", body = Vec<TranscriptLine>),
+        (status = 404, description = "No such session", body = Problem),
+    )
+)]
+async fn get_agent_session_transcript(
+    State(state): State<AppState>,
+    _current: CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<Vec<TranscriptLine>>> {
+    agent_session::find_by_id(&state.db, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let lines = agent_session_transcript::list_for_session(&state.db, &id).await?;
+    Ok(Json(lines))
+}
+
 /// Assembles the routes.
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(start_agent_session, list_card_agent_sessions))
         .routes(routes!(get_agent_session))
+        .routes(routes!(get_agent_session_transcript))
 }
 
 #[cfg(test)]
