@@ -8,6 +8,7 @@ use atlas::api::{self, AppState};
 use atlas::auth::seed;
 use atlas::config::Config;
 use atlas::db::{self, Db};
+use atlas::scheduler;
 use atlas::telemetry;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -74,7 +75,14 @@ async fn serve(config: Config) -> anyhow::Result<()> {
         .context("failed to read the listener address")?;
     tracing::info!(%addr, docs = api::DOCS_PATH, "atlas is listening");
 
-    let app = api::router(AppState::new(db.clone(), config));
+    let state = AppState::new(db.clone(), config);
+    let app = api::router(state.clone());
+
+    // Background jobs: today, just the GitHub poll fallback (Phase 12) — see
+    // `integrations::github::poll` for why it is safe to run unconditionally (it no-ops
+    // itself when there is nothing to poll). Stopped before closing the database pools
+    // below, on the same "wind down in the right order" principle as the server itself.
+    let scheduler = scheduler::spawn(vec![atlas::integrations::github::poll::job(state)]);
 
     // `into_make_service_with_connect_info` rather than the bare service: it is
     // what puts the peer address in the request extensions, and without it the
@@ -87,6 +95,9 @@ async fn serve(config: Config) -> anyhow::Result<()> {
     .with_graceful_shutdown(shutdown_signal())
     .await
     .context("server error");
+
+    tracing::info!("shutting down; stopping background jobs");
+    scheduler.stop();
 
     // Close the pools explicitly so WAL checkpointing and `PRAGMA optimize` get
     // a chance to run. Dropping the pool does not await that.

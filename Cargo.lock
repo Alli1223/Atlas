@@ -129,6 +129,7 @@ dependencies = [
  "chrono",
  "figment",
  "fractional_index",
+ "futures-util",
  "garde",
  "hex",
  "hkdf 0.12.4",

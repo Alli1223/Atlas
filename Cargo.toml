@@ -24,6 +24,11 @@ axum-extra = { version = "0.12.6", features = [
   "typed-header",
 ] }
 tokio = { version = "1.52.4", features = ["full"] }
+# `catch_unwind` for the background scheduler (`scheduler::run_job`), so one panicking job
+# tick cannot silently end that job's task forever. Already resolved in the tree at this
+# version via reqwest/sqlx's own dependencies — this adds no new crate to compile, just a
+# direct name for one already there.
+futures-util = "0.3.32"
 tower = "0.5.3"
 tower-http = { version = "0.7.0", features = [
   "trace",
