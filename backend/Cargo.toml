@@ -27,6 +27,7 @@ chrono.workspace = true
 hkdf.workspace = true
 figment.workspace = true
 fractional_index.workspace = true
+futures-util.workspace = true
 garde.workspace = true
 hex.workspace = true
 hmac.workspace = true

@@ -18,6 +18,9 @@
 //! - [`branch`] — turning a card into a sanitised git branch name.
 //! - [`store`] — the `project_repos` / `card_git_links` / `card_worklogs` rows and
 //!   their queries.
+//! - [`poll`] — the poll fallback for a repo with no installed webhook: periodically
+//!   re-checks a card's open PR links and applies the merge → Done transition the
+//!   webhook receiver would have. Driven by [`crate::scheduler`].
 //!
 //! # SSRF posture
 //!
@@ -32,6 +35,7 @@
 
 pub mod branch;
 pub mod client;
+pub mod poll;
 pub mod smart_commit;
 pub mod store;
 pub mod validator;

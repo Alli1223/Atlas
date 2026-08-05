@@ -30,6 +30,7 @@ pub mod domain;
 pub mod error;
 pub mod integrations;
 pub mod rank;
+pub mod scheduler;
 pub mod secrets;
 pub mod telemetry;
 pub mod test_support;

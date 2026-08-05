@@ -159,6 +159,25 @@ pub async fn upsert_project_repo(
         })
 }
 
+/// Every linked repo with no installed webhook — the candidates
+/// [`crate::integrations::github::poll`]'s fallback needs to check itself, since nothing will
+/// push a state change to them.
+///
+/// Not gated on the instance-wide `ATLAS_PUBLIC_URL` alone: installing a hook is a best-effort
+/// step taken per repo at link time (`api::github::install_webhook`), so one repo can end up
+/// hookless (a token missing `admin:repo_hook`, a transient GitHub error) while a public URL
+/// is configured and every other repo's hook is live. `webhook_id IS NULL` is the direct fact,
+/// not an inference from configuration.
+pub async fn list_unwebhooked_project_repos(db: &Db) -> AppResult<Vec<ProjectRepo>> {
+    Ok(sqlx::query_as::<_, ProjectRepo>(concat!(
+        "SELECT ",
+        project_repo_columns!(),
+        " FROM project_repos WHERE webhook_id IS NULL"
+    ))
+    .fetch_all(db.reader())
+    .await?)
+}
+
 /// Unlinks a project's repo. Returns whether a row was actually removed.
 pub async fn delete_project_repo(tx: &mut SqliteConnection, project_id: &str) -> AppResult<bool> {
     let result = sqlx::query("DELETE FROM project_repos WHERE project_id = ?")
@@ -288,6 +307,25 @@ pub async fn list_card_git_links(db: &Db, card_id: &str) -> AppResult<Vec<CardGi
         " FROM card_git_links WHERE card_id = ? ORDER BY created_at DESC"
     ))
     .bind(card_id)
+    .fetch_all(db.reader())
+    .await?)
+}
+
+/// Every `pr` git link still stored as `open`, across every card in a project — the poll
+/// fallback's candidates: a `merged`/`closed` link is already terminal and does not need
+/// rechecking, so this is exactly the set worth spending an API call on.
+///
+/// Joined and qualified rather than reusing [`card_git_link_columns`]: that macro's list is
+/// unqualified, and `cards` and `card_git_links` both have an `id` column.
+pub async fn list_open_pr_links(db: &Db, project_id: &str) -> AppResult<Vec<CardGitLink>> {
+    Ok(sqlx::query_as::<_, CardGitLink>(
+        "SELECT g.id, g.card_id, g.kind, g.ref, g.url, g.state, g.meta, g.created_at, \
+                g.updated_at \
+           FROM card_git_links g \
+           JOIN cards c ON c.id = g.card_id \
+          WHERE c.project_id = ? AND g.kind = 'pr' AND g.state = 'open'",
+    )
+    .bind(project_id)
     .fetch_all(db.reader())
     .await?)
 }
@@ -528,6 +566,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn only_repos_with_no_webhook_installed_are_listed_for_polling() {
+        let (db, _temp) = db().await;
+        let hooked_project = a_project(&db, "HOOKED").await;
+        let unhooked_project = a_project(&db, "BARE").await;
+
+        let mut tx = db.begin_write().await.unwrap();
+        let hooked = upsert_project_repo(
+            &mut tx,
+            &NewProjectRepo {
+                project_id: &hooked_project,
+                credential_id: None,
+                owner: "octocat",
+                repo: "hooked",
+                repo_id: 1,
+                default_branch: "main",
+                branch_prefix: "feature",
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        set_webhook(
+            &mut tx,
+            &hooked.id,
+            555,
+            &Sealed {
+                nonce: vec![0; 24],
+                ciphertext: vec![0; 16],
+                key_version: 1,
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        upsert_project_repo(
+            &mut tx,
+            &NewProjectRepo {
+                project_id: &unhooked_project,
+                credential_id: None,
+                owner: "octocat",
+                repo: "bare",
+                repo_id: 2,
+                default_branch: "main",
+                branch_prefix: "feature",
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let unwebhooked = list_unwebhooked_project_repos(&db).await.unwrap();
+        assert_eq!(unwebhooked.len(), 1, "{unwebhooked:?}");
+        assert_eq!(unwebhooked[0].repo, "bare");
+    }
+
+    #[tokio::test]
     async fn a_delivery_id_is_recorded_once_and_a_repeat_is_reported_as_already_seen() {
         let (db, _temp) = db().await;
 
@@ -557,5 +652,123 @@ mod tests {
                 .unwrap()
         );
         tx.commit().await.unwrap();
+    }
+
+    /// A real project (with a seeded card type) and one card in it — `list_open_pr_links`
+    /// joins through `cards`, so `a_project`'s bare `template: "blank"` row is not enough.
+    async fn a_project_with_a_card(db: &Db, key: &str) -> (String, String) {
+        use crate::auth::{Role, now, user};
+        use crate::domain::card::{self, NewCard, Placement};
+        use crate::domain::template::{self, Template};
+
+        let mut tx = db.begin_write().await.unwrap();
+        let creator = user::insert(
+            &mut tx,
+            &user::NewUser {
+                username: format!("pm-{key}"),
+                email: None,
+                display_name: "PM".to_owned(),
+                password_hash: "x".to_owned(),
+                role: Role::Member,
+                must_change_password: false,
+            },
+            now(),
+        )
+        .await
+        .unwrap();
+        let project =
+            template::create_project(&mut tx, Template::Programming, key, key, None, None, now())
+                .await
+                .unwrap();
+        let type_id: String = sqlx::query_scalar(
+            "SELECT id FROM card_types WHERE project_id = ? ORDER BY level DESC, name LIMIT 1",
+        )
+        .bind(&project.id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        let created = card::create(
+            &mut tx,
+            &project,
+            &NewCard {
+                type_id,
+                parent_id: None,
+                summary: "Add login".to_owned(),
+                description: None,
+                status_id: None,
+                priority_id: None,
+                assignee_id: None,
+                reporter_id: None,
+                due_date: None,
+                start_date: None,
+                estimate: None,
+                placement: Placement::Bottom,
+            },
+            &creator.id,
+            now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        (project.id, created.id)
+    }
+
+    #[tokio::test]
+    async fn only_pr_links_still_open_are_listed_for_polling() {
+        let (db, _temp) = db().await;
+        let (project_id, card_id) = a_project_with_a_card(&db, "ATLAS").await;
+
+        let mut tx = db.begin_write().await.unwrap();
+        upsert_card_git_link(
+            &mut tx,
+            &NewCardGitLink {
+                card_id: &card_id,
+                kind: "pr",
+                git_ref: "7",
+                url: Some("https://x/7"),
+                state: Some("open"),
+                meta: None,
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        // A second, already-merged PR on the same card (rare, but not impossible if a
+        // branch was reused) — must not surface, only the still-open one should.
+        upsert_card_git_link(
+            &mut tx,
+            &NewCardGitLink {
+                card_id: &card_id,
+                kind: "pr",
+                git_ref: "6",
+                url: Some("https://x/6"),
+                state: Some("merged"),
+                meta: None,
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        // A branch link on the same card — a different `kind`, must not surface either.
+        upsert_card_git_link(
+            &mut tx,
+            &NewCardGitLink {
+                card_id: &card_id,
+                kind: "branch",
+                git_ref: "feature/ATLAS-1-x",
+                url: None,
+                state: None,
+                meta: None,
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let open = list_open_pr_links(&db, &project_id).await.unwrap();
+        assert_eq!(open.len(), 1, "{open:?}");
+        assert_eq!(open[0].git_ref, "7");
+        assert_eq!(open[0].card_id, card_id);
     }
 }

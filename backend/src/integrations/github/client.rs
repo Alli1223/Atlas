@@ -669,6 +669,15 @@ impl GithubClient {
         Ok(pull.mergeable)
     }
 
+    /// Fetches one PR by number: `GET /pulls/{number}`. Used by the poll fallback
+    /// (`integrations::github::poll`), which already knows the number from a stored
+    /// `card_git_links` row and just needs its current state.
+    pub async fn pr(&self, repo: &RepoRef, number: i64) -> AppResult<PrSummary> {
+        let path = format!("/repos/{}/{}/pulls/{number}", repo.owner, repo.repo);
+        let pull: wire::Pull = self.send_json(reqwest::Method::GET, &path).await?;
+        Ok(Self::pull_to_summary(pull))
+    }
+
     /// A PR's reviews, in submission order — the input [`review_rollup`] folds.
     pub async fn reviews(&self, repo: &RepoRef, number: i64) -> AppResult<Vec<Review>> {
         let path = format!("/repos/{}/{}/pulls/{number}/reviews", repo.owner, repo.repo);
