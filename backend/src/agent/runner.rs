@@ -31,9 +31,7 @@
 //! - the child is spawned as its own process group ([`ProcessGroup::leader`]) and killed
 //!   through it, so a Bash tool call the agent started does not outlive cancellation.
 
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::process::Stdio;
 
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop, ProcessGroup};
@@ -41,10 +39,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
+use crate::agent::BoxFuture;
 use crate::agent::claude_code::{self, Event};
 use crate::error::{AppError, AppResult};
-
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// How many turns/how much spend Atlas allows before the CLI cuts a run off itself.
 ///

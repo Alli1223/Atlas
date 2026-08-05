@@ -1,6 +1,7 @@
 //! HTTP surface: router assembly, health check, and the OpenAPI document.
 
 pub mod admin;
+pub mod agent_sessions;
 pub mod auth;
 pub mod board;
 pub mod cards;
@@ -19,6 +20,7 @@ pub mod users;
 pub mod webhooks;
 pub mod workflow;
 
+use std::fmt;
 use std::sync::Arc;
 
 use axum::Router;
@@ -31,6 +33,8 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
 
+use crate::agent::runner::AgentRunner;
+use crate::agent::workspace::WorkspacePreparer;
 use crate::config::Config;
 use crate::db::Db;
 use crate::error::{AppResult, Problem};
@@ -52,7 +56,7 @@ pub const API_V1_PREFIX: &str = "/api/v1";
 /// Shared state handed to every handler.
 ///
 /// Cheap to clone: every field is a handle.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppState {
     /// The database pools.
     pub db: Db,
@@ -65,6 +69,28 @@ pub struct AppState {
     /// absent rather than storing a secret they cannot encrypt. See
     /// [`crate::secrets::Vault::from_config`].
     pub vault: Option<Arc<Vault>>,
+    /// How a Claude Code run is actually spawned. The real `claude` CLI in production; a
+    /// test double behind the same trait in tests — see `agent::runner::LocalRunner`.
+    pub agent_runner: Arc<dyn AgentRunner>,
+    /// How a run's working directory is prepared. The real GitHub clone/refresh in
+    /// production; a fake in tests, so a wiring test never needs a real credential or
+    /// network call — see `agent::workspace::GitWorkspacePreparer`.
+    pub workspace_preparer: Arc<dyn WorkspacePreparer>,
+}
+
+impl fmt::Debug for AppState {
+    // Hand-written because `dyn AgentRunner`/`dyn WorkspacePreparer` are not `Debug` — neither
+    // trait needs to be, and adding the bound just to satisfy a derive here would ripple into
+    // every test fake. Everything else is exactly what `#[derive(Debug)]` would have printed.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AppState")
+            .field("db", &self.db)
+            .field("config", &self.config)
+            .field("vault", &self.vault)
+            .field("agent_runner", &"Arc<dyn AgentRunner>")
+            .field("workspace_preparer", &"Arc<dyn WorkspacePreparer>")
+            .finish()
+    }
 }
 
 impl AppState {
@@ -73,12 +99,25 @@ impl AppState {
     /// The vault is derived from `config.master_key` here, so every caller —
     /// `main`, and every test harness — gets a consistent one without threading
     /// it separately. A dev config with no master key yields no vault.
+    ///
+    /// `agent_runner` and `workspace_preparer` are always the real, production
+    /// implementations here; a test that needs to fake either one constructs `AppState`
+    /// directly with struct-update syntax (`AppState { agent_runner: Arc::new(fake), ..
+    /// AppState::new(db, config) }`) rather than through this constructor.
     pub fn new(db: Db, config: Config) -> Self {
         let vault = Vault::from_config(&config).map(Arc::new);
+        let agent_runner: Arc<dyn AgentRunner> = Arc::new(crate::agent::runner::LocalRunner::new());
+        let workspace_preparer: Arc<dyn WorkspacePreparer> =
+            Arc::new(crate::agent::workspace::GitWorkspacePreparer::new(
+                config.workspace_dir.clone(),
+                config.workspace_quota_mb,
+            ));
         Self {
             db,
             config: Arc::new(config),
             vault,
+            agent_runner,
+            workspace_preparer,
         }
     }
 }
@@ -108,6 +147,7 @@ impl AppState {
         (name = "search", description = "AQL search, query validation, and saved filters"),
         (name = "credentials", description = "The encrypted secrets vault: API keys and PATs. Admin only; never returns a secret"),
         (name = "github", description = "GitHub integration: link a project to a repo, pick repos, and create a branch from a card"),
+        (name = "agent-sessions", description = "Running Claude Code against a card: starting a run, and reading its status"),
         (name = "admin", description = "Instance administration: system telemetry and self-update. Admin only")
     )
 )]
@@ -199,6 +239,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(cycles::routes())
         .merge(credentials::routes())
         .merge(github::routes())
+        .merge(agent_sessions::routes())
         .merge(admin::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

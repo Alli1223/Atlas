@@ -180,6 +180,9 @@ pub(crate) enum Scope {
 
     /// `{id}` is a cycle id; the project is the one that owns it.
     Cycle(ProjectRole),
+
+    /// `{id}` is an agent session id; the project is the one that owns its card.
+    AgentSession(ProjectRole),
 }
 
 impl Scope {
@@ -203,7 +206,8 @@ impl Scope {
             | Self::Workflow(_)
             | Self::Transition(_)
             | Self::Board(_)
-            | Self::Cycle(_) => Some("id"),
+            | Self::Cycle(_)
+            | Self::AgentSession(_) => Some("id"),
         }
     }
 
@@ -219,7 +223,8 @@ impl Scope {
             | Self::Workflow(role)
             | Self::Transition(role)
             | Self::Board(role)
-            | Self::Cycle(role) => Some(role),
+            | Self::Cycle(role)
+            | Self::AgentSession(role) => Some(role),
         }
     }
 }
@@ -743,6 +748,23 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/cards/{key}/activity",
         Scope::Card(ProjectRole::Viewer),
     ),
+    // --- agent sessions: starting a run spawns a subprocess and spends real money, so it is
+    // Member like the other card-mutating GitHub actions above; reading one is Viewer ---
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/agent-sessions",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/agent-sessions",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/agent-sessions/{id}",
+        Scope::AgentSession(ProjectRole::Viewer),
+    ),
     // --- admin: instance-level, guarded by RequireAdmin in each handler ---
     (Method::GET, "/api/v1/admin/system", Scope::Unscoped),
     (Method::GET, "/api/v1/admin/updates", Scope::Unscoped),
@@ -1126,6 +1148,18 @@ async fn resolve_target(db: &Db, scope: Scope, value: &str) -> AppResult<Target>
                 .bind(value)
                 .fetch_optional(db.reader())
                 .await?
+        }
+
+        // An agent session is owned by a card, which is owned by a project.
+        Scope::AgentSession(_) => {
+            sqlx::query_scalar(
+                "SELECT c.project_id FROM cards c \
+                   JOIN agent_sessions s ON s.card_id = c.id \
+                  WHERE s.id = ?",
+            )
+            .bind(value)
+            .fetch_optional(db.reader())
+            .await?
         }
     };
 

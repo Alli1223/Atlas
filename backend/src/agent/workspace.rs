@@ -33,11 +33,53 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use tokio::process::Command;
 
+use crate::agent::BoxFuture;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::integrations::github::store;
 use crate::secrets::vault::Vault;
 use crate::secrets::{self, Provider};
+
+/// Preparing a project's workspace, behind a trait for the same reason
+/// [`crate::agent::runner::AgentRunner`] is one: object-safe (a boxed future rather than
+/// `async fn`) so [`crate::api::AppState`] can hold it as `Arc<dyn WorkspacePreparer>`, chosen
+/// once at startup, and so a test can fake it without touching a real GitHub credential or
+/// network — [`prepare`]'s clone URL is not itself parameterisable, and does not need to be
+/// once the seam sits here instead.
+pub trait WorkspacePreparer: Send + Sync {
+    fn prepare<'a>(
+        &'a self,
+        db: &'a Db,
+        vault: &'a Vault,
+        project_id: &'a str,
+    ) -> BoxFuture<'a, AppResult<PathBuf>>;
+}
+
+/// Clones/refreshes a project's linked repo under a fixed root and quota. The production
+/// [`WorkspacePreparer`]; see [`prepare`] for the actual mechanics.
+#[derive(Debug, Clone)]
+pub struct GitWorkspacePreparer {
+    root: PathBuf,
+    quota_mb: u64,
+}
+
+impl GitWorkspacePreparer {
+    #[must_use]
+    pub fn new(root: PathBuf, quota_mb: u64) -> Self {
+        Self { root, quota_mb }
+    }
+}
+
+impl WorkspacePreparer for GitWorkspacePreparer {
+    fn prepare<'a>(
+        &'a self,
+        db: &'a Db,
+        vault: &'a Vault,
+        project_id: &'a str,
+    ) -> BoxFuture<'a, AppResult<PathBuf>> {
+        Box::pin(async move { prepare(db, vault, &self.root, self.quota_mb, project_id).await })
+    }
+}
 
 /// Where a project's workspace lives under the configured root.
 #[must_use]
