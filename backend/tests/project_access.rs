@@ -23,6 +23,8 @@ use atlas::auth::project_access;
 use atlas::auth::seed::DEFAULT_ADMIN_USERNAME;
 use atlas::config::Config;
 use atlas::db::{self, Db};
+use atlas::domain::agent_session::{self, NewAgentSession};
+use atlas::domain::card;
 use atlas::test_support::TempDb;
 use atlas::{auth::seed, auth::session};
 use axum::Router;
@@ -1415,6 +1417,7 @@ struct Targets {
     transition_id: String,
     board_id: String,
     cycle_id: String,
+    agent_session_id: String,
 }
 
 impl Targets {
@@ -1449,6 +1452,7 @@ impl Targets {
                     ("transitions", "{id}") => &self.transition_id,
                     ("boards", "{id}") => &self.board_id,
                     ("cycles", "{id}") => &self.cycle_id,
+                    ("agent-sessions", "{id}") => &self.agent_session_id,
                     _ => {
                         return Err(format!(
                             "no value known for {segment} after /{previous} in {path}. Teach \
@@ -1552,6 +1556,7 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
     let (workflow_id, transition_id) = furnish_workflow(app, admin, key, &theirs.status_id).await;
     let board_id = furnish_board(app, admin, key).await;
     let cycle_id = furnish_cycle(app, admin, key).await;
+    let agent_session_id = furnish_agent_session(app, &their_card).await;
 
     Targets {
         project_key: theirs.key.clone(),
@@ -1568,7 +1573,40 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
         transition_id,
         board_id,
         cycle_id,
+        agent_session_id,
     }
+}
+
+/// Records an agent session directly against the database rather than through the API —
+/// starting a real run needs a linked repo and a working CLI, neither of which this probe
+/// needs; it only needs `/agent-sessions/{id}` to resolve to a real row rather than 404ing
+/// for an unrelated reason.
+async fn furnish_agent_session(app: &App, card_key: &str) -> String {
+    let their_card = card::find_by_key(&app.db, card_key)
+        .await
+        .expect("query failed")
+        .expect("the probe card exists");
+
+    let mut tx = app
+        .db
+        .begin_write()
+        .await
+        .expect("failed to open a write transaction");
+    let session = agent_session::insert(
+        &mut tx,
+        &NewAgentSession {
+            card_id: &their_card.id,
+            claude_session_id: "probe-session",
+            prompt: "probe",
+            started_by: None,
+        },
+        atlas::test_support::now(),
+    )
+    .await
+    .expect("failed to record the probe session");
+    tx.commit().await.expect("failed to commit");
+
+    session.id
 }
 
 /// Saves a board in a project, so `/boards/{id}` resolves to a real row rather
@@ -2337,6 +2375,7 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
     let (workflow_id, transition_id) = furnish_workflow(&app, &admin, &p.key, &p.status_id).await;
     let board_id = furnish_board(&app, &admin, &p.key).await;
     let cycle_id = furnish_cycle(&app, &admin, &p.key).await;
+    let agent_session_id = furnish_agent_session(&app, &card_key).await;
 
     let targets = Targets {
         project_key: p.key.clone(),
@@ -2353,6 +2392,7 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
         transition_id,
         board_id,
         cycle_id,
+        agent_session_id,
     };
 
     let mut probed = 0;
