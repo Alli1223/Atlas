@@ -303,3 +303,29 @@ export async function fetchCredentialRepos(
     }),
   )
 }
+
+// ---------------------------------------------------------------------------
+// Claude Code agent sessions: "Run with Claude" on a card.
+// ---------------------------------------------------------------------------
+
+/** One run of Claude Code against a card. Mirrors `crate::domain::agent_session::AgentSession`. */
+export type AgentSession = components['schemas']['AgentSession']
+/** An agent session's lifecycle state. */
+export type AgentSessionStatus = components['schemas']['AgentSessionStatus']
+
+/** A card's agent sessions, most recent first. */
+export async function fetchCardAgentSessions(cardKey: string): Promise<AgentSession[]> {
+  return unwrap(
+    await api.GET('/api/v1/cards/{key}/agent-sessions', { params: { path: { key: cardKey } } }),
+  )
+}
+
+/**
+ * Starts a Claude Code run against a card. Takes no body — the prompt is the card's own
+ * summary and description, built server-side.
+ */
+export async function startAgentSession(cardKey: string): Promise<AgentSession> {
+  return unwrap(
+    await api.POST('/api/v1/cards/{key}/agent-sessions', { params: { path: { key: cardKey } } }),
+  )
+}

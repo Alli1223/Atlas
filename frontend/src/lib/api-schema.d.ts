@@ -59,6 +59,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One session, by id — for polling a run's status until it finishes. */
+        get: operations["get_agent_session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/change-password": {
         parameters: {
             query?: never;
@@ -296,6 +313,27 @@ export interface paths {
         get: operations["card_activity"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/agent-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A card's Claude Code sessions, most recent first. */
+        get: operations["list_card_agent_sessions"];
+        put?: never;
+        /**
+         * Starts a Claude Code run against a card: the prompt is the card's summary and description,
+         *     sent into a clean, up-to-date checkout of the card's project repo.
+         */
+        post: operations["start_agent_session"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1563,6 +1601,54 @@ export interface components {
             /** @description Who to grant access to. */
             userId: string;
         };
+        /** @description A row of `agent_sessions`. */
+        AgentSession: {
+            cardId: string;
+            /**
+             * @description The CLI's own session id — present from the moment the run is spawned, since Atlas
+             *     generates it up front (see `agent::runner::spawn_local`) rather than scraping it back
+             *     from the `system/init` event.
+             */
+            claudeSessionId?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            endedAt?: string | null;
+            /** @description Set on `failed`/`cancelled`. */
+            errorMessage?: string | null;
+            /** @description UUID v7, as text. */
+            id: string;
+            /** Format: int64 */
+            numTurns?: number | null;
+            /**
+             * @description What was actually sent — not reconstructed from the card after the fact, since cards
+             *     get edited and a session's record of what it was asked must not drift with them.
+             */
+            prompt: string;
+            /**
+             * @description The terminal `result` event's `result` field. `None` until finished, and may stay
+             *     `None` even then — absent on every CLI error subtype.
+             */
+            resultText?: string | null;
+            /** Format: date-time */
+            startedAt: string;
+            /** @description `None` if the starting user's account was later removed. */
+            startedBy?: string | null;
+            status: components["schemas"]["AgentSessionStatus"];
+            /** Format: double */
+            totalCostUsd?: number | null;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /**
+         * @description An agent session's lifecycle state.
+         *
+         *     `Running` is the one value nothing in [`crate::agent::claude_code::outcome`] ever
+         *     produces — that function only classifies a *finished* result event. `Cancelled` is
+         *     likewise never a CLI outcome; it is Atlas's own doing when a caller ends a run early.
+         * @enum {string}
+         */
+        AgentSessionStatus: "running" | "completed" | "completed_with_denials" | "limit_reached" | "failed" | "cancelled";
         /** @description Confirmation that an update has been queued. */
         ApplyUpdateResponse: {
             /** @description Human-readable message for the admin. */
@@ -3496,6 +3582,38 @@ export interface operations {
             };
         };
     };
+    get_agent_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSession"];
+                };
+            };
+            /** @description No such session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     change_password: {
         parameters: {
             query?: never;
@@ -4129,6 +4247,88 @@ export interface operations {
                 };
             };
             /** @description The vault is not configured, or GitHub errored */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_card_agent_sessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key, e.g. ATLAS-42 */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card's sessions, most recent first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSession"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    start_agent_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key, e.g. ATLAS-42 */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run, recorded as running */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSession"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The card's project has no linked repo, or its credential is gone */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The vault is not configured, or the CLI failed to spawn */
             500: {
                 headers: {
                     [name: string]: unknown;

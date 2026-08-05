@@ -10,6 +10,7 @@ import type { ApiError } from '@/lib/api'
 
 import * as cardApi from './api'
 import type {
+  AgentSession,
   BranchCreated,
   Card,
   CardGitLink,
@@ -47,6 +48,7 @@ export const cardKeys = {
   activity: (key: string) => [...cardKeys.all, 'activity', key] as const,
   credentialRepos: (credentialId: string) =>
     [...cardKeys.all, 'credential-repos', credentialId] as const,
+  agentSessions: (key: string) => [...cardKeys.all, 'agent-sessions', key] as const,
 }
 
 /** Shared options so a route loader can warm the same cache the component reads. */
@@ -224,6 +226,38 @@ export function useCreatePr(cardKey: string) {
     mutationFn: () => cardApi.createPr(cardKey),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: cardKeys.gitLinks(cardKey) })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code agent sessions: "Run with Claude" on a card.
+// ---------------------------------------------------------------------------
+
+/**
+ * A card's agent sessions, most recent first — polled every 3s while the newest one is still
+ * `running`, the same `refetchInterval`-as-a-function-of-data idiom `useCardActivity` uses for
+ * a CI check. Polling the list rather than a separate single-session endpoint keeps this to
+ * one query: the list is already ordered newest-first, so its head *is* "the current run".
+ */
+export function useCardAgentSessions(cardKey: string) {
+  return useQuery({
+    queryKey: cardKeys.agentSessions(cardKey),
+    queryFn: () => cardApi.fetchCardAgentSessions(cardKey),
+    refetchInterval: (query) => (query.state.data?.[0]?.status === 'running' ? 3_000 : false),
+  })
+}
+
+/** Starts a run, prepending it into the session list rather than refetching. */
+export function useStartAgentSession(cardKey: string) {
+  const queryClient = useQueryClient()
+  return useMutation<AgentSession, ApiError, void>({
+    mutationFn: () => cardApi.startAgentSession(cardKey),
+    onSuccess: (session) => {
+      queryClient.setQueryData<AgentSession[]>(cardKeys.agentSessions(cardKey), (list) => [
+        session,
+        ...(list ?? []),
+      ])
     },
   })
 }
