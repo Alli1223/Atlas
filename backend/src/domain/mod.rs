@@ -17,6 +17,9 @@
 //! - [`agent_session`] — `agent_sessions`: one Claude Code run against a card, its status
 //!   and terminal outcome. Knows nothing of [`crate::agent`], the same direction every
 //!   domain module keeps with [`crate::integrations`].
+//! - [`cycle_snapshot`] — daily point-in-time snapshots of an active cycle's in-scope cards,
+//!   what a burndown chart and Phase 16's reports are computed from. Driven by
+//!   [`crate::scheduler`].
 //! - [`tag`] — free-text labels, and the presets each template seeds.
 //! - [`template`] — the four project templates' seed data.
 //! - [`workflow`] — the workflow engine: transitions and their conditions,
@@ -49,6 +52,7 @@ pub mod card;
 pub mod comment;
 pub mod config;
 pub mod cycle;
+pub mod cycle_snapshot;
 pub mod filter;
 pub mod hierarchy;
 pub mod history;
