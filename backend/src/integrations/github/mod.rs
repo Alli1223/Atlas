@@ -21,6 +21,8 @@
 //! - [`poll`] — the poll fallback for a repo with no installed webhook: periodically
 //!   re-checks a card's open PR links and applies the merge → Done transition the
 //!   webhook receiver would have. Driven by [`crate::scheduler`].
+//! - [`backfill`] — runs once, right after a repo is linked: seeds git-links for cards
+//!   whose PR predates the link, sharing [`poll::record_pr`] with the poll fallback.
 //!
 //! # SSRF posture
 //!
@@ -33,6 +35,7 @@
 //! came from GitHub is still attacker-influenced and must be validated against
 //! internal ranges before it is fetched.
 
+pub mod backfill;
 pub mod branch;
 pub mod client;
 pub mod poll;

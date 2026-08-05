@@ -394,6 +394,9 @@ pub struct PrSummary {
     pub html_url: String,
     /// Open / merged / closed, resolved via [`pr_state`].
     pub state: PrState,
+    /// The head branch name — how [`crate::integrations::github::backfill`] finds the card a
+    /// PR belongs to when nothing has told Atlas about it yet.
+    pub branch: String,
 }
 
 /// A commit on a card's branch.
@@ -461,6 +464,14 @@ mod wire {
         // on a fresh PR anyway.
         #[serde(default)]
         pub mergeable: Option<bool>,
+        #[serde(default)]
+        pub head: Head,
+    }
+
+    #[derive(Deserialize, Default)]
+    pub(super) struct Head {
+        #[serde(default, rename = "ref")]
+        pub branch: String,
     }
 
     #[derive(Deserialize)]
@@ -678,6 +689,22 @@ impl GithubClient {
         Ok(Self::pull_to_summary(pull))
     }
 
+    /// A repo's most-recently-updated PRs (`GET /pulls?state=all`, GitHub's own default
+    /// order), one page. Used by [`crate::integrations::github::backfill`] right after a repo
+    /// is linked — not paginated beyond the first page, the same pragmatism the repo picker
+    /// (`api::github::list_credential_repos`) already accepts for the same reason: a
+    /// backfill's job is to seed what is realistically still relevant, not replay a repo's
+    /// entire history, and after this the poll fallback and any installed webhook keep things
+    /// live regardless.
+    pub async fn list_prs(&self, repo: &RepoRef, per_page: u32) -> AppResult<Vec<PrSummary>> {
+        let path = format!(
+            "/repos/{}/{}/pulls?state=all&per_page={per_page}",
+            repo.owner, repo.repo
+        );
+        let pulls: Vec<wire::Pull> = self.send_json(reqwest::Method::GET, &path).await?;
+        Ok(pulls.into_iter().map(Self::pull_to_summary).collect())
+    }
+
     /// A PR's reviews, in submission order — the input [`review_rollup`] folds.
     pub async fn reviews(&self, repo: &RepoRef, number: i64) -> AppResult<Vec<Review>> {
         let path = format!("/repos/{}/{}/pulls/{number}/reviews", repo.owner, repo.repo);
@@ -820,6 +847,7 @@ impl GithubClient {
             title: pull.title,
             html_url: pull.html_url,
             state: pr_state(&pull.state, merged),
+            branch: pull.head.branch,
         }
     }
 }

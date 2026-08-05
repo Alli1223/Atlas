@@ -29,6 +29,7 @@ use crate::auth::{CurrentUser, now};
 use crate::domain::card;
 use crate::error::{AppError, AppResult, Problem};
 use crate::integrations::github::RepoRef;
+use crate::integrations::github::backfill;
 use crate::integrations::github::branch;
 use crate::integrations::github::client::{
     CiState, CommitSummary, GithubClient, PrState, RepoSummary, ReviewState, review_rollup,
@@ -288,6 +289,13 @@ async fn link_project_repo(
         }
         None => stored,
     };
+
+    // Seeds git-links for cards whose branch/PR on this repo predates the link — a card
+    // created via `POST /cards/{key}/branch` after this point gets its link recorded
+    // immediately by that same handler, so this is purely for what already existed.
+    // Best-effort like the webhook install above: it runs after the link itself already
+    // succeeded, so a failure here must not undo it.
+    backfill::backfill(&state, &client, &stored).await;
 
     Ok(Json(ProjectRepoDto::from_row(&stored)))
 }
