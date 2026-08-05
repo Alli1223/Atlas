@@ -138,20 +138,23 @@ async fn poll_pr_link(
         return Ok(());
     }
 
-    apply_terminal_state(state, &card, &pr).await
+    record_pr(state, &card, &pr).await
 }
 
-/// Records a PR's merge/close outcome, and — only on a merge — moves the card to Done.
+/// Records a PR's current state, and — only on a merge — moves the card to Done.
 ///
-/// [`crate::integrations::github::smart_commit::move_to_category`] is a no-op once the card is
-/// already in the target category, which is what makes it safe to call on every tick for a
-/// card whose merge was already applied on an earlier pass — see the module doc for why the
-/// open→In-Progress transition does not get the same treatment.
-async fn apply_terminal_state(state: &AppState, card: &Card, pr: &PrSummary) -> AppResult<()> {
+/// Shared with [`crate::integrations::github::backfill`], which (unlike the poll fallback
+/// above) *does* want to write an `open` PR's link on first sight rather than skip it — this
+/// function itself does not distinguish "why", it just records what `pr` says and reacts to a
+/// merge. [`crate::integrations::github::smart_commit::move_to_category`] is a no-op once the
+/// card is already in the target category, which is what makes it safe to call on every poll
+/// tick for a card whose merge was already applied on an earlier pass — see the module doc for
+/// why the open→In-Progress transition does not get the same treatment.
+pub(crate) async fn record_pr(state: &AppState, card: &Card, pr: &PrSummary) -> AppResult<()> {
     let state_str = match pr.state {
+        PrState::Open => "open",
         PrState::Merged => "merged",
         PrState::Closed => "closed",
-        PrState::Open => return Ok(()),
     };
     let number = pr.number.to_string();
 
@@ -200,10 +203,11 @@ mod tests {
             title: "Add login".to_owned(),
             html_url: format!("https://x/{number}"),
             state,
+            branch: format!("feature/ATLAS-{number}-add-login"),
         }
     }
 
-    /// A real project and card — `apply_terminal_state` reads `card.project_id`/`creator_id`
+    /// A real project and card — `record_pr` reads `card.project_id`/`creator_id`
     /// and moves the card through the workflow engine, so a bare row is not enough.
     async fn fixture() -> (AppState, TempDb, Card) {
         let temp = TempDb::new();
@@ -279,7 +283,7 @@ mod tests {
             "sanity: a fresh card is not already done"
         );
 
-        apply_terminal_state(&state, &card, &a_pr(7, PrState::Merged))
+        record_pr(&state, &card, &a_pr(7, PrState::Merged))
             .await
             .unwrap();
 
@@ -300,7 +304,7 @@ mod tests {
     async fn reapplying_a_merge_the_card_is_already_in_is_a_safe_no_op() {
         let (state, _temp, card) = fixture().await;
 
-        apply_terminal_state(&state, &card, &a_pr(7, PrState::Merged))
+        record_pr(&state, &card, &a_pr(7, PrState::Merged))
             .await
             .unwrap();
         let once_done = card::find_by_id(&state.db, &card.id)
@@ -309,7 +313,7 @@ mod tests {
             .unwrap();
 
         // Simulates the next poll tick seeing the same still-merged PR again.
-        apply_terminal_state(&state, &once_done, &a_pr(7, PrState::Merged))
+        record_pr(&state, &once_done, &a_pr(7, PrState::Merged))
             .await
             .unwrap();
         let after_second_pass = card::find_by_id(&state.db, &card.id)
@@ -328,7 +332,7 @@ mod tests {
     async fn a_closed_unmerged_pr_records_its_state_but_does_not_move_the_card() {
         let (state, _temp, card) = fixture().await;
 
-        apply_terminal_state(&state, &card, &a_pr(9, PrState::Closed))
+        record_pr(&state, &card, &a_pr(9, PrState::Closed))
             .await
             .unwrap();
 
@@ -349,19 +353,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_still_open_pr_is_a_complete_no_op() {
+    async fn record_pr_writes_an_open_state_too_without_moving_the_card() {
+        // `record_pr` itself has no opinion on whether writing an `open` PR is worth the
+        // trip — that is `poll_pr_link`'s call to make (see its own "nothing changed" skip,
+        // untestable in isolation since it needs a real GithubClient). `backfill` calls
+        // `record_pr` directly and *does* want the first-sight `open` state written, which is
+        // exactly what this pins.
         let (state, _temp, card) = fixture().await;
 
-        apply_terminal_state(&state, &card, &a_pr(11, PrState::Open))
+        record_pr(&state, &card, &a_pr(11, PrState::Open))
             .await
             .unwrap();
 
         let links = store::list_card_git_links(&state.db, &card.id)
             .await
             .unwrap();
-        assert!(
-            links.is_empty(),
-            "an unchanged-open PR must not even write a link, {links:?}"
-        );
+        let pr_link = links.iter().find(|l| l.kind == "pr").unwrap();
+        assert_eq!(pr_link.state.as_deref(), Some("open"));
+
+        let updated = card::find_by_id(&state.db, &card.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!updated.is_resolved());
     }
 }
