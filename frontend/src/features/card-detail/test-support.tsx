@@ -2,7 +2,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { type ReactElement } from 'react'
 
-import type { Card, CardActivity, CardGitLink, Credential, GithubRepo, ProjectRepo } from './api'
+import type {
+  AgentSession,
+  Card,
+  CardActivity,
+  CardGitLink,
+  Credential,
+  GithubRepo,
+  ProjectRepo,
+} from './api'
 
 /**
  * Test helpers for card-detail components that need a QueryClient but not the router.
@@ -119,6 +127,27 @@ export function makeGithubRepo(overrides: Partial<GithubRepo> = {}): GithubRepo 
     default_branch: 'main',
     canPush: true,
     private: false,
+    ...overrides,
+  }
+}
+
+/** An agent session DTO, overridable per test. */
+export function makeAgentSession(overrides: Partial<AgentSession> = {}): AgentSession {
+  return {
+    id: '019f-session',
+    cardId: '019f-card',
+    claudeSessionId: '11111111-1111-1111-1111-111111111111',
+    status: 'running',
+    prompt: 'Fix the thing\n\nDo the needful.',
+    resultText: null,
+    totalCostUsd: null,
+    numTurns: null,
+    errorMessage: null,
+    startedBy: '019f-user',
+    startedAt: '2026-07-16T10:00:00Z',
+    endedAt: null,
+    createdAt: '2026-07-16T10:00:00Z',
+    updatedAt: '2026-07-16T10:00:00Z',
     ...overrides,
   }
 }

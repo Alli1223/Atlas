@@ -13,6 +13,7 @@ import {
   type Tag,
 } from '@/features/tags'
 
+import { AgentSessions } from './AgentSessions'
 import type { Card, StatusCategory } from './api'
 import styles from './CardDetail.module.css'
 import { Development } from './Development'
@@ -161,6 +162,8 @@ export function Sidebar({ card, projectKey, parentLookup }: SidebarProps) {
       )}
 
       <Development card={card} projectKey={projectKey} />
+
+      <AgentSessions card={card} />
 
       <CardCycleField cardKey={card.key} projectKey={projectKey} />
 
