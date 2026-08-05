@@ -2,13 +2,15 @@
 
 use std::net::SocketAddr;
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use atlas::api::{self, AppState};
 use atlas::auth::seed;
 use atlas::config::Config;
 use atlas::db::{self, Db};
-use atlas::scheduler;
+use atlas::scheduler::{self, Job};
 use atlas::telemetry;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -78,11 +80,19 @@ async fn serve(config: Config) -> anyhow::Result<()> {
     let state = AppState::new(db.clone(), config);
     let app = api::router(state.clone());
 
-    // Background jobs: today, just the GitHub poll fallback (Phase 12) — see
-    // `integrations::github::poll` for why it is safe to run unconditionally (it no-ops
-    // itself when there is nothing to poll). Stopped before closing the database pools
-    // below, on the same "wind down in the right order" principle as the server itself.
-    let scheduler = scheduler::spawn(vec![atlas::integrations::github::poll::job(state)]);
+    // Background jobs: the GitHub poll fallback (Phase 12) and the daily cycle snapshot
+    // (Phase 10) — both no-op themselves when there is nothing to do, so both run
+    // unconditionally rather than needing their own opt-in setting. Stopped before closing
+    // the database pools below, on the same "wind down in the right order" principle as the
+    // server itself.
+    //
+    // The snapshot job is built here rather than inside `domain::cycle_snapshot` itself: that
+    // module knows nothing of `scheduler`, keeping the same "domain does not reach up to the
+    // layer that drives it" direction `domain::agent_session` keeps with `agent`.
+    let scheduler = scheduler::spawn(vec![
+        atlas::integrations::github::poll::job(state),
+        cycle_snapshot_job(db.clone()),
+    ]);
 
     // `into_make_service_with_connect_info` rather than the bare service: it is
     // what puts the peer address in the request extensions, and without it the
@@ -105,6 +115,30 @@ async fn serve(config: Config) -> anyhow::Result<()> {
     db.close().await;
 
     result
+}
+
+/// The daily `cycle_snapshot` writer (Phase 10). Deduped by calendar day (see
+/// `domain::cycle_snapshot`'s own doc), so the job firing immediately on every restart — the
+/// same `tokio::time::interval` behaviour the poll fallback relies on — is harmless rather
+/// than a source of duplicate rows.
+fn cycle_snapshot_job(db: Db) -> Job {
+    Job {
+        name: "cycle-snapshot",
+        interval: Duration::from_hours(24),
+        run: Arc::new(move || {
+            let db = db.clone();
+            Box::pin(async move {
+                match atlas::domain::cycle_snapshot::take(&db, chrono::Utc::now()).await {
+                    Ok(written) => {
+                        tracing::debug!(rows = written, "took the daily cycle snapshot");
+                    }
+                    Err(err) => {
+                        tracing::error!(error = %err, "failed to take the daily cycle snapshot");
+                    }
+                }
+            })
+        }),
+    }
 }
 
 /// Resolves on SIGINT (Ctrl-C) or SIGTERM.
