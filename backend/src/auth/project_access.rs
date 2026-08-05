@@ -765,6 +765,11 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/agent-sessions/{id}",
         Scope::AgentSession(ProjectRole::Viewer),
     ),
+    (
+        Method::GET,
+        "/api/v1/agent-sessions/{id}/transcript",
+        Scope::AgentSession(ProjectRole::Viewer),
+    ),
     // --- admin: instance-level, guarded by RequireAdmin in each handler ---
     (Method::GET, "/api/v1/admin/system", Scope::Unscoped),
     (Method::GET, "/api/v1/admin/updates", Scope::Unscoped),

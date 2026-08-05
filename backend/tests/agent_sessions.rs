@@ -513,5 +513,48 @@ async fn a_run_that_finishes_is_reflected_on_the_next_poll() {
     assert_eq!(finished.json()["resultText"], "done");
     assert_eq!(finished.json()["totalCostUsd"], 0.05);
 
+    // The transcript write happens before the outcome write in the same detached task, so by
+    // the time the poll above observed a terminal status, the transcript is already there too.
+    let transcript = app
+        .send(
+            &fake_router,
+            get(
+                &format!("/api/v1/agent-sessions/{session_id}/transcript"),
+                Some(&admin),
+            ),
+        )
+        .await;
+    assert_eq!(transcript.status, StatusCode::OK, "{}", transcript.raw_body);
+    let lines = transcript.json();
+    let lines = lines.as_array().unwrap();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["seq"], 0);
+    assert!(
+        lines[0]["line"]
+            .as_str()
+            .unwrap()
+            .contains(r#""result":"done""#)
+    );
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn an_unknown_sessions_transcript_is_not_found() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+
+    let reply = app
+        .send(
+            &router,
+            get(
+                "/api/v1/agent-sessions/no-such-session/transcript",
+                Some(&admin),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.raw_body);
+
     app.db.close().await;
 }
