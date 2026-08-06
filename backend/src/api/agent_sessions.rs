@@ -7,16 +7,16 @@
 //!
 //! # Scoping
 //!
-//! Starting a run costs real money and pushes real commits, so it is `Card(Member)` like
-//! every other card-mutating action (`POST /cards/{key}/branch`, `/pr`). Reading a session —
-//! whether the list for a card or one by id — is `Viewer`, like reading anything else about a
-//! card.
+//! Starting or cancelling a run costs real money (or stops it costing more) and pushes real
+//! commits, so both are `Card(Member)`/`AgentSession(Member)` like every other card-mutating
+//! action (`POST /cards/{key}/branch`, `/pr`). Reading a session — whether the list for a
+//! card, one by id, or its transcript — is `Viewer`, like reading anything else about a card.
 //!
 //! # What is not here yet
 //!
-//! Cancelling a run over the API, and the on-completion actions (move the card, attach the
-//! PR) — both later increments in `TODO.md` Phase 13. [`crate::agent::runner::RunHandle`]
-//! already supports cancellation; nothing in Atlas's HTTP surface reaches it yet.
+//! The on-completion actions (move the card, attach the PR) — a later increment in `TODO.md`
+//! Phase 13, explicitly flagged there for confirmation before it is built (the request's own
+//! wording, "move to the backlog", is an unusual destination for finished work).
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -96,6 +96,7 @@ async fn start_agent_session(
         vault,
         state.agent_runner.as_ref(),
         state.workspace_preparer.as_ref(),
+        &state.cancel_registry,
         StartRequest {
             card: &card,
             prompt,
@@ -184,12 +185,39 @@ async fn get_agent_session_transcript(
     Ok(Json(lines))
 }
 
+/// Requests cancellation of a running session.
+///
+/// Answers as soon as the cancel signal is queued — the run itself may take a moment longer
+/// to actually stop (its process group has to be killed and the drain task has to notice).
+/// Poll `GET /agent-sessions/{id}` to see the session actually reach `cancelled`.
+#[utoipa::path(
+    post,
+    path = "/agent-sessions/{id}/cancel",
+    tag = "agent-sessions",
+    params(("id" = String, Path, description = "The session id")),
+    responses(
+        (status = 202, description = "Cancellation requested"),
+        (status = 404, description = "No such session", body = Problem),
+        (status = 409, description = "The session is not currently running", body = Problem),
+    )
+)]
+async fn cancel_agent_session(
+    State(state): State<AppState>,
+    _current: CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<StatusCode> {
+    orchestrator::cancel(&state.db, &state.cancel_registry, &id).await?;
+    tracing::info!(session = %id, "requested cancellation of a Claude Code run");
+    Ok(StatusCode::ACCEPTED)
+}
+
 /// Assembles the routes.
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(start_agent_session, list_card_agent_sessions))
         .routes(routes!(get_agent_session))
         .routes(routes!(get_agent_session_transcript))
+        .routes(routes!(cancel_agent_session))
 }
 
 #[cfg(test)]

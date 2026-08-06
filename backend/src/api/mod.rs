@@ -33,6 +33,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
 
+use crate::agent::orchestrator::CancelRegistry;
 use crate::agent::runner::AgentRunner;
 use crate::agent::workspace::WorkspacePreparer;
 use crate::config::Config;
@@ -76,6 +77,10 @@ pub struct AppState {
     /// production; a fake in tests, so a wiring test never needs a real credential or
     /// network call — see `agent::workspace::GitWorkspacePreparer`.
     pub workspace_preparer: Arc<dyn WorkspacePreparer>,
+    /// Live runs' cancel signals, keyed by agent session id — see
+    /// `agent::orchestrator::CancelRegistry`'s own doc for why this lives here rather than
+    /// inside the orchestrator module itself.
+    pub cancel_registry: CancelRegistry,
 }
 
 impl fmt::Debug for AppState {
@@ -89,6 +94,7 @@ impl fmt::Debug for AppState {
             .field("vault", &self.vault)
             .field("agent_runner", &"Arc<dyn AgentRunner>")
             .field("workspace_preparer", &"Arc<dyn WorkspacePreparer>")
+            .field("cancel_registry", &"CancelRegistry")
             .finish()
     }
 }
@@ -118,6 +124,7 @@ impl AppState {
             vault,
             agent_runner,
             workspace_preparer,
+            cancel_registry: CancelRegistry::default(),
         }
     }
 }

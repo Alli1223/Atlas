@@ -57,6 +57,10 @@
   color: var(--ds-text-subtlest);
 }
 
+.cancelButton {
+  margin-left: auto;
+}
+
 .meta {
   font: var(--ds-font-body-small);
   color: var(--ds-text-subtle);

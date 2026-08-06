@@ -329,3 +329,14 @@ export async function startAgentSession(cardKey: string): Promise<AgentSession> 
     await api.POST('/api/v1/cards/{key}/agent-sessions', { params: { path: { key: cardKey } } }),
   )
 }
+
+/**
+ * Requests cancellation of a running session. Only requests it — the session may still show
+ * `running` for a moment after this resolves, until the server actually stops the process and
+ * records the outcome.
+ */
+export async function cancelAgentSession(sessionId: string): Promise<void> {
+  unwrap(
+    await api.POST('/api/v1/agent-sessions/{id}/cancel', { params: { path: { id: sessionId } } }),
+  )
+}

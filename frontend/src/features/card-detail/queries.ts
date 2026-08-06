@@ -262,6 +262,21 @@ export function useStartAgentSession(cardKey: string) {
   })
 }
 
+/**
+ * Requests cancellation of a running session, then refetches the list — cancellation is
+ * asynchronous server-side, so the immediate refetch will likely still show `running`; the
+ * list's own polling (`useCardAgentSessions`) picks up the eventual `cancelled` from there.
+ */
+export function useCancelAgentSession(cardKey: string) {
+  const queryClient = useQueryClient()
+  return useMutation<void, ApiError, string>({
+    mutationFn: (sessionId) => cardApi.cancelAgentSession(sessionId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardKeys.agentSessions(cardKey) })
+    },
+  })
+}
+
 /** Links a repo to the card's project, folding the result straight into the repo cache. */
 export function useLinkRepo(projectKey: string) {
   const queryClient = useQueryClient()
