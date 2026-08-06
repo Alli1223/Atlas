@@ -100,4 +100,49 @@ describe('AgentSessions', () => {
       await screen.findByText("this project's repo link has no credential"),
     ).toBeInTheDocument()
   })
+
+  it('offers a cancel button only for a running session, and cancels on click', async () => {
+    const user = userEvent.setup()
+    const { calls } = stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () =>
+        jsonResponse([makeAgentSession({ id: 's-4', status: 'running' })]),
+      'POST /api/v1/agent-sessions/s-4/cancel': () => new Response(null, { status: 202 }),
+    })
+
+    renderWithClient(<AgentSessions card={CARD} />)
+
+    const cancelButton = await screen.findByRole('button', { name: 'Cancel run' })
+    await user.click(cancelButton)
+    await waitFor(() => expect(calls).toContain('POST /api/v1/agent-sessions/s-4/cancel'))
+  })
+
+  it('offers no cancel button once a session has finished', async () => {
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () =>
+        jsonResponse([makeAgentSession({ id: 's-5', status: 'completed' })]),
+    })
+
+    renderWithClient(<AgentSessions card={CARD} />)
+
+    await screen.findByText('Completed')
+    expect(screen.queryByRole('button', { name: 'Cancel run' })).not.toBeInTheDocument()
+  })
+
+  it('surfaces a cancel failure instead of silently doing nothing', async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () =>
+        jsonResponse([makeAgentSession({ id: 's-6', status: 'running' })]),
+      'POST /api/v1/agent-sessions/s-6/cancel': () =>
+        problemResponse('urn:atlas:error:conflict', 409, 'this session already finished as failed'),
+    })
+
+    renderWithClient(<AgentSessions card={CARD} />)
+
+    const cancelButton = await screen.findByRole('button', { name: 'Cancel run' })
+    await user.click(cancelButton)
+    expect(
+      await screen.findByText('this session already finished as failed'),
+    ).toBeInTheDocument()
+  })
 })

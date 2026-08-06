@@ -1,12 +1,12 @@
-import { Bot } from 'lucide-react'
+import { Bot, X } from 'lucide-react'
 
 import { Banner, Button, Lozenge, type LozengeAppearance, Spinner } from '@/components/ui'
-import { ICON } from '@/lib/icon'
+import { ICON, ICON_SMALL } from '@/lib/icon'
 
 import type { AgentSession, AgentSessionStatus, Card } from './api'
 import styles from './AgentSessions.module.css'
 import { formatDateTime } from './format'
-import { useCardAgentSessions, useStartAgentSession } from './queries'
+import { useCancelAgentSession, useCardAgentSessions, useStartAgentSession } from './queries'
 
 const STATUS_APPEARANCE: Record<AgentSessionStatus, LozengeAppearance> = {
   running: 'inprogress',
@@ -39,6 +39,7 @@ const STATUS_LABEL: Record<AgentSessionStatus, string> = {
 export function AgentSessions({ card }: { card: Card }) {
   const sessions = useCardAgentSessions(card.key)
   const start = useStartAgentSession(card.key)
+  const cancel = useCancelAgentSession(card.key)
 
   const latest = sessions.data?.[0]
   const isRunning = latest?.status === 'running'
@@ -66,13 +67,23 @@ export function AgentSessions({ card }: { card: Card }) {
             {start.error.problem?.detail ?? 'Could not start the run.'}
           </Banner>
         )}
+        {cancel.isError && (
+          <Banner appearance="error">
+            {cancel.error.problem?.detail ?? 'Could not cancel the run.'}
+          </Banner>
+        )}
 
         {sessions.isPending ? (
           <Spinner label="Loading sessions" />
         ) : sessions.data && sessions.data.length > 0 ? (
           <ul className={styles.sessions}>
             {sessions.data.map((session) => (
-              <SessionRow key={session.id} session={session} />
+              <SessionRow
+                key={session.id}
+                session={session}
+                onCancel={() => cancel.mutate(session.id)}
+                isCancelling={cancel.isPending && cancel.variables === session.id}
+              />
             ))}
           </ul>
         ) : (
@@ -83,7 +94,15 @@ export function AgentSessions({ card }: { card: Card }) {
   )
 }
 
-function SessionRow({ session }: { session: AgentSession }) {
+function SessionRow({
+  session,
+  onCancel,
+  isCancelling,
+}: {
+  session: AgentSession
+  onCancel: () => void
+  isCancelling: boolean
+}) {
   return (
     <li className={styles.session}>
       <div className={styles.sessionHeader}>
@@ -93,6 +112,18 @@ function SessionRow({ session }: { session: AgentSession }) {
         <span className={styles.started} title={formatDateTime(session.startedAt)}>
           {formatDateTime(session.startedAt)}
         </span>
+        {session.status === 'running' && (
+          <Button
+            className={styles.cancelButton}
+            appearance="subtle"
+            size="compact"
+            isIconOnly
+            aria-label="Cancel run"
+            iconBefore={<X {...ICON_SMALL} aria-hidden="true" />}
+            isLoading={isCancelling}
+            onClick={onCancel}
+          />
+        )}
       </div>
       {session.totalCostUsd != null && (
         <span className={styles.meta}>

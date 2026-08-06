@@ -76,6 +76,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-sessions/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requests cancellation of a running session.
+         * @description Answers as soon as the cancel signal is queued — the run itself may take a moment longer
+         *     to actually stop (its process group has to be killed and the drain task has to notice).
+         *     Poll `GET /agent-sessions/{id}` to see the session actually reach `cancelled`.
+         */
+        post: operations["cancel_agent_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-sessions/{id}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A session's full `stream-json` transcript, in arrival order. */
+        get: operations["get_agent_session_transcript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/change-password": {
         parameters: {
             query?: never;
@@ -3089,6 +3128,22 @@ export interface components {
             /** @description The workflow this template seeds, in board order. */
             statuses: string[];
         };
+        /** @description One line of a session's transcript. */
+        TranscriptLine: {
+            /** Format: date-time */
+            createdAt: string;
+            /** @description UUID v7, as text. */
+            id: string;
+            /** @description The CLI's raw stdout line, verbatim. */
+            line: string;
+            /**
+             * Format: int64
+             * @description 0-based arrival order — the ordering key; several lines can land within the same
+             *     millisecond, which `created_at` alone cannot break the tie on.
+             */
+            seq: number;
+            sessionId: string;
+        };
         /** @description A transition and its three gates. */
         TransitionDto: {
             /** @description Conditions that decide whether the transition is offered. */
@@ -3601,6 +3656,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentSession"];
+                };
+            };
+            /** @description No such session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    cancel_agent_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancellation requested */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The session is not currently running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_agent_session_transcript: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session's transcript lines, in arrival order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptLine"][];
                 };
             };
             /** @description No such session */

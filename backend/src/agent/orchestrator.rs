@@ -31,6 +31,28 @@
 //! (bounded by how long a run itself is), and batching means a transcript write can never
 //! race the outcome write that follows it. A restart mid-run loses the in-flight lines the
 //! same way it loses the outcome (see above) — there is nothing to batch-write yet.
+//!
+//! # Cancelling a run
+//!
+//! [`RunHandle::cancel`] already exists and is tested — what was missing was a way for an API
+//! request (which has no reference to the `RunHandle` a detached `spawn_drain` task owns) to
+//! reach it. [`CancelRegistry`] closes that gap: [`start`] registers a `oneshot::Sender` under
+//! the new session's id, and [`cancel`] looks it up and fires it. The registry is in-memory
+//! only, held by [`crate::api::AppState`] and passed in — the same "take what you need as a
+//! parameter, never reach into `AppState` yourself" shape `start`'s own `db`/`vault`/`runner`/
+//! `preparer` parameters already establish — so it does not survive a restart, which is fine:
+//! nothing does yet (see above).
+//!
+//! Cancellation always wins the race against a natural finish once requested: if the drain
+//! loop ever saw the cancel signal, the session's terminal status is `Cancelled` regardless of
+//! whether a genuine `result` event also happened to arrive (a real possibility — the process
+//! can finish in the same instant it is asked to stop) — it reflects what the caller asked
+//! for, not a coin flip over which event the drain loop's `select!` happened to observe first.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
+
+use tokio::sync::oneshot;
 
 use crate::agent::claude_code::{self, Event, Outcome, ResultEvent};
 use crate::agent::runner::{AgentRunner, RunEvent, RunHandle, RunLimits, RunRequest};
@@ -42,8 +64,21 @@ use crate::domain::agent_session::{
 };
 use crate::domain::agent_session_transcript;
 use crate::domain::card::Card;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::secrets::vault::Vault;
+
+/// Live runs' cancel signals, keyed by agent session id. See the module doc.
+pub type CancelRegistry = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
+
+/// A poisoned lock still holds a perfectly usable `HashMap` — the panic that poisoned it
+/// happened in an unrelated request's critical section, not in this one, and refusing to look
+/// at cancel registrations forever after is a worse outcome than reading through the
+/// poisoning. Shared by [`start`] and [`cancel`], the only two lockers.
+fn lock(
+    registry: &CancelRegistry,
+) -> std::sync::MutexGuard<'_, HashMap<String, oneshot::Sender<()>>> {
+    registry.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// What to run, and for whom. The API handler builds this from a card and its own defaults —
 /// nothing here reads a `Card` field itself beyond `project_id`/`id`, so a caller cannot
@@ -66,6 +101,7 @@ pub async fn start(
     vault: &Vault,
     runner: &dyn AgentRunner,
     preparer: &dyn WorkspacePreparer,
+    registry: &CancelRegistry,
     request: StartRequest<'_>,
 ) -> AppResult<AgentSession> {
     let working_dir = preparer
@@ -96,9 +132,55 @@ pub async fn start(
     .await?;
     tx.commit().await?;
 
-    spawn_drain(db.clone(), session.clone(), handle);
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    lock(registry).insert(session.id.clone(), cancel_tx);
+
+    spawn_drain(
+        db.clone(),
+        session.clone(),
+        handle,
+        registry.clone(),
+        cancel_rx,
+    );
 
     Ok(session)
+}
+
+/// Requests cancellation of a running session. See the module doc for the semantics.
+///
+/// Only *requests* it — cancellation itself happens on the drain task, so this returns as soon
+/// as the signal is queued, not once the session has actually reached `cancelled`. A caller
+/// polls `GET /agent-sessions/{id}` to see it land.
+///
+/// # Errors
+///
+/// [`AppError::NotFound`] if there is no such session. [`AppError::Conflict`] if it is not
+/// currently `running` — including the case where it finished naturally in the race between
+/// whatever last told the caller it was running and this call, which is not distinguishable
+/// from "was never running" and does not need to be.
+pub async fn cancel(db: &Db, registry: &CancelRegistry, session_id: &str) -> AppResult<()> {
+    let session = agent_session::find_by_id(db, session_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if !session.status.is_running() {
+        return Err(AppError::Conflict(format!(
+            "this session already finished as {}",
+            session.status
+        )));
+    }
+
+    let sender = lock(registry).remove(session_id);
+    let Some(sender) = sender else {
+        // Genuinely `running` in the database, but no live `RunHandle` is reachable — Atlas
+        // restarted since it started (the registry is in-memory only) or the drain task is in
+        // the narrow window between finishing and its own `finish()` write landing. Either
+        // way there is nothing left here to signal.
+        return Err(AppError::Conflict(
+            "this session is not currently reachable to cancel".to_owned(),
+        ));
+    };
+    let _ = sender.send(());
+    Ok(())
 }
 
 /// Drains a run's events to its terminal `result` event (if any), persists every raw line as
@@ -107,9 +189,20 @@ pub async fn start(
 /// Best-effort past the run itself finishing: a failure persisting the transcript or
 /// recording the outcome is logged, not surfaced — there is no request left to answer by the
 /// time a detached task's own write fails.
-fn spawn_drain(db: Db, session: AgentSession, handle: RunHandle) {
+fn spawn_drain(
+    db: Db,
+    session: AgentSession,
+    handle: RunHandle,
+    registry: CancelRegistry,
+    cancel_rx: oneshot::Receiver<()>,
+) {
     tokio::spawn(async move {
-        let drained = drain_to_result(handle).await;
+        let drained = drain_to_result(handle, cancel_rx).await;
+
+        // The run is over one way or another; nothing can cancel it any more, so its entry
+        // (if the session was not already cancelled, which removes it itself) has no further
+        // reason to exist.
+        lock(&registry).remove(&session.id);
 
         if let Err(err) = persist_transcript(&db, &session.id, &drained.lines).await {
             tracing::error!(
@@ -119,7 +212,7 @@ fn spawn_drain(db: Db, session: AgentSession, handle: RunHandle) {
             );
         }
 
-        let outcome = outcome_for(drained.result.as_ref());
+        let outcome = outcome_for_drain(&drained);
         if let Err(err) = finish(&db, &session, &outcome).await {
             tracing::error!(
                 session = %session.id,
@@ -130,42 +223,62 @@ fn spawn_drain(db: Db, session: AgentSession, handle: RunHandle) {
     });
 }
 
-/// What draining a run's events to completion produced: every raw line, in arrival order, and
-/// the terminal `result` event if the run reached one.
+/// What draining a run's events to completion produced: every raw line, in arrival order, the
+/// terminal `result` event if the run reached one, and whether an external [`cancel`] request
+/// landed during the drain.
 struct Drained {
     lines: Vec<String>,
     result: Option<ResultEvent>,
+    cancelled: bool,
 }
 
 /// Reads every event until the channel closes, collecting each raw line and keeping the last
-/// (only) `result` event seen.
+/// (only) `result` event seen — and, once `cancel_rx` fires, calling [`RunHandle::cancel`] and
+/// continuing to drain (rather than stopping immediately), so whatever the process managed to
+/// say before it actually died still ends up in the transcript.
 ///
 /// Takes the whole [`RunHandle`], not just its `events` receiver, and never touches
-/// `handle.cancel` — on purpose. An `async fn`'s generator transform drops a value as soon as
-/// it is provably dead, which is *before* the lexical end of scope; extracting only
-/// `handle.events` here would leave `handle.cancel` dead on arrival and drop its
-/// `oneshot::Sender` at the very first `.await` below. `agent::runner`'s reader task cannot
-/// tell that apart from an explicit [`RunHandle::cancel`] — a dropped sender and a sent signal
-/// look identical to its `tokio::select!` — so the run would be killed and its events
-/// truncated before this had read any of them. Keeping the whole handle alive keeps the
-/// sender alive for exactly as long as a real caller holding it would.
-async fn drain_to_result(mut handle: RunHandle) -> Drained {
+/// `handle.cancel` from anywhere but the `select!` branch below — on purpose. An `async fn`'s
+/// generator transform drops a value as soon as it is provably dead, which is *before* the
+/// lexical end of scope; extracting only `handle.events` here would leave `handle.cancel` dead
+/// on arrival and drop its `oneshot::Sender` at the very first `.await` below. `agent::runner`'s
+/// reader task cannot tell that apart from an explicit [`RunHandle::cancel`] — a dropped sender
+/// and a sent signal look identical to its `tokio::select!` — so the run would be killed and
+/// its events truncated before this had read any of them. Keeping the whole handle alive keeps
+/// the sender alive for exactly as long as a real caller holding it would.
+async fn drain_to_result(mut handle: RunHandle, mut cancel_rx: oneshot::Receiver<()>) -> Drained {
     let mut lines = Vec::new();
     let mut result_event = None;
-    while let Some(event) = handle.events.recv().await {
-        match event {
-            RunEvent::Parsed(line, event) => {
-                lines.push(line);
-                if let Event::Result(result) = *event {
-                    result_event = Some(result);
+    let mut cancelled = false;
+    loop {
+        tokio::select! {
+            biased;
+            // `if !cancelled` drops this branch from the select entirely once it has already
+            // fired once — a resolved `oneshot::Receiver` is safe to poll again (it just keeps
+            // reporting the same outcome), but there is nothing left to do the second time,
+            // and the guard makes that explicit rather than relying on that being harmless.
+            _ = &mut cancel_rx, if !cancelled => {
+                cancelled = true;
+                handle.cancel();
+            }
+            event = handle.events.recv() => {
+                let Some(event) = event else { break };
+                match event {
+                    RunEvent::Parsed(line, event) => {
+                        lines.push(line);
+                        if let Event::Result(result) = *event {
+                            result_event = Some(result);
+                        }
+                    }
+                    RunEvent::Unparseable(line) => lines.push(line),
                 }
             }
-            RunEvent::Unparseable(line) => lines.push(line),
         }
     }
     Drained {
         lines,
         result: result_event,
+        cancelled,
     }
 }
 
@@ -195,10 +308,31 @@ struct OutcomeFields {
     error_message: Option<String>,
 }
 
+/// The outcome to record for a drained run, folding in [`cancel`] having won the race — see
+/// the module doc for why a deliberate cancel always overrides whatever [`outcome_for`] would
+/// otherwise have derived from the events actually seen.
+fn outcome_for_drain(drained: &Drained) -> OutcomeFields {
+    if drained.cancelled {
+        let result = drained.result.as_ref();
+        return OutcomeFields {
+            status: AgentSessionStatus::Cancelled,
+            // A result event can still have arrived even on a cancelled run — the process was
+            // already finishing when the cancel signal landed — in which case its cost/turns
+            // are real numbers worth keeping, even though the session did not run to a normal
+            // completion.
+            result_text: None,
+            total_cost_usd: result.map(|r| r.total_cost_usd),
+            num_turns: result.map(|r| i64::from(r.num_turns)),
+            error_message: None,
+        };
+    }
+    outcome_for(drained.result.as_ref())
+}
+
 fn outcome_for(result: Option<&ResultEvent>) -> OutcomeFields {
     let Some(result) = result else {
         // The channel closed with no result event at all: the process died or was killed
-        // before producing one (a crash, an OOM kill, an early `RunHandle::cancel`).
+        // before producing one (a crash, an OOM kill).
         return OutcomeFields {
             status: AgentSessionStatus::Failed,
             result_text: None,
@@ -398,12 +532,14 @@ mod tests {
         let program = fake_program(&scripts.0, "sleep 60");
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
 
         let session = start(
             &db,
             &vault,
             &runner,
             &preparer,
+            &registry,
             request(&card, "Fix the thing\n\nDo the needful."),
         )
         .await
@@ -432,10 +568,18 @@ mod tests {
         );
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
 
-        let session = start(&db, &vault, &runner, &preparer, request(&card, "do it"))
-            .await
-            .unwrap();
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "do it"),
+        )
+        .await
+        .unwrap();
 
         let finished = wait_for_finish(&db, &session.id).await;
         assert_eq!(finished.status, AgentSessionStatus::Completed);
@@ -461,10 +605,18 @@ mod tests {
         );
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
 
-        let session = start(&db, &vault, &runner, &preparer, request(&card, "do it"))
-            .await
-            .unwrap();
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "do it"),
+        )
+        .await
+        .unwrap();
         wait_for_finish(&db, &session.id).await;
 
         let lines = agent_session_transcript::list_for_session(&db, &session.id)
@@ -480,6 +632,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelling_a_running_session_finishes_it_cancelled() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        // Never produces a result event on its own — only cancellation ends this run.
+        let program = fake_program(&scripts.0, "sleep 60");
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
+
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "do it"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(session.status, AgentSessionStatus::Running);
+
+        cancel(&db, &registry, &session.id).await.unwrap();
+
+        let finished = wait_for_finish(&db, &session.id).await;
+        assert_eq!(finished.status, AgentSessionStatus::Cancelled);
+        assert!(finished.error_message.is_none());
+        assert!(finished.ended_at.is_some());
+
+        // The registry entry is gone either way once the run is over — nothing left to
+        // double-cancel.
+        assert!(!lock(&registry).contains_key(&session.id));
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_session_that_already_finished_is_a_conflict() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        let program = fake_program(
+            &scripts.0,
+            r#"echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"whatever","total_cost_usd":0.01,"terminal_reason":"completed"}'"#,
+        );
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
+
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "do it"),
+        )
+        .await
+        .unwrap();
+        wait_for_finish(&db, &session.id).await;
+
+        let err = cancel(&db, &registry, &session.id).await.unwrap_err();
+        assert!(matches!(err, AppError::Conflict(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn cancelling_an_unknown_session_is_not_found() {
+        let (db, _temp, _card) = fixture().await;
+        let registry = CancelRegistry::default();
+
+        let err = cancel(&db, &registry, "no-such-session").await.unwrap_err();
+        assert!(matches!(err, AppError::NotFound), "{err:?}");
+    }
+
+    #[tokio::test]
     async fn a_run_hitting_max_turns_finishes_limit_reached_not_failed() {
         let (db, _temp, card) = fixture().await;
         let vault = test_vault();
@@ -490,10 +715,18 @@ mod tests {
         );
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
 
-        let session = start(&db, &vault, &runner, &preparer, request(&card, "do it"))
-            .await
-            .unwrap();
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "do it"),
+        )
+        .await
+        .unwrap();
 
         let finished = wait_for_finish(&db, &session.id).await;
         assert_eq!(finished.status, AgentSessionStatus::LimitReached);
@@ -513,10 +746,18 @@ mod tests {
         let program = fake_program(&scripts.0, "exit 1");
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
 
-        let session = start(&db, &vault, &runner, &preparer, request(&card, "do it"))
-            .await
-            .unwrap();
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "do it"),
+        )
+        .await
+        .unwrap();
 
         let finished = wait_for_finish(&db, &session.id).await;
         assert_eq!(finished.status, AgentSessionStatus::Failed);

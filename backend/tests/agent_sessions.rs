@@ -558,3 +558,174 @@ async fn an_unknown_sessions_transcript_is_not_found() {
 
     app.db.close().await;
 }
+
+#[tokio::test]
+async fn cancelling_a_running_session_eventually_shows_it_cancelled() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+    let type_id = create_project(&app, &router, &admin, "ATLAS").await;
+    let card = create_card(
+        &app,
+        &router,
+        &admin,
+        "ATLAS",
+        &type_id,
+        "Fix the thing",
+        None,
+    )
+    .await;
+
+    let scripts = TempDir::new();
+    // Never produces a result event on its own — only cancellation ends this run.
+    let program = fake_program(&scripts.0, "sleep 60");
+    let fake_router = app.router_with_fakes(
+        Arc::new(LocalRunner::with_program(program.to_string_lossy())),
+        std::env::temp_dir(),
+    );
+
+    let reply = app
+        .send(
+            &fake_router,
+            post(
+                &format!("/api/v1/cards/{card}/agent-sessions"),
+                Some(&admin),
+                json!({}),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    let session_id = reply.json()["id"].as_str().unwrap().to_owned();
+
+    let reply = app
+        .send(
+            &fake_router,
+            post(
+                &format!("/api/v1/agent-sessions/{session_id}/cancel"),
+                Some(&admin),
+                json!({}),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.raw_body);
+
+    let finished = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let reply = app
+                .send(
+                    &fake_router,
+                    get(
+                        &format!("/api/v1/agent-sessions/{session_id}"),
+                        Some(&admin),
+                    ),
+                )
+                .await;
+            if reply.json()["status"] != "running" {
+                return reply;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the session must reach a terminal status");
+
+    assert_eq!(finished.json()["status"], "cancelled");
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn cancelling_an_unknown_session_is_not_found() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+
+    let reply = app
+        .send(
+            &router,
+            post(
+                "/api/v1/agent-sessions/no-such-session/cancel",
+                Some(&admin),
+                json!({}),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.raw_body);
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn cancelling_a_session_that_already_finished_is_a_conflict() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+    let type_id = create_project(&app, &router, &admin, "ATLAS").await;
+    let card = create_card(
+        &app,
+        &router,
+        &admin,
+        "ATLAS",
+        &type_id,
+        "Fix the thing",
+        None,
+    )
+    .await;
+
+    let scripts = TempDir::new();
+    let program = fake_program(
+        &scripts.0,
+        r#"echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"whatever","total_cost_usd":0.01,"terminal_reason":"completed"}'"#,
+    );
+    let fake_router = app.router_with_fakes(
+        Arc::new(LocalRunner::with_program(program.to_string_lossy())),
+        std::env::temp_dir(),
+    );
+
+    let reply = app
+        .send(
+            &fake_router,
+            post(
+                &format!("/api/v1/cards/{card}/agent-sessions"),
+                Some(&admin),
+                json!({}),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    let session_id = reply.json()["id"].as_str().unwrap().to_owned();
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let reply = app
+                .send(
+                    &fake_router,
+                    get(
+                        &format!("/api/v1/agent-sessions/{session_id}"),
+                        Some(&admin),
+                    ),
+                )
+                .await;
+            if reply.json()["status"] != "running" {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the session must reach a terminal status");
+
+    let reply = app
+        .send(
+            &fake_router,
+            post(
+                &format!("/api/v1/agent-sessions/{session_id}/cancel"),
+                Some(&admin),
+                json!({}),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.raw_body);
+
+    app.db.close().await;
+}
