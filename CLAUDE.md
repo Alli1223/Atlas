@@ -20,16 +20,23 @@ exact gate CI runs. Running `cargo test` and `cargo clippy` by hand and skipping
 is how an unformatted branch reached CI once — the frontend equivalent is `npm run` of tsc, lint,
 test, and build together, not à la carte.
 
-## The local toolchain is behind CI
+## The toolchain drifts — CI is the arbiter
 
-This machine has Arch's system rust (1.96.1) and no rustup, while CI's `stable` is 1.97.1. A
-clean local `cargo clippy -D warnings` therefore does **not** prove CI will pass — newer
-clippy lints are invisible here. `clippy::manual_assert_eq` landed exactly this way.
+Both this machine (Arch's system rust) and CI (`dtolnay/rust-toolchain@stable`) track `stable`
+and move without warning. They have been out of step in *both* directions:
 
-When CI reports a lint you cannot reproduce, that is why. Fix it rather than reaching for
-`#[allow]`, and do not pin CI's toolchain backwards to match — that would trade real lints for
-a quiet local run. Installing rustup would align the two, but that is Alastair's call to make,
-not something to do to his system unasked.
+- Local *behind* CI (mid-2026): local 1.96.1 vs CI 1.97.1 — CI flagged `clippy::manual_assert_eq`,
+  invisible locally.
+- Both on **1.98.0** (from 2026-08-18): the new `clippy::unused_async_trait_impl` turned three
+  pre-existing `FromRequestParts` extractors red, breaking every PR's CI at the lib step until a
+  scoped `#[allow]` (with the reason) was added. `stable` advancing broke code that was green.
+
+So a clean local `cargo clippy -D warnings` does not prove CI will pass, and green-on-`main`
+today does not mean green tomorrow. Prefer fixing a lint over `#[allow]`; use `#[allow]` (with a
+reason) only when the lint is structurally unavoidable, as with a trait-mandated `async fn` that
+has nothing to await. When a new-stable lint hits pre-existing code, fix it — it is blocking
+everyone, not just your branch. Don't pin CI backwards. Installing rustup to manage versions
+deliberately is Alastair's call, not something to do to his system unasked.
 
 ## Architecture
 
