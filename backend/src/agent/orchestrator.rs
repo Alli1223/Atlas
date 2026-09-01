@@ -55,6 +55,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::oneshot;
 
 use crate::agent::claude_code::{self, Event, Outcome, ResultEvent};
+use crate::agent::mcp;
 use crate::agent::runner::{AgentRunner, RunEvent, RunHandle, RunLimits, RunRequest};
 use crate::agent::workspace::WorkspacePreparer;
 use crate::auth::now;
@@ -90,6 +91,10 @@ pub struct StartRequest<'a> {
     pub allowed_tools: Vec<String>,
     pub limits: RunLimits,
     pub started_by: Option<&'a str>,
+    /// The database URL the spawned `atlas mcp` child should open, passed into its
+    /// `--mcp-config` environment so it does not depend on inheriting one. The handler takes
+    /// it from `config.database_url`.
+    pub database_url: String,
 }
 
 /// Prepares the card's project workspace, spawns the run, and records it as `running`.
@@ -108,29 +113,61 @@ pub async fn start(
         .prepare(db, vault, &request.card.project_id)
         .await?;
 
-    let handle = runner
-        .spawn(RunRequest {
-            prompt: request.prompt.clone(),
-            working_dir,
-            resume_session_id: None,
-            allowed_tools: request.allowed_tools,
-            limits: request.limits,
-        })
-        .await?;
+    // The session row and its capability token must exist *before* the run is spawned: the
+    // token rides in the run's `--mcp-config`, and it is keyed on the session id. So the CLI
+    // session id is generated here rather than scraped back from the runner, letting the whole
+    // record — row, capability, mcp config — be built up front and the run spawned last.
+    let claude_session_id = uuid::Uuid::new_v4().to_string();
 
     let mut tx = db.begin_write().await?;
     let session = agent_session::insert(
         &mut tx,
         &NewAgentSession {
             card_id: &request.card.id,
-            claude_session_id: &handle.session_id,
+            claude_session_id: &claude_session_id,
             prompt: &request.prompt,
             started_by: request.started_by,
         },
         now(),
     )
     .await?;
+    let minted = mcp::capability::mint(&mut tx, &session.id, now()).await?;
     tx.commit().await?;
+
+    // The child MCP server is this very binary in `mcp` mode; falling back to `atlas` on PATH
+    // keeps a test or an unusual deployment working if the exe path cannot be read.
+    let atlas_exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(ToOwned::to_owned))
+        .unwrap_or_else(|| "atlas".to_owned());
+    let mcp_config =
+        mcp::mcp_config_json(&atlas_exe, &minted.token, &request.database_url).to_string();
+
+    // The run may use its own allowlist *and* Atlas's tools.
+    let mut allowed_tools = request.allowed_tools;
+    allowed_tools.extend(mcp::ALLOWED_TOOLS.iter().map(|t| (*t).to_owned()));
+
+    let handle = match runner
+        .spawn(RunRequest {
+            prompt: request.prompt.clone(),
+            working_dir,
+            resume_session_id: None,
+            session_id: Some(claude_session_id),
+            allowed_tools,
+            mcp_config: Some(mcp_config),
+            permission_mode: RunRequest::default_permission_mode(),
+            limits: request.limits,
+        })
+        .await
+    {
+        Ok(handle) => handle,
+        // The row exists but the run never started: record it as failed and revoke its
+        // capability, rather than leaving a `running` session that will never drain.
+        Err(err) => {
+            fail_unstarted(db, &session, &err).await;
+            return Err(err);
+        }
+    };
 
     let (cancel_tx, cancel_rx) = oneshot::channel();
     lock(registry).insert(session.id.clone(), cancel_tx);
@@ -144,6 +181,38 @@ pub async fn start(
     );
 
     Ok(session)
+}
+
+/// Marks a session that failed to spawn as `failed` and revokes its capability. Best-effort:
+/// a bookkeeping failure here must not mask the spawn error the caller is about to see.
+async fn fail_unstarted(db: &Db, session: &AgentSession, err: &AppError) {
+    let outcome = OutcomeFields {
+        status: AgentSessionStatus::Failed,
+        result_text: None,
+        total_cost_usd: None,
+        num_turns: None,
+        error_message: Some(format!("the run could not be started: {err}")),
+    };
+    if let Err(e) = finish(db, session, &outcome).await {
+        tracing::error!(session = %session.id, error = ?e, "failed to record an unstarted session");
+    }
+    revoke_capability(db, &session.id).await;
+}
+
+/// Revokes a session's MCP capability. Best-effort: the capability is already dead the moment
+/// the session leaves `running` (see `mcp::capability::resolve`), so this is durable cleanup,
+/// not the live guard.
+async fn revoke_capability(db: &Db, session_id: &str) {
+    let result: AppResult<()> = async {
+        let mut tx = db.begin_write().await?;
+        mcp::capability::revoke(&mut tx, session_id).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+    .await;
+    if let Err(err) = result {
+        tracing::warn!(session = %session_id, error = ?err, "failed to revoke an agent capability");
+    }
 }
 
 /// Requests cancellation of a running session. See the module doc for the semantics.
@@ -220,6 +289,11 @@ fn spawn_drain(
                 "failed to record an agent session's outcome"
             );
         }
+
+        // The run is over: revoke its MCP capability so the token cannot be reused. Ordered
+        // after `finish` so the session is already non-`running` — a tool call racing this is
+        // refused by the status check regardless.
+        revoke_capability(&db, &session.id).await;
     });
 }
 
@@ -521,6 +595,7 @@ mod tests {
                 max_budget_usd: 1.0,
             },
             started_by: None,
+            database_url: "sqlite::memory:".to_owned(),
         }
     }
 
@@ -785,5 +860,105 @@ mod tests {
         })
         .await
         .expect("the session must reach a terminal status")
+    }
+
+    async fn capability_rows(db: &Db, session_id: &str) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM agent_capabilities WHERE session_id = ?")
+            .bind(session_id)
+            .fetch_one(db.reader())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_run_is_spawned_with_the_atlas_mcp_config_and_tools() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        let args_file = scripts.0.join("args.txt");
+        // The fake CLI records the exact argv it was spawned with, then completes.
+        let program = fake_program(
+            &scripts.0,
+            &format!(
+                "printf '%s\\n' \"$@\" > {}\necho '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":1,\"session_id\":\"x\",\"result\":\"ok\",\"total_cost_usd\":0.0,\"terminal_reason\":\"completed\"}}'",
+                args_file.display()
+            ),
+        );
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
+
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "go"),
+        )
+        .await
+        .unwrap();
+        wait_for_finish(&db, &session.id).await;
+
+        let argv = std::fs::read_to_string(&args_file).expect("the fake CLI recorded its argv");
+        assert!(argv.contains("--mcp-config"), "no --mcp-config in: {argv}");
+        assert!(
+            argv.contains("--strict-mcp-config"),
+            "no --strict-mcp-config: {argv}"
+        );
+        assert!(
+            argv.contains("mcp__atlas__atlas_move_card"),
+            "the atlas tools were not allowlisted: {argv}"
+        );
+        // The CLI session id we generated is the one it was told to use.
+        let cli_id = session.claude_session_id.as_deref().unwrap();
+        assert!(
+            argv.contains(cli_id),
+            "the pre-generated session id was not passed: {argv}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_finished_runs_capability_is_revoked() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        // Sleep before completing, so the capability is observably present *during* the run —
+        // making this prove both that start() minted it and that the drain revokes it.
+        let program = fake_program(
+            &scripts.0,
+            r#"sleep 0.3; echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"x","result":"ok","total_cost_usd":0.0,"terminal_reason":"completed"}'"#,
+        );
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
+
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "go"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            capability_rows(&db, &session.id).await,
+            1,
+            "the capability must exist while the run is live"
+        );
+
+        wait_for_finish(&db, &session.id).await;
+        timeout(Duration::from_secs(5), async {
+            loop {
+                if capability_rows(&db, &session.id).await == 0 {
+                    return;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the capability must be revoked after the run finishes");
     }
 }
