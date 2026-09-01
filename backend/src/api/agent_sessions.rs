@@ -109,6 +109,7 @@ async fn start_agent_session(
                 max_budget_usd: DEFAULT_MAX_BUDGET_USD,
             },
             started_by: Some(current.id()),
+            database_url: state.config.database_url.clone(),
         },
     )
     .await?;

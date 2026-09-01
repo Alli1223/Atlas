@@ -65,11 +65,32 @@ pub struct RunRequest {
     /// Resumes an existing session instead of starting one. When set, this *is* the id the
     /// run continues under — no separate `--session-id` is passed alongside it.
     pub resume_session_id: Option<String>,
+    /// The id to start a *new* session under (`--session-id`). Ignored when resuming. `None`
+    /// lets the runner generate one; a caller that must know the id before the spawn — e.g. to
+    /// mint a capability token keyed to it and pass the token in `--mcp-config` — provides it.
+    pub session_id: Option<String>,
     /// Tools this run may use, in `--allowedTools` syntax (bare names or scoped rules like
     /// `Bash(git diff *)`). Empty means the CLI's own (permissive) default allowlist, which
     /// is very rarely what a headless run wants — most callers should pass an explicit list.
     pub allowed_tools: Vec<String>,
+    /// Inline `--mcp-config` JSON, if the run should reach Atlas's own MCP tools. `None`
+    /// leaves the session with no MCP servers at all (`--strict-mcp-config` is always passed,
+    /// so nothing else leaks in either).
+    pub mcp_config: Option<String>,
+    /// The CLI `--permission-mode`. Per-project configurable; defaults to the least permissive
+    /// mode that lets a headless run proceed. See [`RunRequest::default_permission_mode`].
+    pub permission_mode: String,
     pub limits: RunLimits,
+}
+
+impl RunRequest {
+    /// The default permission mode: `dontAsk`, which lets a headless run act without an
+    /// interactive prompt while staying bounded by `--allowedTools`. A project may widen this
+    /// (e.g. to `bypassPermissions`) deliberately, never by default.
+    #[must_use]
+    pub fn default_permission_mode() -> String {
+        "dontAsk".to_owned()
+    }
 }
 
 /// One line of the CLI's stdout, already interpreted — or the reason it could not be.
@@ -167,7 +188,10 @@ impl AgentRunner for LocalRunner {
 fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
     let session_id = match &request.resume_session_id {
         Some(resume) => resume.clone(),
-        None => Uuid::new_v4().to_string(),
+        None => request
+            .session_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string()),
     };
 
     let mut command = CommandWrap::with_new(program, |command| {
@@ -175,7 +199,7 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
             .arg("-p")
             .arg(&request.prompt)
             .args(["--output-format", "stream-json", "--verbose"])
-            .args(["--permission-mode", "dontAsk"])
+            .args(["--permission-mode", &request.permission_mode])
             .arg("--strict-mcp-config")
             .arg("--max-turns")
             .arg(request.limits.max_turns.to_string())
@@ -189,6 +213,11 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        if let Some(mcp_config) = &request.mcp_config {
+            // Inline JSON, so there is no temp-file lifecycle to manage. Paired with the
+            // always-on --strict-mcp-config above, the session sees exactly this one server.
+            command.arg("--mcp-config").arg(mcp_config);
+        }
         if !request.allowed_tools.is_empty() {
             command
                 .arg("--allowedTools")
@@ -341,7 +370,10 @@ mod tests {
             prompt: "do the thing".to_owned(),
             working_dir,
             resume_session_id: None,
+            session_id: None,
             allowed_tools: vec!["Read".to_owned()],
+            mcp_config: None,
+            permission_mode: RunRequest::default_permission_mode(),
             limits: RunLimits {
                 max_turns: 10,
                 max_budget_usd: 1.0,
