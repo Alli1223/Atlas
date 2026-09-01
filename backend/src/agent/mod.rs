@@ -28,6 +28,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub mod claude_code;
+pub mod mcp;
 pub mod orchestrator;
 pub mod runner;
 pub mod workspace;
