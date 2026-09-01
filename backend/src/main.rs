@@ -30,6 +30,18 @@ fn main() -> ExitCode {
 }
 
 fn run() -> anyhow::Result<()> {
+    // The `mcp` subcommand is a different program sharing one binary: the stdio MCP server a
+    // Claude Code session drives (spawned by the CLI via --mcp-config). It must NOT init
+    // telemetry — every byte of its stdout is JSON-RPC, and a stray log line would corrupt
+    // the stream — so it is dispatched before `telemetry::init` runs.
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        return tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .context("failed to start the tokio runtime")?
+            .block_on(atlas::agent::mcp::server::run_from_env());
+    }
+
     // Configuration is read before the runtime starts: there is no point paying
     // for a thread pool we may be about to abandon.
     let config = Config::load()?;
