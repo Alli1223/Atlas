@@ -80,6 +80,9 @@ where
 {
     type Rejection = AppError;
 
+    // The `FromRequestParts` trait method is `async fn`, so the signature is fixed; this
+    // extractor only reads an extension and has nothing to await. (clippy 1.98)
+    #[allow(clippy::unused_async_trait_impl)]
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         parts
             .extensions
@@ -104,6 +107,9 @@ where
     // Reading an extension cannot fail; absence is the `None`, not an error.
     type Rejection = std::convert::Infallible;
 
+    // The `FromRequestParts` trait method is `async fn`, so the signature is fixed; this
+    // extractor only reads an extension and has nothing to await. (clippy 1.98)
+    #[allow(clippy::unused_async_trait_impl)]
     async fn from_request_parts(
         parts: &mut Parts,
         _state: &S,
@@ -188,6 +194,9 @@ where
     // Infallible: an unknown client is a fact to record, not a request to reject.
     type Rejection = std::convert::Infallible;
 
+    // The `FromRequestParts` trait method is `async fn`, so the signature is fixed; this
+    // extractor only reads an extension and has nothing to await. (clippy 1.98)
+    #[allow(clippy::unused_async_trait_impl)]
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let ip = client_ip(parts);
 
