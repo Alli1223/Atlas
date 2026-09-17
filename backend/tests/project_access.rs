@@ -1371,6 +1371,20 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "PATCH /api/v1/filters/{id}",
     "DELETE /api/v1/filters/{id}",
     "GET /api/v1/filters/{id}/results",
+    // Instance administration: gated by `RequireAdmin` in the handler, not by
+    // project membership — there is no project for an outsider to be "outside"
+    // of. A non-admin instance Member correctly gets 403 here (authenticated,
+    // just not allowed), which is the right signal per
+    // `auth::extract::RequireAdmin`'s own doc comment, not a 404 — 403 does not
+    // confirm or deny any project's existence, so it leaks nothing this probe
+    // cares about.
+    "GET /api/v1/admin/system",
+    "GET /api/v1/admin/updates",
+    "POST /api/v1/admin/updates/apply",
+    "GET /api/v1/admin/credentials",
+    "PUT /api/v1/admin/credentials",
+    "POST /api/v1/admin/credentials/{id}/validate",
+    "DELETE /api/v1/admin/credentials/{id}",
 ];
 
 /// Every path parameter in the API, and a real value from a project the outsider

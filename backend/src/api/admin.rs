@@ -48,7 +48,10 @@ pub struct SystemStats {
         (status = 403, description = "Forbidden — admins only", body = Problem),
     )
 )]
-async fn get_system(_: RequireAdmin, State(state): State<AppState>) -> AppResult<Json<SystemStats>> {
+async fn get_system(
+    _: RequireAdmin,
+    State(state): State<AppState>,
+) -> AppResult<Json<SystemStats>> {
     // CPU requires two samples separated by a short interval.
     let mut sys = System::new();
     sys.refresh_cpu_all();
@@ -65,8 +68,9 @@ async fn get_system(_: RequireAdmin, State(state): State<AppState>) -> AppResult
         .iter()
         .filter(|d| data.starts_with(d.mount_point().to_string_lossy().as_ref()))
         .max_by_key(|d| d.mount_point().to_string_lossy().len())
-        .map(|d| (d.total_space(), d.total_space() - d.available_space()))
-        .unwrap_or((0, 0));
+        .map_or((0, 0), |d| {
+            (d.total_space(), d.total_space() - d.available_space())
+        });
 
     Ok(Json(SystemStats {
         cpu_usage_percent: sys.global_cpu_usage(),
@@ -194,7 +198,11 @@ async fn check_updates(_: RequireAdmin) -> AppResult<Json<UpdateStatus>> {
 fn is_newer(candidate: &str, current: &str) -> bool {
     fn parse(s: &str) -> Option<(u32, u32, u32)> {
         let mut it = s.trim_start_matches('v').splitn(3, '.');
-        Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+        Some((
+            it.next()?.parse().ok()?,
+            it.next()?.parse().ok()?,
+            it.next()?.parse().ok()?,
+        ))
     }
     matches!((parse(candidate), parse(current)), (Some(c), Some(cur)) if c > cur)
 }
@@ -230,9 +238,12 @@ async fn apply_update(
 ) -> AppResult<(StatusCode, Json<ApplyUpdateResponse>)> {
     let trigger = state.config.data_dir.join("update-requested");
 
-    tokio::fs::write(&trigger, b"")
-        .await
-        .map_err(|e| AppError::internal(anyhow::anyhow!("failed to write update trigger at {}: {e}", trigger.display())))?;
+    tokio::fs::write(&trigger, b"").await.map_err(|e| {
+        AppError::internal(anyhow::anyhow!(
+            "failed to write update trigger at {}: {e}",
+            trigger.display()
+        ))
+    })?;
 
     tracing::info!(trigger = %trigger.display(), "update trigger written — host service will rebuild and restart Atlas");
 

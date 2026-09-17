@@ -1,5 +1,6 @@
 //! Extractors: who is making this request, and are they allowed to?
 
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -80,12 +81,17 @@ where
 {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        parts
-            .extensions
-            .get::<Self>()
-            .cloned()
-            .ok_or(AppError::Unauthorized)
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        std::future::ready(
+            parts
+                .extensions
+                .get::<Self>()
+                .cloned()
+                .ok_or(AppError::Unauthorized),
+        )
     }
 }
 
@@ -104,11 +110,11 @@ where
     // Reading an extension cannot fail; absence is the `None`, not an error.
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(
+    fn from_request_parts(
         parts: &mut Parts,
         _state: &S,
-    ) -> Result<Option<Self>, Self::Rejection> {
-        Ok(parts.extensions.get::<Self>().cloned())
+    ) -> impl Future<Output = Result<Option<Self>, Self::Rejection>> + Send {
+        std::future::ready(Ok(parts.extensions.get::<Self>().cloned()))
     }
 }
 
@@ -188,7 +194,10 @@ where
     // Infallible: an unknown client is a fact to record, not a request to reject.
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         let ip = client_ip(parts);
 
         let user_agent = parts
@@ -199,7 +208,7 @@ where
             // renders. Bound it here; the frontend still has to escape it.
             .map(|value| truncate(value, MAX_USER_AGENT));
 
-        Ok(Self(Client { ip, user_agent }))
+        std::future::ready(Ok(Self(Client { ip, user_agent })))
     }
 }
 
