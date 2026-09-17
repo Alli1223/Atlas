@@ -13,6 +13,7 @@ pub mod search;
 pub mod serde_ext;
 pub mod tags;
 pub mod users;
+pub mod vault;
 pub mod workflow;
 
 use std::sync::Arc;
@@ -30,6 +31,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::config::Config;
 use crate::db::Db;
 use crate::error::{AppResult, Problem};
+use crate::vault::Crypto;
 
 /// Where the Swagger UI is served.
 pub const DOCS_PATH: &str = "/api/docs";
@@ -46,22 +48,50 @@ pub const API_V1_PREFIX: &str = "/api/v1";
 
 /// Shared state handed to every handler.
 ///
-/// Cheap to clone: both fields are handles.
+/// Cheap to clone: every field is a handle.
 #[derive(Debug, Clone)]
 pub struct AppState {
     /// The database pools.
     pub db: Db,
     /// Resolved configuration.
     pub config: Arc<Config>,
+    /// The secrets vault's cipher, keyed from `config.master_key` — or, in
+    /// development with no master key configured, an ephemeral key that does
+    /// not survive a restart. See [`Crypto::ephemeral`].
+    pub vault: Arc<Crypto>,
 }
 
 impl AppState {
     /// Builds application state from an open database and its configuration.
+    ///
+    /// # Panics
+    ///
+    /// If HKDF key derivation fails, which does not happen for the fixed
+    /// 32-byte output requested here — see [`Crypto::from_master`]. A
+    /// malformed `ATLAS_MASTER_KEY` is caught earlier, by `Config::validate`,
+    /// which is what makes this an invariant rather than a real error path.
     pub fn new(db: Db, config: Config) -> Self {
+        let vault = Arc::new(
+            Self::build_vault(&config).expect("vault key derivation failed for a validated key"),
+        );
         Self {
             db,
             config: Arc::new(config),
+            vault,
         }
+    }
+
+    fn build_vault(config: &Config) -> anyhow::Result<Crypto> {
+        if let Some(bytes) = config.master_key_bytes() {
+            return Crypto::from_master(bytes.expose_secret());
+        }
+
+        tracing::warn!(
+            "ATLAS_MASTER_KEY is not set — using an ephemeral vault key for this process. Any \
+             credentials saved now will be undecryptable after a restart. Set ATLAS_MASTER_KEY \
+             to persist them (see .env.example)."
+        );
+        Crypto::ephemeral()
     }
 }
 
@@ -176,6 +206,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(search::routes())
         .merge(workflow::routes())
         .merge(admin::routes())
+        .merge(vault::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::auth::project_access::authorise,
@@ -226,9 +257,7 @@ pub fn router(state: AppState) -> Router {
     // for client-side routes. In dev the Vite server handles this instead.
     let router = if let Some(ref static_dir) = state.config.static_dir {
         let index = static_dir.join("index.html");
-        router.fallback_service(
-            ServeDir::new(static_dir).not_found_service(ServeFile::new(index)),
-        )
+        router.fallback_service(ServeDir::new(static_dir).not_found_service(ServeFile::new(index)))
     } else {
         router.fallback(not_found)
     };

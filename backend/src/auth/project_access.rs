@@ -630,6 +630,18 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
     (Method::GET, "/api/v1/admin/system", Scope::Unscoped),
     (Method::GET, "/api/v1/admin/updates", Scope::Unscoped),
     (Method::POST, "/api/v1/admin/updates/apply", Scope::Unscoped),
+    (Method::GET, "/api/v1/admin/credentials", Scope::Unscoped),
+    (Method::PUT, "/api/v1/admin/credentials", Scope::Unscoped),
+    (
+        Method::POST,
+        "/api/v1/admin/credentials/{id}/validate",
+        Scope::Unscoped,
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/admin/credentials/{id}",
+        Scope::Unscoped,
+    ),
 ];
 
 /// The scope declared for a route, or `None` if it has none — which is a bug.
