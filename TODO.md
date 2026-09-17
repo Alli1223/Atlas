@@ -255,16 +255,16 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 
 ## Phase 11 — Secrets vault `feat/11-secrets` 🔒 (requested)
 
-- [ ] Master key from env or OS keyring (`keyring` crate); startup fail-fast if absent
-- [ ] **XChaCha20-Poly1305** AEAD per secret, unique nonce, key id for rotation
-- [ ] `Secret<T>` wrapper: **redacted `Debug`**, `zeroize` on drop, no `Serialize`. Make leaking a compile error, not a code-review catch
-- [ ] `api_credentials`: provider, label, ciphertext, nonce, last_validated_at, status, expires_at, scopes, created_by
-- [ ] **Never return plaintext over the API** — only last-4 + metadata
-- [ ] Per-provider validation probe (cheap endpoint, no side effects)
-- [ ] **Expiry/expired/invalid warnings** (requested): scheduled revalidation, banner + notification, per-key status pill (valid / expiring in N days / expired / invalid / unchecked)
-- [ ] Settings → Integrations UI: add/replace/delete, validate-now, scope display, last-checked
-- [ ] Audit every access; rate-limit validation probes
-- [ ] Tests: ciphertext never in logs; `Debug` redaction; rotation
+- [x] Master key from `ATLAS_MASTER_KEY` env, fail-fast in prod if absent — **not** the `keyring` crate: `docs/research/rust-stack.md` §5 is explicit that it's for desktop apps with a logged-in session/DBus, not a server daemon. Dev with no key set gets a loud warning and an ephemeral in-process key instead of refusing to boot
+- [x] **XChaCha20-Poly1305** AEAD per secret, unique nonce (`Generate`, aead 0.6). AAD bound to the row's own id, so a ciphertext copy-pasted onto another row fails to decrypt. Key id for rotation **not done** — there is one master key and one derived subkey; rotation support waits until there is a second key to rotate to
+- [x] `Secret<T>` wrapper: **redacted `Debug`**, `zeroize` on drop, no `Serialize`. Make leaking a compile error, not a code-review catch
+- [x] `api_credentials`: provider, label, ciphertext, nonce, last_validated_at, status, expires_at, scopes, created_by
+- [x] **Never return plaintext over the API** — only last-4 + metadata (`RedactedCredential`)
+- [x] Per-provider validation probe (cheap endpoint, no side effects) — GitHub's `GET /user`, scope + expiry headers, both known date layouts
+- [ ] **Expiry/expired/invalid warnings** (requested): the status pill's data exists (`unchecked`/`valid`/`invalid`/`expired` from a real probe) but **scheduled revalidation and the banner/notification are not built** — revalidation needs a job runner (Phase 15/Extra) and the banner needs the frontend integrations page (below)
+- [ ] Settings → Integrations UI: add/replace/delete, validate-now, scope display, last-checked — **backend API is complete** (`GET/PUT /admin/credentials`, `POST .../validate`, `DELETE .../{id}`); the settings page itself lands with Phase 12, since GitHub is the vault's first real consumer
+- [x] Audit every access — `auth::events` records put/validate/delete. Rate-limit validation probes **not done** — no rate limiter on `/validate` yet; low urgency single-admin-instance risk, revisit if it becomes an outbound-abuse vector
+- [x] Tests: ciphertext never in logs (`Credential`'s hand-written `Debug`, not derived); `Debug` redaction (`Secret<T>` and `Crypto`); seal/open round-trip; AAD-bound-to-row-id (the practical form of "moving a ciphertext" a single-master-key instance can exercise). Rotation **not tested** — nothing to rotate yet
 
 ---
 
@@ -467,7 +467,7 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 8b Nested boards | `feat/07-frontend-boards` | ✅ mini-map + nested nav |
 | 9 Card detail | `feat/07-frontend-boards` | ✅ |
 | **— MVP path from here —** | | |
-| 11 Secrets | `feat/11-secrets` | ⬜ |
+| 11 Secrets | `feat/11-secrets` | 🟨 backend complete; UI lands with Phase 12 |
 | 12 GitHub | `feat/12-github` | ⬜ |
 | 13 Claude agent | `feat/13-claude-agent` | ⬜ |
 | 20 Ship | `feat/20-ship` | ⬜ |
