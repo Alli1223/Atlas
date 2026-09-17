@@ -253,23 +253,6 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 
 ---
 
-## Phase 10 — Cycles & estimation `feat/10-cycles`
-
-- [ ] `cycles`: name, goal, start, end, state (future/active/closed), project. **Renameable + disableable per project**
-- [ ] State machine: future →start→ active →complete→ closed (start requires dates). Note: not strictly one-way — Jira permits reopening a closed sprint (`corrections.md` #7)
-- [ ] **Scope snapshots** (§D3):
-  ```sql
-  card_cycle(card_id, cycle_id, added_at, removed_at NULL, in_scope_at_start BOOL)
-  cycle_snapshot(cycle_id, taken_at, card_id, estimate, status_category)  -- daily
-  ```
-  Committed-vs-completed and scope-creep are **not** derivable from current state afterwards
-- [ ] Complete-cycle: carry incomplete → backlog / next / new cycle
-- [ ] Estimation field: points/hours/days/t-shirt(XS–XL→numeric)/count/**none**. One field, never two
-- [ ] Time tracking (store seconds; parse `2w 3d 4h 30m`)
-- [ ] Reports render only when cycles + estimation are both on; **degrade to count-based burndown when estimation=none**
-
----
-
 ## Phase 11 — Secrets vault `feat/11-secrets` 🔒 (requested)
 
 - [ ] Master key from env or OS keyring (`keyring` crate); startup fail-fast if absent
@@ -329,6 +312,39 @@ Every flag below is verified against the local CLI (v2.1.211) — see `docs/rese
 - [ ] Permission mode per project (`default` / `acceptEdits` / `plan` / `bypassPermissions`), `--allowedTools`/`--disallowedTools` 🔒 — default to the *least* permissive that works, and make `bypassPermissions` a deliberate opt-in with a warning
 - [ ] Concurrency cap; queue when saturated
 - [ ] Session history per card; re-run; diff review before PR
+
+---
+
+## Phase 20 — Ship `feat/20-ship`
+
+- [ ] Backup/restore (SQLite `VACUUM INTO` + attachments tarball), scheduled
+- [ ] `atlas` binary embedding the frontend (single-file deploy); Docker image; compose
+- [ ] Migration runner on boot; version endpoint
+- [ ] 🔒 Security pass: rate limits, security headers (CSP, HSTS, X-Frame-Options), dependency audit (`cargo audit`, `npm audit`), secret-scan CI, upload validation (type/size/path traversal), SSRF guard on webhook/remote-link fetches
+- [ ] Load test: 10k cards, 50 columns
+- [ ] Docs: install, config, integration setup, backup, AQL reference, keyboard shortcuts
+- [ ] `docs/adr/` for the decisions above
+
+---
+
+## Extra — deferred, nice-to-have (post-MVP)
+
+Pulled out of the main sequence so Phases 11 → 12 → 13 → 20 read as the actual MVP path: secrets vault → GitHub → Claude Code agent → ship. Everything below is real, scoped work — not cut, just not required for a working self-hosted board a solo user (and their agent) can use daily. Pull an item back into the main sequence once it becomes load-bearing.
+
+## Phase 10 — Cycles & estimation `feat/10-cycles`
+
+- [ ] `cycles`: name, goal, start, end, state (future/active/closed), project. **Renameable + disableable per project**
+- [ ] State machine: future →start→ active →complete→ closed (start requires dates). Note: not strictly one-way — Jira permits reopening a closed sprint (`corrections.md` #7)
+- [ ] **Scope snapshots** (§D3):
+  ```sql
+  card_cycle(card_id, cycle_id, added_at, removed_at NULL, in_scope_at_start BOOL)
+  cycle_snapshot(cycle_id, taken_at, card_id, estimate, status_category)  -- daily
+  ```
+  Committed-vs-completed and scope-creep are **not** derivable from current state afterwards
+- [ ] Complete-cycle: carry incomplete → backlog / next / new cycle
+- [ ] Estimation field: points/hours/days/t-shirt(XS–XL→numeric)/count/**none**. One field, never two
+- [ ] Time tracking (store seconds; parse `2w 3d 4h 30m`)
+- [ ] Reports render only when cycles + estimation are both on; **degrade to count-based burndown when estimation=none**
 
 ---
 
@@ -427,18 +443,6 @@ Individually cheap, collectively the reason power users tolerate Jira. Underrati
 
 ---
 
-## Phase 20 — Ship `feat/20-ship`
-
-- [ ] Backup/restore (SQLite `VACUUM INTO` + attachments tarball), scheduled
-- [ ] `atlas` binary embedding the frontend (single-file deploy); Docker image; compose
-- [ ] Migration runner on boot; version endpoint
-- [ ] 🔒 Security pass: rate limits, security headers (CSP, HSTS, X-Frame-Options), dependency audit (`cargo audit`, `npm audit`), secret-scan CI, upload validation (type/size/path traversal), SSRF guard on webhook/remote-link fetches
-- [ ] Load test: 10k cards, 50 columns
-- [ ] Docs: install, config, integration setup, backup, AQL reference, keyboard shortcuts
-- [ ] `docs/adr/` for the decisions above
-
----
-
 ## Deliberately cut
 
 Jira features that are enterprise cruft at this scale. Each is a considered decision, not an oversight:
@@ -462,14 +466,16 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 8 Boards | `feat/07-frontend-boards` | ✅ |
 | 8b Nested boards | `feat/07-frontend-boards` | ✅ mini-map + nested nav |
 | 9 Card detail | `feat/07-frontend-boards` | ✅ |
-| 10 Cycles | `feat/10-cycles` | ⬜ |
+| **— MVP path from here —** | | |
 | 11 Secrets | `feat/11-secrets` | ⬜ |
 | 12 GitHub | `feat/12-github` | ⬜ |
 | 13 Claude agent | `feat/13-claude-agent` | ⬜ |
-| 14 Gemini | `feat/14-gemini` | ⬜ |
-| 15 Automation | `feat/15-automation` | ⬜ |
-| 16 Reports | `feat/16-reports` | ⬜ |
-| 17 Notifications | `feat/17-notifications` | ⬜ |
-| 18 Bulk/import | `feat/18-bulk-import` | ⬜ |
-| 19 Polish | `feat/19-polish` | ⬜ |
 | 20 Ship | `feat/20-ship` | ⬜ |
+| **— Extra (post-MVP) —** | | |
+| 10 Cycles | `feat/10-cycles` | ⬜ moved to Extra |
+| 14 Gemini | `feat/14-gemini` | ⬜ moved to Extra |
+| 15 Automation | `feat/15-automation` | ⬜ moved to Extra |
+| 16 Reports | `feat/16-reports` | ⬜ moved to Extra |
+| 17 Notifications | `feat/17-notifications` | ⬜ moved to Extra |
+| 18 Bulk/import | `feat/18-bulk-import` | ⬜ moved to Extra |
+| 19 Polish | `feat/19-polish` | ⬜ moved to Extra |
