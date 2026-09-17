@@ -187,7 +187,7 @@ impl<'r> Decode<'r, Sqlite> for CredentialStatus {
 
 /// A stored credential, ciphertext and all. Never serialized directly —
 /// [`Credential::redacted`] is the API's only window onto it.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Clone, FromRow)]
 pub struct Credential {
     pub id: String,
     pub provider: Provider,
@@ -202,6 +202,33 @@ pub struct Credential {
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Hand-written, not derived: ciphertext is not plaintext, but printing raw
+/// bytes in a log is still exactly the kind of thing `CLAUDE.md`'s "never in
+/// `Debug` output" rule exists to make impossible by construction rather than
+/// by every call site remembering not to.
+impl fmt::Debug for Credential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Credential")
+            .field("id", &self.id)
+            .field("provider", &self.provider)
+            .field("label", &self.label)
+            .field(
+                "ciphertext",
+                &format_args!("[{} bytes]", self.ciphertext.len()),
+            )
+            .field("nonce", &format_args!("[{} bytes]", self.nonce.len()))
+            .field("last_four", &self.last_four)
+            .field("status", &self.status)
+            .field("last_validated_at", &self.last_validated_at)
+            .field("expires_at", &self.expires_at)
+            .field("scopes", &self.scopes)
+            .field("created_by", &self.created_by)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
 }
 
 /// The only shape of a credential the API is allowed to return: metadata and
@@ -668,5 +695,32 @@ mod tests {
         assert!(!json.contains('1') || !json.contains("ciphertext"));
         assert!(!json.to_lowercase().contains("nonce"));
         assert!(!json.to_lowercase().contains("ciphertext"));
+    }
+
+    #[test]
+    fn debug_prints_byte_counts_not_ciphertext_or_nonce_bytes() {
+        let credential = Credential {
+            id: "1".to_owned(),
+            provider: Provider::GitHub,
+            label: "default".to_owned(),
+            ciphertext: vec![0xAB, 0xCD, 0xEF],
+            nonce: vec![0x11, 0x22, 0x33],
+            last_four: "1234".to_owned(),
+            status: CredentialStatus::Valid,
+            last_validated_at: None,
+            expires_at: None,
+            scopes: None,
+            created_by: "u1".to_owned(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let rendered = format!("{credential:?}");
+        // What a derived `Debug` on `Vec<u8>` would have printed instead —
+        // checked as the exact rendering, not a loose digit search, since a
+        // real timestamp's minutes/seconds could coincidentally contain the
+        // same short digit strings.
+        assert!(!rendered.contains("[171, 205, 239]"), "{rendered}");
+        assert!(!rendered.contains("[17, 34, 51]"), "{rendered}");
+        assert_eq!(rendered.matches("[3 bytes]").count(), 2);
     }
 }
