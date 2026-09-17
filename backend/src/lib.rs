@@ -15,6 +15,8 @@
 //! - [`auth`] — users, passwords, sessions, roles, and the forced-reset gate.
 //! - [`domain`] — projects, the configurable hierarchy, cards, and history.
 //! - [`telemetry`] — tracing setup and the HTTP request span.
+//! - [`vault`] — the secrets vault: encryption at rest for third-party API
+//!   credentials.
 //! - [`api`] — router, middleware, OpenAPI.
 
 pub mod api;
@@ -27,6 +29,7 @@ pub mod error;
 pub mod rank;
 pub mod telemetry;
 pub mod test_support;
+pub mod vault;
 
 pub use auth::{CurrentUser, Role, User};
 pub use config::Config;

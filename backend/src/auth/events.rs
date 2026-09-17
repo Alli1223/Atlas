@@ -47,6 +47,13 @@ pub enum Kind {
     UserDeactivated,
     /// The default admin account was seeded into an empty instance.
     DefaultAdminSeeded,
+    /// An admin added or replaced a vault credential.
+    CredentialPut,
+    /// An admin ran a credential's validation probe — the one point where its
+    /// plaintext is decrypted back into memory.
+    CredentialValidated,
+    /// An admin deleted a vault credential.
+    CredentialDeleted,
 }
 
 impl Kind {
@@ -64,6 +71,9 @@ impl Kind {
             Self::UserUpdated => "user_updated",
             Self::UserDeactivated => "user_deactivated",
             Self::DefaultAdminSeeded => "default_admin_seeded",
+            Self::CredentialPut => "credential_put",
+            Self::CredentialValidated => "credential_validated",
+            Self::CredentialDeleted => "credential_deleted",
         }
     }
 }
@@ -148,6 +158,9 @@ mod tests {
             Kind::UserUpdated,
             Kind::UserDeactivated,
             Kind::DefaultAdminSeeded,
+            Kind::CredentialPut,
+            Kind::CredentialValidated,
+            Kind::CredentialDeleted,
         ];
         let mut spellings: Vec<&str> = kinds.iter().map(|k| k.as_str()).collect();
         spellings.sort_unstable();

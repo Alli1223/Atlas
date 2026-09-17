@@ -58,10 +58,27 @@ chrono = { version = "0.4.45", features = ["serde"] }
 # `SaltString::generate` needs `argon2::password_hash::rand_core::OsRng`, which
 # is a DIFFERENT type from rand 0.9/0.10's OsRng. See docs/research/rust-stack.md.
 argon2 = { version = "0.5.3", features = ["std"] }
-# SHA-256 for session-token digests. Session ids are hashed before storage.
-sha2 = "0.10"
+# SHA-256 for session-token digests, and as the HKDF hash below. 0.11, not
+# 0.10: hkdf 0.13 (via hmac 0.13) needs digest 0.11's `EagerHash`, and a 0.10
+# sha2 alongside it is two incompatible `Sha256` types that do not typecheck
+# against each other — verified against the registry while wiring the vault,
+# not assumed from docs/research/rust-stack.md's July dating. (A pending
+# dependabot PR, `dependabot/cargo/sha2-0.11.0`, makes the same bump alone;
+# this supersedes it.)
+sha2 = "0.11"
 # Constant-time equality for anything derived from a secret.
 subtle = "2"
+# XChaCha20-Poly1305 for the secrets vault (Phase 11): the 192-bit nonce is
+# safe to pick randomly forever, unlike AES-GCM's 96-bit one. `getrandom` for
+# `Nonce::generate()` — the aead 0.6 API (see docs/research/rust-stack.md #5;
+# `generate_key(&mut OsRng)` was removed in the June 2026 aead 0.6 release).
+chacha20poly1305 = { version = "0.11.0", features = ["getrandom"] }
+# HKDF-SHA256: derives per-purpose subkeys from the one 32-byte master key.
+# Not Argon2 — that's for low-entropy passwords, and a random master key is
+# already uniform, so a memory-hard KDF would only add latency.
+hkdf = "0.13.0"
+# Zeroizes secret material on drop; backs `vault::Secret<T>`.
+zeroize = { version = "1.9.0", features = ["derive"] }
 base64 = "0.22.1"
 # Only for cookie `Max-Age`: `cookie` 0.18 (via axum-extra) speaks time::Duration,
 # not std::time::Duration. Cargo unifies this with axum-extra's own copy.
