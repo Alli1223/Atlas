@@ -287,7 +287,7 @@ mod tests {
         }));
         assert!(cookie_secure(&Config {
             env: AppEnv::Prod,
-            master_key: Some(crate::config::SecretString::new("k")),
+            master_key: Some(crate::vault::Secret::new("k".to_owned())),
             ..Config::default()
         }));
     }

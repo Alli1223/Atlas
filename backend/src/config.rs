@@ -9,13 +9,16 @@
 //! A `.env` file is *not* read by the process itself — that is the job of the
 //! shell or the process supervisor. See `.env.example` for the full list.
 
-use std::fmt;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
 use serde::Deserialize;
+
+use crate::vault::Secret;
 
 /// Prefix for every Atlas environment variable.
 pub const ENV_PREFIX: &str = "ATLAS_";
@@ -49,46 +52,9 @@ pub enum LogFormat {
     Json,
 }
 
-/// A string that must never reach a log line, a `Debug` dump, or an API response.
-///
-/// The whole point of the type is that [`fmt::Debug`] and [`fmt::Display`] are
-/// dead ends, so `tracing::info!(?config)` cannot leak the master key. There is
-/// deliberately no `Serialize` impl. Phase 11 replaces this with the full
-/// zeroizing `Secret<T>` from the vault; until then this is the minimum needed
-/// to honour the non-negotiable in `CLAUDE.md`.
-#[derive(Clone, PartialEq, Eq, Deserialize)]
-#[serde(transparent)]
-pub struct SecretString(String);
-
-impl SecretString {
-    /// Wraps a string as a secret.
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    /// Reveals the underlying secret.
-    ///
-    /// Deliberately verbose and greppable: every call site is an audit point.
-    pub fn expose_secret(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Debug for SecretString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("SecretString([REDACTED])")
-    }
-}
-
-impl fmt::Display for SecretString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("[REDACTED]")
-    }
-}
-
 /// Fully resolved Atlas configuration.
 ///
-/// `Debug` is safe to log: [`SecretString`] redacts itself.
+/// `Debug` is safe to log: [`Secret`] redacts itself.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     /// Address the HTTP server binds to. `ATLAS_BIND_ADDR`.
@@ -121,7 +87,7 @@ pub struct Config {
 
     /// Base64 master key for the secrets vault. `ATLAS_MASTER_KEY`. Required in prod.
     #[serde(default)]
-    pub master_key: Option<SecretString>,
+    pub master_key: Option<Secret<String>>,
 
     /// Comma-separated CORS origins, or `*`. `ATLAS_CORS_ALLOWED_ORIGINS`.
     #[serde(default = "default_cors_allowed_origins")]
@@ -217,13 +183,23 @@ impl Config {
 
     /// Rejects combinations that would fail later, at a worse time.
     fn validate(&self) -> Result<(), ConfigError> {
-        if let Some(key) = &self.master_key
-            && key.expose_secret().trim().is_empty()
-        {
-            return Err(ConfigError(format!(
-                "{ENV_PREFIX}MASTER_KEY is set but empty. Unset it, or generate one with:\n  \
-                 openssl rand -base64 32"
-            )));
+        if let Some(key) = &self.master_key {
+            if key.expose_secret().trim().is_empty() {
+                return Err(ConfigError(format!(
+                    "{ENV_PREFIX}MASTER_KEY is set but empty. Unset it, or generate one with:\n  \
+                     openssl rand -base64 32"
+                )));
+            }
+
+            // Caught here rather than at first vault use: a typo'd key should
+            // fail fast at boot, not on the first credential someone tries to
+            // save.
+            if BASE64.decode(key.expose_secret().trim()).is_err() {
+                return Err(ConfigError(format!(
+                    "{ENV_PREFIX}MASTER_KEY is not valid base64. Generate one with:\n  \
+                     openssl rand -base64 32"
+                )));
+            }
         }
 
         if self.env == AppEnv::Prod && self.master_key.is_none() {
@@ -263,6 +239,17 @@ impl Config {
     /// Whether CORS is configured to allow any origin.
     pub fn cors_allows_any_origin(&self) -> bool {
         self.cors_origins() == ["*"]
+    }
+
+    /// Decodes the master key to raw bytes, for [`crate::vault::Crypto::from_master`].
+    ///
+    /// `validate` already rejected a non-base64 value at boot, so the only way
+    /// this returns `None` is `master_key` itself being unset.
+    pub fn master_key_bytes(&self) -> Option<Secret<Vec<u8>>> {
+        self.master_key
+            .as_ref()
+            .and_then(|key| BASE64.decode(key.expose_secret().trim()).ok())
+            .map(Secret::new)
     }
 
     /// Creates the directories Atlas writes to.
@@ -415,22 +402,43 @@ mod tests {
     }
 
     #[test]
-    fn secrets_are_redacted_in_debug_and_display() {
-        let secret = SecretString::new("hunter2");
-        assert_eq!(format!("{secret:?}"), "SecretString([REDACTED])");
-        assert_eq!(format!("{secret}"), "[REDACTED]");
-        assert!(!format!("{secret:?}").contains("hunter2"));
-        assert_eq!(secret.expose_secret(), "hunter2");
-    }
-
-    #[test]
     fn config_debug_never_contains_the_master_key() {
         let config = Config {
-            master_key: Some(SecretString::new("super-secret-key")),
+            master_key: Some(Secret::new("super-secret-key".to_owned())),
             ..Config::default()
         };
         let rendered = format!("{config:?}");
         assert!(!rendered.contains("super-secret-key"), "{rendered}");
         assert!(rendered.contains("REDACTED"), "{rendered}");
+    }
+
+    #[test]
+    fn a_non_base64_master_key_is_rejected_and_names_the_variable() {
+        Jail::expect_with(|jail| {
+            jail.clear_env();
+            jail.set_env("ATLAS_MASTER_KEY", "not valid base64!!");
+            let err = Config::from_figment(&Config::figment(Path::new("atlas.toml"))).unwrap_err();
+            assert!(err.to_string().contains("ATLAS_MASTER_KEY"), "{err}");
+            assert!(err.to_string().contains("base64"), "{err}");
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn master_key_bytes_decodes_the_configured_key() {
+        let config = Config {
+            // base64 of 32 bytes of 0x07.
+            master_key: Some(Secret::new(
+                "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=".to_owned(),
+            )),
+            ..Config::default()
+        };
+        let bytes = config.master_key_bytes().unwrap();
+        assert_eq!(bytes.expose_secret(), &[7u8; 32]);
+    }
+
+    #[test]
+    fn master_key_bytes_is_none_when_unset() {
+        assert!(Config::default().master_key_bytes().is_none());
     }
 }
