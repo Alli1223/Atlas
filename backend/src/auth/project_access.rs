@@ -384,6 +384,13 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/projects/{key}/board",
         Scope::Project(ProjectRole::Viewer),
     ),
+    // The backlog view: same shape of read as the board, grouped by cycle instead of
+    // status. Viewer, for the same reason.
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/backlog",
+        Scope::Project(ProjectRole::Viewer),
+    ),
     // Saved board config: reading is Viewer, curating is Member (a board is a
     // saved view, like a tag or a filter — not structural project configuration).
     (
