@@ -1,0 +1,11 @@
+/* A vertical stack of sections, full width — the backlog is a page you scroll down, not a
+   row of columns you scroll across. */
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-200);
+  padding: var(--ds-space-100) var(--ds-space-200) var(--ds-space-400);
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}

@@ -5,11 +5,13 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { produce } from 'immer'
 
+import { addCardToCycle, removeCardFromCycle } from '@/features/cycles/api'
 import { ApiError } from '@/lib/api'
 
 import * as boardApi from './api'
-import type { BoardCard, BoardData, BoardParams } from './api'
+import type { BacklogData, BoardCard, BoardData, BoardParams } from './api'
 import { applyMove } from './applyMove'
 import { toast } from './toast'
 
@@ -220,6 +222,118 @@ export function useMoveCard(projectKey: string, params: BoardParams) {
           : error instanceof ApiError
             ? (error.problem?.detail ?? 'The move was rejected. It has been put back.')
             : 'Something went wrong moving the card. It has been put back.'
+      toast('error', message)
+    },
+
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: key })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// The backlog: cards grouped by cycle instead of by status
+// ---------------------------------------------------------------------------
+
+export const backlogKeys = {
+  data: (projectKey: string) => [...boardKeys.all, 'backlog', projectKey] as const,
+}
+
+/** The backlog data for a project. */
+export function backlogQueryOptions(projectKey: string) {
+  return queryOptions({
+    queryKey: backlogKeys.data(projectKey),
+    queryFn: () => boardApi.fetchBacklog(projectKey),
+    staleTime: 10_000,
+  })
+}
+
+/** The backlog data for a project. */
+export function useBacklog(projectKey: string) {
+  return useQuery(backlogQueryOptions(projectKey))
+}
+
+/**
+ * Which list a card is being dropped into: the plain backlog, or a specific cycle.
+ *
+ * `null` rather than a sentinel string — a cycle id is a real, arbitrary string, so there is
+ * no spelling of "the backlog" that couldn't collide with one.
+ */
+export type BacklogListKey = string | null
+
+/** Removes a card from wherever it currently sits in a [`BacklogData`], if anywhere. */
+function removeFromBacklog(data: BacklogData, cardId: string): BoardCard | undefined {
+  const fromBacklog = data.backlog.findIndex((c) => c.id === cardId)
+  if (fromBacklog !== -1) return data.backlog.splice(fromBacklog, 1)[0]
+
+  for (const group of data.cycles) {
+    const index = group.cards.findIndex((c) => c.id === cardId)
+    if (index !== -1) return group.cards.splice(index, 1)[0]
+  }
+  return undefined
+}
+
+/** Inserts `card` into the named list, at the end — the backlog has no rank endpoint to ask
+ * for a precise position, so a drop always lands last in its destination list. */
+function insertIntoBacklog(data: BacklogData, card: BoardCard, listKey: BacklogListKey): void {
+  if (listKey === null) {
+    data.backlog.push(card)
+    return
+  }
+  const group = data.cycles.find((g) => g.cycle.id === listKey)
+  group?.cards.push(card)
+}
+
+/**
+ * Moves a card between the backlog and a cycle (or between two cycles), optimistically, and
+ * rolls back if the server rejects it.
+ *
+ * Unlike [`useMoveCard`], there is no rank to preserve — `POST`/`DELETE /cards/{key}/cycle`
+ * only ever set *membership*, so the optimistic update simply relocates the card to the end
+ * of its destination list rather than resolving a drop index.
+ */
+export function useMoveCardToCycle(projectKey: string) {
+  const queryClient = useQueryClient()
+  const key = backlogKeys.data(projectKey)
+
+  return useMutation<
+    void,
+    unknown,
+    { card: BoardCard; toListKey: BacklogListKey },
+    { previous: BacklogData | undefined }
+  >({
+    scope: { id: `backlog-${projectKey}` },
+
+    mutationFn: async ({ card, toListKey }) => {
+      if (toListKey === null) {
+        await removeCardFromCycle(card.key)
+      } else {
+        await addCardToCycle(card.key, toListKey)
+      }
+    },
+
+    onMutate: async ({ card, toListKey }) => {
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<BacklogData>(key)
+      queryClient.setQueryData<BacklogData>(key, (data) =>
+        data
+          ? produce(data, (draft) => {
+              const moved = removeFromBacklog(draft, card.id)
+              if (moved) insertIntoBacklog(draft, moved, toListKey)
+            })
+          : data,
+      )
+      return { previous }
+    },
+
+    onError: (error, _move, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(key, context.previous)
+      }
+      const message =
+        error instanceof ApiError
+          ? (error.problem?.detail ?? 'The move was rejected. It has been put back.')
+          : 'Something went wrong moving the card. It has been put back.'
       toast('error', message)
     },
 

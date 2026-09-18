@@ -1,0 +1,70 @@
+/* A backlog section stacks full-width, unlike a board column's fixed-width lane — the
+   backlog is a page of vertically ranked lists, not a row of them. */
+.section {
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-surface-sunken);
+  border-radius: var(--ds-radius-medium);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-100);
+  padding: var(--ds-space-150);
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-bold);
+  color: var(--ds-text-subtlest);
+}
+
+.title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.subtitle {
+  flex: 1;
+  font-weight: var(--ds-font-weight-regular);
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ds-text-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 16px;
+  padding-inline: var(--ds-space-050);
+  border-radius: var(--ds-radius-full);
+  background: var(--ds-background-neutral);
+  color: var(--ds-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-100);
+  padding: 0 var(--ds-space-150) var(--ds-space-150);
+  transition: background-color var(--ds-duration-xshort) var(--ds-easing-out-practical);
+}
+
+.listOver {
+  background: var(--ds-background-selected);
+}
+
+.empty {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--ds-border);
+  border-radius: var(--ds-radius-medium);
+  color: var(--ds-text-subtlest);
+  font: var(--ds-font-body-small);
+}
