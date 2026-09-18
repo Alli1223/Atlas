@@ -1047,6 +1047,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{key}/backlog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's backlog: top-level cards grouped by cycle instead of by status — the drag
+         *     surface for moving cards into and out of a cycle. See
+         *     [`crate::domain::board::build_backlog`].
+         */
+        get: operations["get_backlog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{key}/board": {
         parameters: {
             query?: never;
@@ -1709,6 +1730,27 @@ export interface components {
             name: string;
             /** @description Where the card would land. */
             toStatusId: string;
+        };
+        /** @description One non-closed cycle's cards in the backlog view, in rank order. */
+        BacklogCycle: {
+            /** @description Its in-scope cards, rank order. */
+            cards: components["schemas"]["BoardCard"][];
+            /** @description The cycle itself — its state (future/active), dates, and goal. */
+            cycle: components["schemas"]["Cycle"];
+        };
+        /**
+         * @description A project's backlog: top-level cards, grouped by which cycle (if any) currently holds
+         *     them — the drag surface `POST`/`DELETE /cards/{key}/cycle` moves a card between.
+         */
+        BacklogData: {
+            /** @description Cards in no cycle at all: the true backlog, rank order. */
+            backlog: components["schemas"]["BoardCard"][];
+            /**
+             * @description Future and active cycles, active first, each with its cards. A closed cycle is
+             *     history, not something still being planned into, so it has no place here — its data
+             *     lives on in the cycle report (`TODO.md` Phase 16) instead.
+             */
+            cycles: components["schemas"]["BacklogCycle"][];
         };
         /**
          * @description A saved board configuration.
@@ -6798,6 +6840,47 @@ export interface operations {
             };
             /** @description Viewers cannot archive projects */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_backlog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The backlog data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacklogData"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

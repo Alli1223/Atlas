@@ -21,7 +21,9 @@ use crate::api::serde_ext::double_option;
 use crate::api::{AppState, projects};
 use crate::auth::extract::RequireMember;
 use crate::auth::{CurrentUser, now};
-use crate::domain::board::{self, Board, BoardData, BoardPatch, BoardScope, NewBoard, Swimlane};
+use crate::domain::board::{
+    self, BacklogData, Board, BoardData, BoardPatch, BoardScope, NewBoard, Swimlane,
+};
 use crate::domain::card;
 use crate::domain::project;
 use crate::error::{AppError, AppResult, Problem};
@@ -95,6 +97,30 @@ async fn get_board(
     )
     .await?;
 
+    Ok(Json(data))
+}
+
+/// The project's backlog: top-level cards grouped by cycle instead of by status — the drag
+/// surface for moving cards into and out of a cycle. See
+/// [`crate::domain::board::build_backlog`].
+#[utoipa::path(
+    get,
+    path = "/projects/{key}/backlog",
+    tag = "boards",
+    params(("key" = String, Path, description = "The project key")),
+    responses(
+        (status = 200, description = "The backlog data", body = BacklogData),
+        (status = 401, description = "Not signed in", body = Problem),
+        (status = 404, description = "No such project", body = Problem),
+    )
+)]
+async fn get_backlog(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    Path(key): Path<String>,
+) -> AppResult<Json<BacklogData>> {
+    let project = projects::by_key(&state.db, &key).await?;
+    let data = board::build_backlog(&state.db, &current.user, &project, now()).await?;
     Ok(Json(data))
 }
 
@@ -357,6 +383,7 @@ async fn delete_board(
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(get_board))
+        .routes(routes!(get_backlog))
         .routes(routes!(list_boards, create_board))
         .routes(routes!(get_saved_board, update_board, delete_board))
 }

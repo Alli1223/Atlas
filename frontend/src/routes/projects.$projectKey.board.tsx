@@ -158,13 +158,22 @@ function BoardRoute() {
           <QuickFilters active={activeFilters} onToggle={toggleFilter} />
           <div className={styles.controlsEnd}>
             {project.data?.cyclesEnabled === true && (
-              <Link
-                to="/projects/$projectKey/cycles"
-                params={{ projectKey }}
-                className={styles.cyclesLink}
-              >
-                Cycles
-              </Link>
+              <>
+                <Link
+                  to="/projects/$projectKey/backlog"
+                  params={{ projectKey }}
+                  className={styles.cyclesLink}
+                >
+                  Backlog
+                </Link>
+                <Link
+                  to="/projects/$projectKey/cycles"
+                  params={{ projectKey }}
+                  className={styles.cyclesLink}
+                >
+                  Cycles
+                </Link>
+              </>
             )}
             <div className={styles.swimlaneControl}>
               <Select

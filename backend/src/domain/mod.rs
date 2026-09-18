@@ -19,9 +19,10 @@
 //!   domain module keeps with [`crate::integrations`].
 //! - [`agent_session_transcript`] — `agent_session_transcript`: the full `stream-json`
 //!   transcript behind an [`agent_session`] row, one line per line the CLI wrote.
-//! - [`cycle_snapshot`] — daily point-in-time snapshots of an active cycle's in-scope cards,
-//!   what a burndown chart and Phase 16's reports are computed from. Driven by
-//!   [`crate::scheduler`].
+//! - [`cycle_snapshot`] — point-in-time snapshots of a cycle's in-scope cards, what a burndown
+//!   chart and Phase 16's reports are computed from. Written daily by [`crate::scheduler`], plus
+//!   once at [`cycle::start`] (the commitment baseline) and once at [`cycle::complete`] (the
+//!   completion picture, taken before carry-over empties the scope it describes).
 //! - [`tag`] — free-text labels, and the presets each template seeds.
 //! - [`template`] — the four project templates' seed data.
 //! - [`workflow`] — the workflow engine: transitions and their conditions,

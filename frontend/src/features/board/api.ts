@@ -16,6 +16,11 @@ export type ChildRollup = components['schemas']['ChildRollup']
 /** A saved board configuration. Mirrors `crate::domain::board::Board`. */
 export type SavedBoard = components['schemas']['Board']
 
+/** The backlog: top-level cards grouped by cycle instead of by status. */
+export type BacklogData = components['schemas']['BacklogData']
+/** One non-closed cycle's cards in the backlog view. */
+export type BacklogCycle = components['schemas']['BacklogCycle']
+
 /** A move a card may legally make right now. Mirrors `crate::domain::workflow::AvailableTransition`. */
 export type AvailableTransition = components['schemas']['AvailableTransition']
 
@@ -154,5 +159,15 @@ export async function fetchCard(cardKey: string): Promise<CardDto> {
 export async function fetchSavedBoards(projectKey: string): Promise<SavedBoard[]> {
   return unwrap(
     await api.GET('/api/v1/projects/{key}/boards', { params: { path: { key: projectKey } } }),
+  )
+}
+
+/**
+ * The backlog view: a project's top-level cards, grouped by which non-closed cycle (if any)
+ * currently holds them.
+ */
+export async function fetchBacklog(projectKey: string): Promise<BacklogData> {
+  return unwrap(
+    await api.GET('/api/v1/projects/{key}/backlog', { params: { path: { key: projectKey } } }),
   )
 }

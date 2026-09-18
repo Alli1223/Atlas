@@ -30,8 +30,10 @@
 //! cycle only flips its state and replans its end date, and an admin who wants a carried-away
 //! card back adds it by hand with [`add_card`].
 //!
-//! [`cycle_snapshot`] rows (commitment/completion/burndown data) are not written by this
-//! module at all yet — that lands with the reporting work this data exists for.
+//! [`start`] and [`complete`] each write a [`super::cycle_snapshot`] row for the cycle in
+//! question — the commitment baseline and the completion picture — in addition to the daily
+//! row [`crate::scheduler`] takes of every active cycle. See that module's docs for why the
+//! ordering inside [`complete`] matters.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -326,6 +328,11 @@ pub async fn start(
     .execute(&mut *tx)
     .await?;
 
+    // The commitment baseline — day zero of the burndown, taken now rather than
+    // waiting for the daily scheduler tick so a cycle started and completed
+    // within the same calendar day still has two distinct data points.
+    super::cycle_snapshot::take_for_cycle_tx(tx, &cycle.id, now).await?;
+
     find_by_id_tx(&mut *tx, &cycle.id)
         .await?
         .ok_or_else(|| AppError::internal(anyhow::anyhow!("the cycle just started is missing")))
@@ -346,6 +353,13 @@ pub async fn complete(
             cycle.state
         )));
     }
+
+    // The completion picture — every card still in scope, done or not — taken
+    // before any carry-over below removes an incomplete card from it. Order
+    // matters: a snapshot taken after that removal would show a scope that
+    // had already been emptied of exactly the cards a burndown most needs to
+    // show as unfinished.
+    super::cycle_snapshot::take_for_cycle_tx(tx, &cycle.id, now).await?;
 
     let incomplete: Vec<String> = sqlx::query_scalar(
         "SELECT cc.card_id FROM card_cycle cc \
@@ -836,6 +850,76 @@ mod tests {
                 .unwrap()
                 .is_none(),
             "an incomplete card carried to the backlog has no current cycle"
+        );
+    }
+
+    #[tokio::test]
+    async fn starting_a_cycle_takes_the_commitment_snapshot_immediately() {
+        // Phase 10's stated gap: a start-triggered row, not just the scheduler's daily one —
+        // otherwise a cycle started and completed the same day has no day-zero data point.
+        let (db, _temp, project, creator, type_id) = fixture().await;
+        let cycle = insert_cycle(&db, &project, "Sprint 1").await;
+        let card = make_card(&db, &project, &type_id, &creator).await;
+
+        let mut tx = db.begin_write().await.unwrap();
+        add_card(&mut tx, &card.id, &cycle.id, now()).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let d = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let mut tx = db.begin_write().await.unwrap();
+        start(&mut tx, &cycle, d, d, now()).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT card_id FROM cycle_snapshot WHERE cycle_id = ?")
+                .bind(&cycle.id)
+                .fetch_all(db.reader())
+                .await
+                .unwrap();
+        assert_eq!(
+            rows.iter().map(|(id,)| id.as_str()).collect::<Vec<_>>(),
+            vec![card.id.as_str()],
+            "starting must snapshot the card already committed to the cycle"
+        );
+    }
+
+    #[tokio::test]
+    async fn completing_a_cycle_snapshots_the_incomplete_card_before_carrying_it_away() {
+        // The ordering this exists to pin: complete()'s snapshot must see the incomplete
+        // card still in scope, not the emptied scope carry-over leaves behind.
+        let (db, _temp, project, creator, type_id) = fixture().await;
+        let cycle = insert_cycle(&db, &project, "Sprint 1").await;
+        let todo_card = make_card(&db, &project, &type_id, &creator).await;
+
+        let mut tx = db.begin_write().await.unwrap();
+        add_card(&mut tx, &todo_card.id, &cycle.id, now())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let d = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let mut tx = db.begin_write().await.unwrap();
+        let cycle = start(&mut tx, &cycle, d, d, now()).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let mut tx = db.begin_write().await.unwrap();
+        complete(&mut tx, &cycle, &CarryTo::Backlog, now())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT card_id, status_category FROM cycle_snapshot WHERE cycle_id = ?",
+        )
+        .bind(&cycle.id)
+        .fetch_all(db.reader())
+        .await
+        .unwrap();
+        assert!(
+            rows.iter()
+                .any(|(id, category)| id == &todo_card.id && category == "todo"),
+            "the completion snapshot must include the card that was about to be carried away, \
+             still showing its pre-carry status: {rows:?}"
         );
     }
 

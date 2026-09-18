@@ -287,6 +287,118 @@ pub async fn build(
     Ok(BoardData { columns, swimlanes })
 }
 
+// ---------------------------------------------------------------------------
+// The backlog: cards grouped by cycle instead of by status
+// ---------------------------------------------------------------------------
+
+/// One non-closed cycle's cards in the backlog view, in rank order.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BacklogCycle {
+    /// The cycle itself — its state (future/active), dates, and goal.
+    pub cycle: super::cycle::Cycle,
+    /// Its in-scope cards, rank order.
+    pub cards: Vec<BoardCard>,
+}
+
+/// A project's backlog: top-level cards, grouped by which cycle (if any) currently holds
+/// them — the drag surface `POST`/`DELETE /cards/{key}/cycle` moves a card between.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BacklogData {
+    /// Cards in no cycle at all: the true backlog, rank order.
+    pub backlog: Vec<BoardCard>,
+    /// Future and active cycles, active first, each with its cards. A closed cycle is
+    /// history, not something still being planned into, so it has no place here — its data
+    /// lives on in the cycle report (`TODO.md` Phase 16) instead.
+    pub cycles: Vec<BacklogCycle>,
+}
+
+/// Builds the backlog view: every top-level card the viewer can see in `project`, bucketed by
+/// cycle membership instead of by status.
+///
+/// Reuses exactly the machinery [`build`] does for a root-scoped, unfiltered board — the same
+/// AQL source (so the same access predicate applies), the same rollup and tag batch reads, the
+/// same [`BoardCard`] shape — so the two views can share one frontend card component. Only the
+/// bucketing key differs: cycle membership here, `status_id` there.
+pub async fn build_backlog(
+    db: &Db,
+    viewer: &User,
+    project: &Project,
+    now: DateTime<Utc>,
+) -> AppResult<BacklogData> {
+    let scope = BoardScope::Root;
+    let source = board_source(project, &scope, None)?;
+    let results = crate::aql::search(db, viewer, now, &source, BOARD_CARD_CAP, 0).await?;
+
+    let rollups = child_rollups(db, project, &scope).await?;
+    let tags = card_tags(db, project, &scope).await?;
+
+    let cards: Vec<BoardCard> = results
+        .cards
+        .iter()
+        .map(|card| BoardCard {
+            id: card.id.clone(),
+            key: card.key.clone(),
+            summary: card.summary.clone(),
+            type_id: card.type_id.clone(),
+            parent_id: card.parent_id.clone(),
+            status_id: card.status_id.clone(),
+            priority_id: card.priority_id.clone(),
+            assignee_id: card.assignee_id.clone(),
+            reporter_id: card.reporter_id.clone(),
+            rank: card.rank.clone(),
+            estimate: card.estimate,
+            tags: tags.get(&card.id).cloned().unwrap_or_default(),
+            child_rollup: rollups.get(&card.id).cloned(),
+        })
+        .collect();
+
+    // Which non-closed cycle, if any, currently holds each card. Scoped by the cycle's
+    // project rather than an IN-list of the cards fetched above — cheaper, and correct either
+    // way since a card_cycle row can only ever point at a cycle in the card's own project.
+    let memberships: Vec<CardCycleRow> = sqlx::query_as(
+        "SELECT cc.card_id, cc.cycle_id FROM card_cycle cc \
+           JOIN cycles y ON y.id = cc.cycle_id \
+          WHERE y.project_id = ? AND y.state != 'closed' AND cc.removed_at IS NULL",
+    )
+    .bind(&project.id)
+    .fetch_all(db.reader())
+    .await?;
+    let card_to_cycle: HashMap<&str, &str> = memberships
+        .iter()
+        .map(|row| (row.card_id.as_str(), row.cycle_id.as_str()))
+        .collect();
+
+    let mut by_cycle: HashMap<&str, Vec<BoardCard>> = HashMap::new();
+    let mut backlog = Vec::new();
+    for card in cards {
+        match card_to_cycle.get(card.id.as_str()) {
+            Some(&cycle_id) => by_cycle.entry(cycle_id).or_default().push(card),
+            None => backlog.push(card),
+        }
+    }
+
+    let cycles = super::cycle::list_for_project(db, &project.id)
+        .await?
+        .into_iter()
+        .filter(|cycle| cycle.state != super::cycle::CycleState::Closed)
+        .map(|cycle| {
+            let cards = by_cycle.remove(cycle.id.as_str()).unwrap_or_default();
+            BacklogCycle { cycle, cards }
+        })
+        .collect();
+
+    Ok(BacklogData { backlog, cycles })
+}
+
+/// A row of the `card_cycle` × `cycles` membership query [`build_backlog`] runs.
+#[derive(Debug, FromRow)]
+struct CardCycleRow {
+    card_id: String,
+    cycle_id: String,
+}
+
 /// Composes the AQL the board runs: its scope, combined with `AND` onto the
 /// caller's filter.
 ///

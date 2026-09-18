@@ -672,3 +672,124 @@ fn lane_cards(lanes: &[Value], key: &str) -> Vec<String> {
 async fn board_no_lanes(app: &App, cookie: &str, key: &str) -> Value {
     board(app, cookie, key, "").await
 }
+
+// ---------------------------------------------------------------------------
+// The backlog: cards grouped by cycle instead of by status
+// ---------------------------------------------------------------------------
+
+/// Fetches the backlog and returns the parsed JSON.
+async fn backlog(app: &App, cookie: &str, key: &str) -> Value {
+    let reply = app
+        .send(get(
+            &format!("/api/v1/projects/{key}/backlog"),
+            Some(cookie),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+    reply.json()
+}
+
+/// Creates a cycle and returns its id.
+async fn cycle(app: &App, cookie: &str, key: &str, name: &str) -> String {
+    let reply = app
+        .send(post(
+            &format!("/api/v1/projects/{key}/cycles"),
+            Some(cookie),
+            json!({ "name": name }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    reply.json()["id"].as_str().expect("cycle id").to_owned()
+}
+
+/// Adds a card to a cycle.
+async fn add_to_cycle(app: &App, cookie: &str, card_key: &str, cycle_id: &str) {
+    let reply = app
+        .send(post(
+            &format!("/api/v1/cards/{card_key}/cycle"),
+            Some(cookie),
+            json!({ "cycleId": cycle_id }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::NO_CONTENT, "{}", reply.raw_body);
+}
+
+/// The card keys of one entry in `backlog["backlog"]` or a cycle group's `"cards"`.
+fn card_keys(cards: &Value) -> Vec<String> {
+    cards
+        .as_array()
+        .expect("cards array")
+        .iter()
+        .map(|c| c["key"].as_str().expect("card key").to_owned())
+        .collect()
+}
+
+#[tokio::test]
+async fn backlog_groups_cards_by_cycle_membership_and_leaves_the_rest_in_the_backlog() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let fx = project(&app, &admin, "ATLAS").await;
+
+    let sprint = cycle(&app, &admin, "ATLAS", "Sprint 1").await;
+    let planned = card(&app, &admin, &fx, json!({ "summary": "planned" })).await;
+    let unplanned = card(&app, &admin, &fx, json!({ "summary": "unplanned" })).await;
+    add_to_cycle(&app, &admin, &planned, &sprint).await;
+
+    let data = backlog(&app, &admin, "ATLAS").await;
+
+    assert_eq!(card_keys(&data["backlog"]), vec![unplanned]);
+
+    let cycles = data["cycles"].as_array().expect("cycles array");
+    assert_eq!(cycles.len(), 1, "one future cycle, no closed ones");
+    assert_eq!(cycles[0]["cycle"]["id"].as_str(), Some(sprint.as_str()));
+    assert_eq!(card_keys(&cycles[0]["cards"]), vec![planned]);
+}
+
+#[tokio::test]
+async fn a_closed_cycle_is_absent_from_the_backlog_view() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let fx = project(&app, &admin, "ATLAS").await;
+
+    let sprint = cycle(&app, &admin, "ATLAS", "Sprint 1").await;
+    let card_key = card(&app, &admin, &fx, json!({ "summary": "done and dusted" })).await;
+    add_to_cycle(&app, &admin, &card_key, &sprint).await;
+
+    let reply = app
+        .send(post(
+            &format!("/api/v1/cycles/{sprint}/start"),
+            Some(&admin),
+            json!({ "startDate": "2026-01-01", "endDate": "2026-01-14" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+
+    let reply = app
+        .send(post(
+            &format!("/api/v1/cycles/{sprint}/complete"),
+            Some(&admin),
+            json!({ "carryTo": { "kind": "backlog" } }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+
+    let data = backlog(&app, &admin, "ATLAS").await;
+
+    // The closed cycle has no group at all — not an empty one.
+    assert_eq!(data["cycles"].as_array().expect("cycles array").len(), 0);
+    // Its card was incomplete, so completing carried it to the plain backlog.
+    assert_eq!(card_keys(&data["backlog"]), vec![card_key]);
+}
+
+#[tokio::test]
+async fn an_outsider_gets_404_on_a_backlog_they_cannot_access() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let _fx = project(&app, &admin, "SECRET").await;
+    let (_id, outsider) = member(&app, &admin, "outsider").await;
+
+    let reply = app
+        .send(get("/api/v1/projects/SECRET/backlog", Some(&outsider)))
+        .await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.raw_body);
+}
