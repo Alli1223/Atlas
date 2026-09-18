@@ -16,17 +16,22 @@
 //! fires more than once in a day still lands exactly one row per (cycle, card) for that day,
 //! always holding the *latest* state observed that day rather than the first.
 //!
-//! # What this does not do yet
+//! # Start- and complete-triggered rows, in addition to the daily cadence
 //!
 //! The `cycle_snapshot` migration's own comment calls for a row "at minimum on start
-//! (commitment) and on complete (completion)" in addition to the daily cadence — those two are
-//! not scheduler-blocked (unlike the daily cadence, which needed [`crate::scheduler`] to exist
-//! at all) and are left as separate, still-unstarted work; wiring them into
-//! [`crate::domain::cycle::start`]/[`crate::domain::cycle::complete`] is `TODO.md`'s next step
-//! for this table.
+//! (commitment) and on complete (completion)". [`take_for_cycle_tx`] is that: it writes the same
+//! shape of row as the daily [`take`], but for one specific cycle, inside the caller's own write
+//! transaction — [`crate::domain::cycle::start`] calls it right after marking the commitment
+//! baseline, and [`crate::domain::cycle::complete`] calls it before any incomplete card leaves
+//! scope, so the completion row is the last true picture of what was and wasn't done, not a
+//! scope already emptied by the carry-over that follows in the same call.
+//!
+//! Both entry points dedupe on the same `(cycle_id, taken_at, card_id)` key as the daily job, so
+//! a cycle that starts and gets its first daily tick on the same calendar day ends up with one
+//! row per card for that day, not two — the second write just refreshes the first.
 
 use chrono::{DateTime, Utc};
-use sqlx::FromRow;
+use sqlx::{FromRow, SqliteConnection};
 use uuid::Uuid;
 
 use crate::auth::to_sql_timestamp;
@@ -34,14 +39,49 @@ use crate::db::Db;
 use crate::domain::StatusCategory;
 use crate::error::AppResult;
 
-/// One in-scope card of an active cycle, with its estimate/status as of right now — exactly
-/// what [`take`] needs to write one `cycle_snapshot` row.
+/// One in-scope card of a cycle, with its estimate/status as of right now — exactly what
+/// [`write_rows`] needs to write one `cycle_snapshot` row.
 #[derive(Debug, FromRow)]
 struct InScopeCard {
     cycle_id: String,
     card_id: String,
     estimate: Option<f64>,
     status_category: StatusCategory,
+}
+
+/// Writes (or refreshes) one `cycle_snapshot` row per card, inside the caller's transaction.
+///
+/// Shared by [`take`] and [`take_for_cycle_tx`] — the only difference between a daily pass and a
+/// start/complete pass is which cards the caller already selected.
+async fn write_rows(
+    tx: &mut SqliteConnection,
+    rows: &[InScopeCard],
+    now: DateTime<Utc>,
+) -> AppResult<usize> {
+    if rows.is_empty() {
+        return Ok(0);
+    }
+
+    let taken_at = to_sql_timestamp(start_of_day(now));
+    for row in rows {
+        sqlx::query(
+            "INSERT INTO cycle_snapshot (id, cycle_id, taken_at, card_id, estimate, status_category) \
+             VALUES (?, ?, ?, ?, ?, ?) \
+             ON CONFLICT (cycle_id, taken_at, card_id) DO UPDATE SET \
+                estimate        = excluded.estimate, \
+                status_category = excluded.status_category",
+        )
+        .bind(Uuid::now_v7().to_string())
+        .bind(&row.cycle_id)
+        .bind(&taken_at)
+        .bind(&row.card_id)
+        .bind(row.estimate)
+        .bind(row.status_category)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    Ok(rows.len())
 }
 
 /// Takes today's snapshot of every active cycle's in-scope cards.
@@ -61,32 +101,40 @@ pub async fn take(db: &Db, now: DateTime<Utc>) -> AppResult<usize> {
     .fetch_all(db.reader())
     .await?;
 
-    if rows.is_empty() {
-        return Ok(0);
-    }
-
-    let taken_at = to_sql_timestamp(start_of_day(now));
     let mut tx = db.begin_write().await?;
-    for row in &rows {
-        sqlx::query(
-            "INSERT INTO cycle_snapshot (id, cycle_id, taken_at, card_id, estimate, status_category) \
-             VALUES (?, ?, ?, ?, ?, ?) \
-             ON CONFLICT (cycle_id, taken_at, card_id) DO UPDATE SET \
-                estimate        = excluded.estimate, \
-                status_category = excluded.status_category",
-        )
-        .bind(Uuid::now_v7().to_string())
-        .bind(&row.cycle_id)
-        .bind(&taken_at)
-        .bind(&row.card_id)
-        .bind(row.estimate)
-        .bind(row.status_category)
-        .execute(&mut *tx)
-        .await?;
-    }
+    let written = write_rows(&mut tx, &rows, now).await?;
     tx.commit().await?;
 
-    Ok(rows.len())
+    Ok(written)
+}
+
+/// Takes a snapshot of one cycle's current in-scope cards, inside an already-open write
+/// transaction.
+///
+/// For [`crate::domain::cycle::start`] and [`crate::domain::cycle::complete`] — the caller
+/// selects the moment (right after committing scope, or right before releasing it), and this
+/// just writes what that moment looked like. Does not filter on the cycle's `state`, unlike
+/// [`take`]'s daily pass: a start-triggered call runs in the same transaction as the `UPDATE`
+/// that sets `state = 'active'`, and a complete-triggered call runs *before* the one that sets
+/// `state = 'closed'` — filtering on state here would either race its own caller or make the
+/// completion row impossible to take at all.
+pub async fn take_for_cycle_tx(
+    tx: &mut SqliteConnection,
+    cycle_id: &str,
+    now: DateTime<Utc>,
+) -> AppResult<usize> {
+    let rows: Vec<InScopeCard> = sqlx::query_as(
+        "SELECT cc.cycle_id, cc.card_id, c.estimate, s.category AS status_category \
+           FROM card_cycle cc \
+           JOIN cards c ON c.id = cc.card_id \
+           JOIN statuses s ON s.id = c.status_id \
+          WHERE cc.cycle_id = ? AND cc.removed_at IS NULL",
+    )
+    .bind(cycle_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    write_rows(tx, &rows, now).await
 }
 
 /// Truncates to the start of `now`'s UTC calendar day — the bucket a snapshot dedupes on.
