@@ -65,12 +65,18 @@
 
 .row {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--ds-space-200);
+  flex-direction: column;
+  gap: var(--ds-space-150);
   padding: var(--ds-space-150) var(--ds-space-200);
   background: var(--ds-surface-raised);
   border-radius: var(--ds-radius);
+}
+
+.rowTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-200);
 }
 
 .rowMain {
@@ -107,4 +113,8 @@
   display: flex;
   flex-shrink: 0;
   gap: var(--ds-space-075);
+}
+
+.burndown {
+  width: 100%;
 }

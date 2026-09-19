@@ -5,6 +5,7 @@ import { Banner, Button, EmptyState, Input, Lozenge, type LozengeAppearance, Spi
 import { ICON } from '@/lib/icon'
 
 import type { Cycle } from './api'
+import { BurndownChart } from './BurndownChart'
 import { CompleteCycleDialog } from './CompleteCycleDialog'
 import styles from './CycleList.module.css'
 import { ReopenCycleDialog } from './ReopenCycleDialog'
@@ -203,6 +204,11 @@ function CycleRow({
   const [name, setName] = useState(cycle.name)
   const [goal, setGoal] = useState(cycle.goal ?? '')
   const [dialog, setDialog] = useState<DialogKind>(null)
+  const [showBurndown, setShowBurndown] = useState(false)
+  // A cycle with no start date has never run, so there is nothing for the daily snapshot
+  // job to have taken yet — the toggle exists, but a future cycle would only ever open it
+  // onto an empty state.
+  const hasStarted = cycle.startDate != null
 
   function onSave(event: FormEvent) {
     event.preventDefault()
@@ -263,7 +269,7 @@ function CycleRow({
           </div>
         </form>
       ) : (
-        <>
+        <div className={styles.rowTop}>
           <div className={styles.rowMain}>
             <div className={styles.rowHeading}>
               <Lozenge appearance={STATE_APPEARANCE[cycle.state]} isBold>
@@ -282,6 +288,15 @@ function CycleRow({
           </div>
 
           <div className={styles.rowActions}>
+            {hasStarted && (
+              <Button
+                appearance="subtle"
+                size="compact"
+                onClick={() => setShowBurndown((shown) => !shown)}
+              >
+                {showBurndown ? 'Hide burndown' : 'Burndown'}
+              </Button>
+            )}
             <Button appearance="subtle" size="compact" onClick={() => setEditing(true)}>
               Edit
             </Button>
@@ -301,7 +316,13 @@ function CycleRow({
               </Button>
             )}
           </div>
-        </>
+        </div>
+      )}
+
+      {hasStarted && showBurndown && (
+        <div className={styles.burndown}>
+          <BurndownChart cycleId={cycle.id} enabled={showBurndown} />
+        </div>
       )}
 
       {dialog === 'start' && (

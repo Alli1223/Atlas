@@ -55,6 +55,50 @@ describe('CycleList', () => {
     expect(within(closed).getByText('Sprint C')).toBeInTheDocument()
   })
 
+  it('offers a burndown toggle only for a cycle that has actually started', async () => {
+    stubFetch({
+      'GET /api/v1/projects/ATLAS/cycles': cyclesList(
+        makeCycle({ id: '1', name: 'Sprint A', state: 'active', startDate: '2026-01-01' }),
+        makeCycle({ id: '2', name: 'Sprint B', state: 'future' }),
+      ),
+    })
+
+    renderWithClient(<CycleList projectKey="ATLAS" />)
+    await screen.findByText('Sprint A')
+
+    expect(screen.getByRole('button', { name: 'Burndown' })).toBeInTheDocument()
+    // Sprint B has never started, so there is no snapshot data a chart could show.
+    expect(
+      within(screen.getByRole('region', { name: 'Future' })).queryByRole('button', {
+        name: 'Burndown',
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('fetches and shows the burndown only once the toggle is opened', async () => {
+    const user = userEvent.setup()
+    const { calls } = stubFetch({
+      'GET /api/v1/projects/ATLAS/cycles': cyclesList(
+        makeCycle({ id: '1', name: 'Sprint A', state: 'active', startDate: '2026-01-01' }),
+      ),
+      'GET /api/v1/cycles/1/burndown': () =>
+        jsonResponse({
+          metric: 'estimate',
+          points: [{ date: '2026-01-01T00:00:00Z', remaining: 5, total: 5 }],
+        }),
+    })
+
+    renderWithClient(<CycleList projectKey="ATLAS" />)
+    await screen.findByText('Sprint A')
+    expect(calls).not.toContain('GET /api/v1/cycles/1/burndown')
+
+    await user.click(screen.getByRole('button', { name: 'Burndown' }))
+
+    await waitFor(() => expect(calls).toContain('GET /api/v1/cycles/1/burndown'))
+    expect(await screen.findByText('Remaining')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hide burndown' })).toBeInTheDocument()
+  })
+
   it('renames a cycle and edits its goal', async () => {
     const user = userEvent.setup()
     // A stateful stub: the rename invalidates the list, which refetches — a fixed response
