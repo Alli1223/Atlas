@@ -665,6 +665,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{key}/worklogs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every worklog on a card, newest first, plus the running total. */
+        get: operations["list_worklogs"];
+        put?: never;
+        /**
+         * Logs time against a card directly — the manual counterpart to a smart
+         *     commit's `#time` directive.
+         */
+        post: operations["log_time"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/comments/{id}": {
         parameters: {
             query?: never;
@@ -2574,6 +2595,18 @@ export interface components {
             /** @description The repository name. */
             repo: string;
         };
+        /** @description The body of `POST /cards/{key}/worklogs`. */
+        LogTimeRequest: {
+            /**
+             * @description A duration string: whitespace-separated `2w`/`3d`/`4h`/`30m` tokens, e.g.
+             *     `"2h 30m"`. Every token must be a duration — there is no trailing note
+             *     to fall back to here, unlike a smart commit's `#time` directive.
+             * @example 2h 30m
+             */
+            duration: string;
+            /** @description An optional note. */
+            note?: string | null;
+        };
         /** @description Credentials for `POST /auth/login`. */
         LoginRequest: {
             /** @description The password. */
@@ -3504,6 +3537,42 @@ export interface components {
              * @description When it last changed.
              */
             updatedAt: string;
+        };
+        /** @description A row of `card_worklogs`. */
+        Worklog: {
+            /** @description Who logged it. `None` if that account was later deactivated and removed. */
+            authorId?: string | null;
+            /** @description The card this time was logged against. */
+            cardId: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** @description UUID v7, as text. */
+            id: string;
+            /**
+             * Format: int64
+             * @description Minutes worked. Always positive — see [`insert`].
+             */
+            minutes: number;
+            /**
+             * @description An optional note: a smart commit's trailing comment, or free text on a
+             *     manual entry.
+             */
+            note?: string | null;
+            /** @description Where it came from: `"smart-commit"` or `"manual"`. */
+            source: string;
+        };
+        /**
+         * @description A card's worklogs plus their total, so the client never has to sum the list
+         *     itself (and can't get it wrong doing so).
+         */
+        WorklogsResponse: {
+            /** @description Newest first. */
+            entries: components["schemas"]["Worklog"][];
+            /**
+             * Format: int64
+             * @description The sum of every entry's minutes.
+             */
+            totalMinutes: number;
         };
     };
     responses: never;
@@ -5386,6 +5455,110 @@ export interface operations {
                 };
             };
             /** @description A validator failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_worklogs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card's worklogs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorklogsResponse"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    log_time: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LogTimeRequest"];
+            };
+        };
+        responses: {
+            /** @description Logged */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Worklog"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Viewers cannot log time */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The duration is empty, malformed, or not positive */
             422: {
                 headers: {
                     [name: string]: unknown;

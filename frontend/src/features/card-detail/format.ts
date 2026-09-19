@@ -1,5 +1,31 @@
 /** Small date/label formatting shared across the card view. */
 
+/**
+ * The units [`formatMinutes`] breaks a total into, largest first, on the same 5-day / 8-hour
+ * working calendar `crate::domain::worklog::duration_token_minutes` parses against — so a
+ * duration a user typed in and the one rendered back agree.
+ */
+const DURATION_UNITS: readonly [unit: string, minutes: number][] = [
+  ['w', 5 * 8 * 60],
+  ['d', 8 * 60],
+  ['h', 60],
+  ['m', 1],
+]
+
+/** Total minutes as a duration string, e.g. `150` → `"2h 30m"`, `500` → `"1d 20m"`. */
+export function formatMinutes(totalMinutes: number): string {
+  let remaining = totalMinutes
+  const parts: string[] = []
+  for (const [unit, perUnit] of DURATION_UNITS) {
+    const value = Math.floor(remaining / perUnit)
+    if (value > 0) {
+      parts.push(`${value}${unit}`)
+      remaining -= value * perUnit
+    }
+  }
+  return parts.length > 0 ? parts.join(' ') : '0m'
+}
+
 /** An absolute, human date-time, e.g. `16 Jul 2026, 14:32`. */
 export function formatDateTime(iso: string): string {
   const date = new Date(iso)
