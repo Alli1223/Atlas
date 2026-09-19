@@ -2574,6 +2574,13 @@ export interface components {
             /** @description The repository name. */
             repo: string;
         };
+        /**
+         * @description Whether a project's linked repo is actually reachable, as of the last live GitHub call
+         *     Atlas happened to make against it — see the migration `0016_project_repo_link_health.sql`
+         *     for why this is a cache of an outcome, not a probe with its own schedule.
+         * @enum {string}
+         */
+        LinkStatus: "ok" | "broken";
         /** @description Credentials for `POST /auth/login`. */
         LoginRequest: {
             /** @description The password. */
@@ -2761,6 +2768,13 @@ export interface components {
             defaultBranch: string;
             /** @description `owner/name`. */
             fullName: string;
+            /**
+             * @description Why the link is broken, when it is — a revoked credential, or the repo renamed or
+             *     deleted. `null` while `linkStatus` is `ok`.
+             */
+            linkError?: string | null;
+            /** @description Whether the last live GitHub call against this repo succeeded. */
+            linkStatus: components["schemas"]["LinkStatus"];
             /**
              * Format: date-time
              * @description When the link was created.

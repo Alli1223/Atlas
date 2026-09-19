@@ -46,6 +46,12 @@ pub mod webhook;
 
 use std::fmt;
 
+use axum::http::StatusCode;
+use chrono::{DateTime, Utc};
+
+use crate::db::Db;
+use crate::error::{AppError, AppResult};
+
 /// A repository, addressed the way every GitHub REST path wants it: `{owner}/{repo}`.
 ///
 /// Deliberately *not* keyed on the token owner's login. A GitHub App has no
@@ -74,5 +80,203 @@ impl RepoRef {
 impl fmt::Display for RepoRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{}", self.owner, self.repo)
+    }
+}
+
+/// Updates a repo link's stored health from the outcome of a live call Atlas just made
+/// against it — the step shared by [`poll::poll_repo`] and
+/// [`crate::api::github::card_activity`], the two places a call happens against an
+/// already-linked repo outside a user-initiated action. (Linking itself always resets health
+/// optimistically; see `store::upsert_project_repo`.)
+///
+/// `outcome` is `None` for success. A failure that is not one of ours (no
+/// [`client::GithubApiError`] to recover a status from) or is transient — a 5xx, a timeout, a
+/// secondary rate limit — leaves the stored status alone: none of those mean the *link* is
+/// broken, only that this one call did not land.
+pub async fn record_link_health(
+    db: &Db,
+    repo: &store::ProjectRepo,
+    outcome: Option<&AppError>,
+    now: DateTime<Utc>,
+) -> AppResult<()> {
+    let Some(err) = outcome else {
+        return store::mark_repo_link_ok(db, &repo.id, now).await;
+    };
+
+    let reason = match client::github_status(err) {
+        Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
+            "GitHub rejected the stored credential — it may have been revoked, or has lost \
+             access to this repository."
+        }
+        Some(StatusCode::NOT_FOUND) => {
+            "GitHub reports this repository no longer exists at this owner and name — it may \
+             have been renamed or deleted."
+        }
+        _ => return Ok(()),
+    };
+    store::mark_repo_link_broken(db, &repo.id, reason, now).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{Db, migrate};
+    use crate::domain::EstimationUnit;
+    use crate::domain::project::{self, NewProject};
+    use crate::integrations::github::client::GithubApiError;
+    use crate::integrations::github::store::{LinkStatus, NewProjectRepo};
+    use crate::test_support::TempDb;
+
+    async fn fixture() -> (Db, TempDb, store::ProjectRepo) {
+        let temp = TempDb::new();
+        let db = Db::connect(&temp.config()).await.unwrap();
+        migrate::run(&db).await.unwrap();
+
+        let mut tx = db.begin_write().await.unwrap();
+        let project = project::insert(
+            &mut tx,
+            &NewProject {
+                key: "ATLAS".to_owned(),
+                name: "Atlas".to_owned(),
+                description: None,
+                lead_id: None,
+                template: "blank".to_owned(),
+                cycles_enabled: false,
+                estimation_unit: EstimationUnit::None,
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        let repo = store::upsert_project_repo(
+            &mut tx,
+            &NewProjectRepo {
+                project_id: &project.id,
+                credential_id: None,
+                owner: "octocat",
+                repo: "hello",
+                repo_id: 42,
+                default_branch: "main",
+                branch_prefix: "feature",
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        (db, temp, repo)
+    }
+
+    fn github_error(status: StatusCode) -> AppError {
+        AppError::internal(GithubApiError {
+            status,
+            body: String::new(),
+        })
+    }
+
+    #[tokio::test]
+    async fn a_401_or_403_marks_the_link_broken_as_a_credential_problem() {
+        for status in [StatusCode::UNAUTHORIZED, StatusCode::FORBIDDEN] {
+            let (db, _temp, repo) = fixture().await;
+            let err = github_error(status);
+            record_link_health(&db, &repo, Some(&err), crate::auth::now())
+                .await
+                .unwrap();
+
+            let found = store::find_project_repo(&db, &repo.project_id)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(found.link_status, LinkStatus::Broken);
+            assert!(found.link_error.unwrap().contains("credential"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_404_marks_the_link_broken_as_a_gone_repo() {
+        let (db, _temp, repo) = fixture().await;
+        let err = github_error(StatusCode::NOT_FOUND);
+        record_link_health(&db, &repo, Some(&err), crate::auth::now())
+            .await
+            .unwrap();
+
+        let found = store::find_project_repo(&db, &repo.project_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.link_status, LinkStatus::Broken);
+        assert!(found.link_error.unwrap().contains("renamed or deleted"));
+    }
+
+    #[tokio::test]
+    async fn a_transient_status_leaves_the_stored_health_alone() {
+        let (db, _temp, repo) = fixture().await;
+        // Break it first, on a real link problem...
+        record_link_health(
+            &db,
+            &repo,
+            Some(&github_error(StatusCode::NOT_FOUND)),
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+
+        // ...then a 500 (GitHub having a bad day) must not overwrite that verdict, and must
+        // not clear it either — a transient error says nothing about whether the *link* is
+        // still broken.
+        let transient = github_error(StatusCode::INTERNAL_SERVER_ERROR);
+        record_link_health(&db, &repo, Some(&transient), crate::auth::now())
+            .await
+            .unwrap();
+
+        let found = store::find_project_repo(&db, &repo.project_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            found.link_status,
+            LinkStatus::Broken,
+            "a transient error must not clear it"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_error_with_no_recoverable_github_status_leaves_the_stored_health_alone() {
+        let (db, _temp, repo) = fixture().await;
+        let not_ours = AppError::internal(anyhow::anyhow!("the vault is not configured"));
+        record_link_health(&db, &repo, Some(&not_ours), crate::auth::now())
+            .await
+            .unwrap();
+
+        let found = store::find_project_repo(&db, &repo.project_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.link_status, LinkStatus::Ok);
+    }
+
+    #[tokio::test]
+    async fn success_marks_a_previously_broken_link_ok_again() {
+        let (db, _temp, repo) = fixture().await;
+        record_link_health(
+            &db,
+            &repo,
+            Some(&github_error(StatusCode::NOT_FOUND)),
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+
+        record_link_health(&db, &repo, None, crate::auth::now())
+            .await
+            .unwrap();
+
+        let found = store::find_project_repo(&db, &repo.project_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.link_status, LinkStatus::Ok);
+        assert_eq!(found.link_error, None);
     }
 }

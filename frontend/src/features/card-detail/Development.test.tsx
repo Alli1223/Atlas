@@ -62,6 +62,44 @@ describe('Development', () => {
     await waitFor(() => expect(calls).toContain('POST /api/v1/cards/ATLAS-1/branch'))
   })
 
+  it('warns when the repo link is broken, and disables creating a branch against it', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () =>
+        jsonResponse(
+          makeRepo({
+            linkStatus: 'broken',
+            linkError: 'GitHub rejected the stored credential — it may have been revoked.',
+          }),
+        ),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([]),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    expect(
+      await screen.findByText(
+        'GitHub rejected the stored credential — it may have been revoked.',
+        { exact: false },
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create branch' })).toBeDisabled()
+  })
+
+  it('shows no warning at all when the repo link is healthy', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': () => jsonResponse(ADMIN),
+      'GET /api/v1/projects/ATLAS/repo': () => jsonResponse(makeRepo()),
+      'GET /api/v1/cards/ATLAS-1/git-links': () => jsonResponse([]),
+    })
+
+    renderWithClient(<Development card={CARD} projectKey="ATLAS" />)
+
+    await screen.findByText('octocat/hello')
+    expect(screen.getByRole('button', { name: 'Create branch' })).toBeEnabled()
+    expect(screen.queryByText(/relink to fix it/)).not.toBeInTheDocument()
+  })
+
   it("lists the card's git links", async () => {
     stubFetch({
       'GET /api/v1/auth/me': () => jsonResponse(ADMIN),

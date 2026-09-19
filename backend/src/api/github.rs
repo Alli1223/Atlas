@@ -35,7 +35,7 @@ use crate::integrations::github::client::{
     CiState, CommitSummary, GithubClient, PrState, RepoSummary, ReviewState, review_rollup,
 };
 use crate::integrations::github::store::{
-    self, CardGitLink, NewCardGitLink, NewProjectRepo, ProjectRepo,
+    self, CardGitLink, LinkStatus, NewCardGitLink, NewProjectRepo, ProjectRepo,
 };
 use crate::secrets::vault::Vault;
 use crate::secrets::{self, Provider, Secret};
@@ -79,6 +79,11 @@ pub struct ProjectRepoDto {
     pub credential_id: Option<String>,
     /// Whether an Atlas webhook is installed on the repo.
     pub webhook_configured: bool,
+    /// Whether the last live GitHub call against this repo succeeded.
+    pub link_status: LinkStatus,
+    /// Why the link is broken, when it is — a revoked credential, or the repo renamed or
+    /// deleted. `null` while `linkStatus` is `ok`.
+    pub link_error: Option<String>,
     /// When the link was created.
     pub linked_at: DateTime<Utc>,
     /// When it last changed.
@@ -96,6 +101,8 @@ impl ProjectRepoDto {
             branch_prefix: r.branch_prefix.clone(),
             credential_id: r.credential_id.clone(),
             webhook_configured: r.webhook_id.is_some(),
+            link_status: r.link_status,
+            link_error: r.link_error.clone(),
             linked_at: r.created_at,
             updated_at: r.updated_at,
         }
@@ -649,36 +656,59 @@ async fn card_activity(
 
     let client = GithubClient::new(vault.open(&credential)?)?;
     let repo_ref = repo.repo_ref();
-    let commits = client.commits(&repo_ref, &branch.git_ref).await?;
-    // GitHub's commits endpoint is newest-first, so the head of the list is the tip — exactly
-    // the commit a CI badge should reflect. No branch has zero commits in practice (it forks
-    // from a real base), but an empty response is handled rather than assumed away.
-    let ci_status = match commits.first() {
-        Some(tip) => Some(client.ci_status(&repo_ref, &tip.sha).await?),
-        None => None,
-    };
 
-    // Mergeable state and reviews only exist once a PR does. A card can have a branch with
-    // no PR yet, which is a normal state here, not an error.
-    let pr_number = links
-        .iter()
-        .find(|link| link.kind == "pr")
-        .and_then(|link| link.git_ref.parse::<i64>().ok());
-    let (mergeable, review_state) = match pr_number {
-        Some(number) => {
-            let mergeable = client.mergeable(&repo_ref, number).await?;
-            let reviews = client.reviews(&repo_ref, number).await?;
-            (mergeable, Some(review_rollup(&reviews)))
-        }
-        None => (None, None),
-    };
+    // Collected into one `Result` rather than `?`-propagated inline, so the outcome — success
+    // or failure, and if the latter, which — reaches `record_link_health` below no matter
+    // which of these calls it was that failed.
+    let result: AppResult<CardActivityDto> = async {
+        let commits = client.commits(&repo_ref, &branch.git_ref).await?;
+        // GitHub's commits endpoint is newest-first, so the head of the list is the tip —
+        // exactly the commit a CI badge should reflect. No branch has zero commits in
+        // practice (it forks from a real base), but an empty response is handled rather
+        // than assumed away.
+        let ci_status = match commits.first() {
+            Some(tip) => Some(client.ci_status(&repo_ref, &tip.sha).await?),
+            None => None,
+        };
 
-    Ok(Json(CardActivityDto {
-        commits,
-        ci_status,
-        mergeable,
-        review_state,
-    }))
+        // Mergeable state and reviews only exist once a PR does. A card can have a branch
+        // with no PR yet, which is a normal state here, not an error.
+        let pr_number = links
+            .iter()
+            .find(|link| link.kind == "pr")
+            .and_then(|link| link.git_ref.parse::<i64>().ok());
+        let (mergeable, review_state) = match pr_number {
+            Some(number) => {
+                let mergeable = client.mergeable(&repo_ref, number).await?;
+                let reviews = client.reviews(&repo_ref, number).await?;
+                (mergeable, Some(review_rollup(&reviews)))
+            }
+            None => (None, None),
+        };
+
+        Ok(CardActivityDto {
+            commits,
+            ci_status,
+            mergeable,
+            review_state,
+        })
+    }
+    .await;
+
+    // Best-effort: a failure to *write* the health verdict must not turn a successful
+    // activity fetch into an error, nor mask the real failure with a database one.
+    if let Err(err) = crate::integrations::github::record_link_health(
+        &state.db,
+        &repo,
+        result.as_ref().err(),
+        now(),
+    )
+    .await
+    {
+        tracing::warn!(error = %err, "failed to record repo link health");
+    }
+
+    Ok(Json(result?))
 }
 
 // ---------------------------------------------------------------------------
