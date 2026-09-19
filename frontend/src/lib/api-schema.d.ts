@@ -792,6 +792,28 @@ export interface paths {
         patch: operations["update_cycle"];
         trace?: never;
     };
+    "/api/v1/cycles/{id}/burndown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A cycle's burndown: one point per day it has been snapshotted.
+         * @description Count-based rather than estimate-based whenever the cycle's project has no estimation
+         *     field configured (`estimationUnit = "none"`) — `metric` in the response says which, so the
+         *     client renders the right axis label without having to ask the project separately.
+         */
+        get: operations["get_burndown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cycles/{id}/complete": {
         parameters: {
             query?: never;
@@ -1830,6 +1852,43 @@ export interface components {
             branch: string;
             /** @description The browser URL for the branch. */
             url: string;
+        };
+        /**
+         * @description A cycle's burndown: one point per day it has been snapshotted, oldest first. Empty for a
+         *     cycle no snapshot job has reached yet — not an error, the same as an empty card list.
+         */
+        Burndown: {
+            metric: components["schemas"]["BurndownMetric"];
+            points: components["schemas"]["BurndownPoint"][];
+        };
+        /**
+         * @description Whether a burndown counts cards, or sums their estimate.
+         *
+         *     Derived once from the *project's* [`EstimationUnit`] — never per card. An unestimated card
+         *     in a points-tracking project is a real gap in that project's data (it counts as zero, the
+         *     convention every point-based burndown uses), not a reason to quietly fall back to counting;
+         *     `TODO.md` asks for the fallback only when the *project* has no estimation field at all.
+         * @enum {string}
+         */
+        BurndownMetric: "count" | "estimate";
+        /** @description One snapshotted day of a burndown: how much was left, and how much was in scope. */
+        BurndownPoint: {
+            /**
+             * @description The calendar day this point covers, as `cycle_snapshot.taken_at` truncated it —
+             *     midnight UTC, so this is really a date wearing a timestamp's clothes.
+             */
+            date: string;
+            /**
+             * Format: double
+             * @description Work not yet done, as of this day.
+             */
+            remaining: number;
+            /**
+             * Format: double
+             * @description Everything in the cycle's scope, as of this day — the "ideal line" reference, and the
+             *     series that would move if scope were added or dropped mid-cycle.
+             */
+            total: number;
         };
         /** @description Live GitHub activity for a card's branch: its commits, and the CI state of the latest one. */
         CardActivityDto: {
@@ -5828,6 +5887,47 @@ export interface operations {
             };
             /** @description The name is invalid, or nothing was sent */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_burndown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cycle id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cycle's burndown */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Burndown"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such cycle */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

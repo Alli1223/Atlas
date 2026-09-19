@@ -22,6 +22,7 @@ export const cycleKeys = {
   all: ['cycles'] as const,
   forProject: (projectKey: string) => [...cycleKeys.all, 'project', projectKey] as const,
   forCard: (cardKey: string) => [...cycleKeys.all, 'card', cardKey] as const,
+  burndown: (cycleId: string) => [...cycleKeys.all, 'burndown', cycleId] as const,
 }
 
 /** A project's cycles: active first, then future, then closed. */
@@ -42,6 +43,18 @@ export function useCardCycle(cardKey: string) {
   return useQuery({
     queryKey: cycleKeys.forCard(cardKey),
     queryFn: () => cyclesApi.fetchCardCycle(cardKey),
+  })
+}
+
+/**
+ * A cycle's burndown. `enabled` gates the fetch — a future cycle has no snapshot data to
+ * show, so its chart is never opened and the request never fires.
+ */
+export function useBurndown(cycleId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: cycleKeys.burndown(cycleId),
+    queryFn: () => cyclesApi.fetchBurndown(cycleId),
+    enabled,
   })
 }
 

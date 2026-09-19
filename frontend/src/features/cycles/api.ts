@@ -6,6 +6,13 @@ export type Cycle = components['schemas']['Cycle']
 /** A cycle's lifecycle state. */
 export type CycleState = components['schemas']['CycleState']
 
+/** A cycle's burndown. Mirrors `crate::domain::report::Burndown`. */
+export type Burndown = components['schemas']['Burndown']
+/** One snapshotted day of a burndown. */
+export type BurndownPoint = components['schemas']['BurndownPoint']
+/** Whether a burndown counts cards or sums their estimate. */
+export type BurndownMetric = components['schemas']['BurndownMetric']
+
 export interface CreateCycleInput {
   projectKey: string
   name: string
@@ -128,4 +135,13 @@ export async function addCardToCycle(cardKey: string, cycleId: string): Promise<
 /** Removes a card from its current cycle. A no-op if it was not in one. */
 export async function removeCardFromCycle(cardKey: string): Promise<void> {
   unwrap(await api.DELETE('/api/v1/cards/{key}/cycle', { params: { path: { key: cardKey } } }))
+}
+
+/**
+ * A cycle's burndown: one point per day it has been snapshotted, oldest first, plus which
+ * metric they are — count-based when the project has no estimation field, estimate-based
+ * otherwise. Empty for a cycle the daily snapshot job has not reached yet.
+ */
+export async function fetchBurndown(cycleId: string): Promise<Burndown> {
+  return unwrap(await api.GET('/api/v1/cycles/{id}/burndown', { params: { path: { id: cycleId } } }))
 }

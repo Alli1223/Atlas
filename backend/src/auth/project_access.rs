@@ -647,6 +647,12 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/cycles/{id}/reopen",
         Scope::Cycle(ProjectRole::Member),
     ),
+    // --- reports ---
+    (
+        Method::GET,
+        "/api/v1/cycles/{id}/burndown",
+        Scope::Cycle(ProjectRole::Viewer),
+    ),
     (
         Method::GET,
         "/api/v1/cards/{key}/cycle",

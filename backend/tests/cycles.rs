@@ -16,11 +16,13 @@ use atlas::api::{self, AppState};
 use atlas::auth::seed::DEFAULT_ADMIN_USERNAME;
 use atlas::config::Config;
 use atlas::db::{self, Db};
+use atlas::domain::cycle_snapshot;
 use atlas::test_support::TempDb;
 use atlas::{auth::seed, auth::session};
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Method, Request, StatusCode, header};
+use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -525,4 +527,144 @@ async fn completing_carries_an_incomplete_card_into_an_existing_cycle() {
         .await;
     assert_eq!(now_in.status, StatusCode::OK, "{}", now_in.raw_body);
     assert_eq!(now_in.json()["id"], target_id);
+}
+
+// ---------------------------------------------------------------------------
+// Burndown
+// ---------------------------------------------------------------------------
+
+fn midnight(y: i32, m: u32, d: u32) -> DateTime<Utc> {
+    chrono::NaiveDate::from_ymd_opt(y, m, d)
+        .expect("a valid calendar date")
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight is always a valid time")
+        .and_utc()
+}
+
+#[tokio::test]
+async fn burndown_sums_estimates_when_the_project_tracks_them() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    project(&app, &admin, "ATLAS", "programming").await;
+    let patched = app
+        .send(patch(
+            "/api/v1/projects/ATLAS",
+            Some(&admin),
+            json!({ "estimationUnit": "points" }),
+        ))
+        .await;
+    assert_eq!(patched.status, StatusCode::OK, "{}", patched.raw_body);
+
+    let type_id = default_type(&app, &admin, "ATLAS").await;
+    let card_key = card(&app, &admin, "ATLAS", &type_id, "Estimated work").await;
+    let estimated = app
+        .send(patch(
+            &format!("/api/v1/cards/{card_key}"),
+            Some(&admin),
+            json!({ "estimate": 5.0 }),
+        ))
+        .await;
+    assert_eq!(estimated.status, StatusCode::OK, "{}", estimated.raw_body);
+
+    let cycle = create_cycle(&app, &admin, "ATLAS", "Sprint 1").await;
+    let cycle_id = cycle["id"].as_str().unwrap();
+    let started = app
+        .send(post(
+            &format!("/api/v1/cycles/{cycle_id}/start"),
+            Some(&admin),
+            json!({ "startDate": "2026-01-01", "endDate": "2026-01-14" }),
+        ))
+        .await;
+    assert_eq!(started.status, StatusCode::OK, "{}", started.raw_body);
+    let added = app
+        .send(post(
+            &format!("/api/v1/cards/{card_key}/cycle"),
+            Some(&admin),
+            json!({ "cycleId": cycle_id }),
+        ))
+        .await;
+    assert_eq!(added.status, StatusCode::NO_CONTENT, "{}", added.raw_body);
+
+    cycle_snapshot::take(&app.db, midnight(2026, 1, 1))
+        .await
+        .unwrap();
+
+    let reply = app
+        .send(get(
+            &format!("/api/v1/cycles/{cycle_id}/burndown"),
+            Some(&admin),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+    assert_eq!(reply.json()["metric"], "estimate");
+    let points = reply.json()["points"].as_array().unwrap().clone();
+    assert_eq!(points.len(), 1);
+    assert_eq!(points[0]["remaining"], 5.0);
+    assert_eq!(points[0]["total"], 5.0);
+}
+
+#[tokio::test]
+async fn burndown_degrades_to_counting_cards_when_estimation_is_off() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    // "programming" is the only template with cycles on by default, but it defaults to
+    // points — turn estimation back off explicitly to exercise the degrade path.
+    project(&app, &admin, "ATLAS", "programming").await;
+    let patched = app
+        .send(patch(
+            "/api/v1/projects/ATLAS",
+            Some(&admin),
+            json!({ "estimationUnit": "none" }),
+        ))
+        .await;
+    assert_eq!(patched.status, StatusCode::OK, "{}", patched.raw_body);
+
+    let type_id = default_type(&app, &admin, "ATLAS").await;
+    let card_key = card(&app, &admin, "ATLAS", &type_id, "Unestimated work").await;
+
+    let cycle = create_cycle(&app, &admin, "ATLAS", "Sprint 1").await;
+    let cycle_id = cycle["id"].as_str().unwrap();
+    let started = app
+        .send(post(
+            &format!("/api/v1/cycles/{cycle_id}/start"),
+            Some(&admin),
+            json!({ "startDate": "2026-01-01", "endDate": "2026-01-14" }),
+        ))
+        .await;
+    assert_eq!(started.status, StatusCode::OK, "{}", started.raw_body);
+    let added = app
+        .send(post(
+            &format!("/api/v1/cards/{card_key}/cycle"),
+            Some(&admin),
+            json!({ "cycleId": cycle_id }),
+        ))
+        .await;
+    assert_eq!(added.status, StatusCode::NO_CONTENT, "{}", added.raw_body);
+
+    cycle_snapshot::take(&app.db, midnight(2026, 1, 1))
+        .await
+        .unwrap();
+
+    let reply = app
+        .send(get(
+            &format!("/api/v1/cycles/{cycle_id}/burndown"),
+            Some(&admin),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+    assert_eq!(reply.json()["metric"], "count");
+    let points = reply.json()["points"].as_array().unwrap().clone();
+    assert_eq!(points.len(), 1);
+    assert_eq!(points[0]["remaining"], 1.0);
+    assert_eq!(points[0]["total"], 1.0);
+}
+
+#[tokio::test]
+async fn burndown_for_an_unknown_cycle_is_a_404() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let reply = app
+        .send(get("/api/v1/cycles/no-such-cycle/burndown", Some(&admin)))
+        .await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.raw_body);
 }
