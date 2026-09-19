@@ -1960,6 +1960,74 @@ async fn comments_record_that_they_were_edited() {
     app.db.close().await;
 }
 
+#[tokio::test]
+async fn logging_time_directly_sums_alongside_a_smart_commits_worklogs() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let project = project(&app, &admin, "ATLAS", "programming").await;
+    let key = card(&app, &admin, &project, "Story", "Card").await;
+
+    let reply = app
+        .send(post(
+            &format!("/api/v1/cards/{key}/worklogs"),
+            Some(&admin),
+            json!({ "duration": "2h 30m", "note": "wrote the fix" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    assert_eq!(reply.json()["minutes"], 150);
+    assert_eq!(reply.json()["source"], "manual");
+    assert_eq!(reply.json()["note"], "wrote the fix");
+
+    let reply = app
+        .send(post(
+            &format!("/api/v1/cards/{key}/worklogs"),
+            Some(&admin),
+            json!({ "duration": "1h" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+
+    let reply = app
+        .send(get(&format!("/api/v1/cards/{key}/worklogs"), Some(&admin)))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+    assert_eq!(reply.json()["totalMinutes"], 210);
+    let entries = reply.json()["entries"].as_array().unwrap().clone();
+    assert_eq!(entries.len(), 2);
+    // Newest first: the second (1h, no note) entry comes before the first.
+    assert_eq!(entries[0]["minutes"], 60);
+    assert_eq!(entries[1]["minutes"], 150);
+
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn a_malformed_or_empty_duration_is_a_422_not_a_500() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let project = project(&app, &admin, "ATLAS", "programming").await;
+    let key = card(&app, &admin, &project, "Story", "Card").await;
+
+    for duration in ["", "not a duration", "0h", "2h fixed the thing"] {
+        let reply = app
+            .send(post(
+                &format!("/api/v1/cards/{key}/worklogs"),
+                Some(&admin),
+                json!({ "duration": duration }),
+            ))
+            .await;
+        assert_eq!(
+            reply.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{duration:?}: {}",
+            reply.raw_body
+        );
+    }
+
+    app.db.close().await;
+}
+
 // ---------------------------------------------------------------------------
 // Authorisation
 // ---------------------------------------------------------------------------

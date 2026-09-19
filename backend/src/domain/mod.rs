@@ -22,6 +22,8 @@
 //! - [`cycle_snapshot`] — daily point-in-time snapshots of an active cycle's in-scope cards,
 //!   what a burndown chart and Phase 16's reports are computed from. Driven by
 //!   [`crate::scheduler`].
+//! - [`worklog`] — `card_worklogs`: time logged against a card, from a smart commit or a
+//!   direct entry.
 //! - [`tag`] — free-text labels, and the presets each template seeds.
 //! - [`template`] — the four project templates' seed data.
 //! - [`workflow`] — the workflow engine: transitions and their conditions,
@@ -64,6 +66,7 @@ pub mod project;
 pub mod tag;
 pub mod template;
 pub mod workflow;
+pub mod worklog;
 
 use std::fmt;
 use std::str::FromStr;

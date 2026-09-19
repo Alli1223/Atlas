@@ -33,10 +33,9 @@ use chrono::{DateTime, Utc};
 use crate::db::Db;
 use crate::domain::card::{self, Card, CardPatch};
 use crate::domain::workflow::Outcome;
+use crate::domain::worklog::{self, NewWorklog};
 use crate::domain::{StatusCategory, comment, config, workflow};
 use crate::error::{AppError, AppResult};
-
-use super::store::{self, NewWorklog};
 
 /// A single command parsed from a smart-commit directive.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,7 +201,7 @@ fn parse_time_arg(arg: &str) -> Option<(i64, Option<String>)> {
     let mut minutes: i64 = 0;
     let mut consumed = 0;
     for token in &tokens {
-        match duration_token_minutes(token) {
+        match worklog::duration_token_minutes(token) {
             Some(m) => {
                 minutes = minutes.checked_add(m)?;
                 consumed += 1;
@@ -217,24 +216,6 @@ fn parse_time_arg(arg: &str) -> Option<(i64, Option<String>)> {
 
     let note = (consumed < tokens.len()).then(|| tokens[consumed..].join(" "));
     Some((minutes, note))
-}
-
-/// A single `2w` / `3d` / `4h` / `30m` token → minutes, on a 5-day / 8-hour working
-/// calendar. `None` if the token is not a duration.
-fn duration_token_minutes(token: &str) -> Option<i64> {
-    let unit = token.chars().next_back()?;
-    let value: i64 = token[..token.len() - unit.len_utf8()].parse().ok()?;
-    if value < 0 {
-        return None;
-    }
-    let per_unit = match unit.to_ascii_lowercase() {
-        'w' => 5 * 8 * 60,
-        'd' => 8 * 60,
-        'h' => 60,
-        'm' => 1,
-        _ => return None,
-    };
-    value.checked_mul(per_unit)
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +298,7 @@ pub async fn apply_to_card(
             }
             Command::Time { minutes, note } => {
                 let mut tx = db.begin_write().await?;
-                store::insert_worklog(
+                worklog::insert(
                     &mut tx,
                     &NewWorklog {
                         card_id: &card.id,
