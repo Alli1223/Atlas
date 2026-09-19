@@ -69,6 +69,8 @@ export function makeRepo(overrides: Partial<ProjectRepo> = {}): ProjectRepo {
     branchPrefix: 'feature',
     credentialId: 'cred-1',
     webhookConfigured: false,
+    linkStatus: 'ok',
+    linkError: null,
     linkedAt: '2026-07-16T10:00:00Z',
     updatedAt: '2026-07-16T10:00:00Z',
     ...overrides,

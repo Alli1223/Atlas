@@ -104,12 +104,20 @@ export function Development({ card, projectKey }: { card: Card; projectKey: stri
             <span className={styles.repoName}>{repo.data.fullName}</span>
           </a>
 
+          {repo.data.linkStatus === 'broken' && (
+            <Banner appearance="warning">
+              {repo.data.linkError ?? 'This repository link appears to be broken.'} Unlink and
+              relink to fix it.
+            </Banner>
+          )}
+
           <div className={styles.actions}>
             <Button
               appearance="default"
               size="compact"
               iconBefore={<GitBranch {...ICON} aria-hidden="true" />}
               isLoading={createBranch.isPending}
+              disabled={repo.data.linkStatus === 'broken'}
               onClick={() => createBranch.mutate()}
             >
               Create branch
