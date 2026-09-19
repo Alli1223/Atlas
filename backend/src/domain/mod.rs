@@ -22,6 +22,7 @@
 //! - [`cycle_snapshot`] — daily point-in-time snapshots of an active cycle's in-scope cards,
 //!   what a burndown chart and Phase 16's reports are computed from. Driven by
 //!   [`crate::scheduler`].
+//! - [`report`] — reports computed from [`cycle_snapshot`]'s rows, starting with burndown.
 //! - [`tag`] — free-text labels, and the presets each template seeds.
 //! - [`template`] — the four project templates' seed data.
 //! - [`workflow`] — the workflow engine: transitions and their conditions,
@@ -61,6 +62,7 @@ pub mod hierarchy;
 pub mod history;
 pub mod member;
 pub mod project;
+pub mod report;
 pub mod tag;
 pub mod template;
 pub mod workflow;

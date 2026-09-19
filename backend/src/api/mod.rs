@@ -13,6 +13,7 @@ pub mod members;
 pub mod middleware;
 pub mod project_config;
 pub mod projects;
+pub mod reports;
 pub mod search;
 pub mod serde_ext;
 pub mod tags;
@@ -151,6 +152,7 @@ impl AppState {
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
         (name = "cycles", description = "Cycles (sprints/iterations): their lifecycle, and which cards belong to them"),
+        (name = "reports", description = "Reports computed from daily cycle snapshots, starting with burndown"),
         (name = "search", description = "AQL search, query validation, and saved filters"),
         (name = "credentials", description = "The encrypted secrets vault: API keys and PATs. Admin only; never returns a secret"),
         (name = "github", description = "GitHub integration: link a project to a repo, pick repos, and create a branch from a card"),
@@ -244,6 +246,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(search::routes())
         .merge(workflow::routes())
         .merge(cycles::routes())
+        .merge(reports::routes())
         .merge(credentials::routes())
         .merge(github::routes())
         .merge(agent_sessions::routes())
