@@ -106,7 +106,15 @@ async fn poll_repo(state: &AppState, vault: &Vault, repo: &ProjectRepo) -> AppRe
 
     let links = store::list_open_pr_links(&state.db, &repo.project_id).await?;
     for link in links {
-        if let Err(err) = poll_pr_link(state, &client, &repo_ref, &link).await {
+        let result = poll_pr_link(state, &client, &repo_ref, &link).await;
+        // Best-effort, matching this whole pass's philosophy: a failure to *write* the
+        // health verdict must not stop the poll from moving on to the next PR link.
+        if let Err(err) =
+            super::record_link_health(&state.db, repo, result.as_ref().err(), now()).await
+        {
+            tracing::warn!(error = %err, "poll fallback: failed to record repo link health");
+        }
+        if let Err(err) = result {
             tracing::warn!(
                 error = %err,
                 repo = %format!("{}/{}", repo.owner, repo.repo),

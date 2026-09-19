@@ -507,6 +507,35 @@ mod wire {
     }
 }
 
+/// A GitHub API call that came back non-2xx, with the status [`error_for_status`] classified
+/// it under.
+///
+/// This is what [`AppError::internal`] wraps whenever a [`GithubClient`] method fails against
+/// GitHub itself (as opposed to a bug in Atlas) — its `Display` is deliberately generic (the
+/// body is never echoed, see [`GithubClient::error_for_status`]'s doc), but the concrete type
+/// stays recoverable by [`github_status`] for the one caller that needs to know which status
+/// this was, without every other caller having to.
+#[derive(Debug, thiserror::Error)]
+#[error("GitHub API returned {status}: {body}")]
+pub struct GithubApiError {
+    pub status: reqwest::StatusCode,
+    pub(crate) body: String,
+}
+
+/// Recovers the GitHub status behind an [`AppError`], if it was one of ours.
+///
+/// `None` for anything else — a validation error, a database error, or a plain
+/// [`AppError::internal`] built from something other than a failed GitHub call (a
+/// misconfigured vault, say). Repo-link health tracking is the only caller today
+/// ([`crate::integrations::github::poll`], [`crate::api::github::card_activity`]); everyone
+/// else just propagates the error with `?` exactly as before this existed.
+pub fn github_status(err: &AppError) -> Option<reqwest::StatusCode> {
+    match err {
+        AppError::Internal(inner) => inner.downcast_ref::<GithubApiError>().map(|e| e.status),
+        _ => None,
+    }
+}
+
 /// A GitHub REST client bound to one token.
 ///
 /// Cheap to build per request from the vault-opened PAT. Holds no Atlas state and
@@ -828,6 +857,12 @@ impl GithubClient {
     /// client — a GitHub error can carry the token back in a rejected `create_hook`
     /// config, so the cause is logged (via [`AppError::internal`]) and the client
     /// sees only an opaque 500.
+    ///
+    /// The status is not lost, though: it rides inside the [`AppError::Internal`] as a
+    /// [`GithubApiError`], recoverable via [`github_status`] by the one caller that cares
+    /// which status it was — repo-link health tracking, which needs to tell "the credential
+    /// was rejected" (401/403) from "the repo is gone" (404) from "something transient",
+    /// without every other caller of every other method having to think about it.
     async fn error_for_status(resp: reqwest::Response) -> AppResult<reqwest::Response> {
         let status = resp.status();
         if status.is_success() {
@@ -835,9 +870,7 @@ impl GithubClient {
         }
         // The body is read but never surfaced: it is logged as the internal cause.
         let body = resp.text().await.unwrap_or_default();
-        Err(AppError::internal(anyhow::anyhow!(
-            "GitHub API returned {status}: {body}"
-        )))
+        Err(AppError::internal(GithubApiError { status, body }))
     }
 
     fn pull_to_summary(pull: wire::Pull) -> PrSummary {
@@ -857,6 +890,26 @@ mod tests {
     use super::*;
     use reqwest::StatusCode;
     use reqwest::header::HeaderValue;
+
+    // --- github_status ----------------------------------------------------------
+
+    #[test]
+    fn github_status_recovers_the_status_from_a_wrapped_error() {
+        let err = AppError::internal(GithubApiError {
+            status: StatusCode::NOT_FOUND,
+            body: String::new(),
+        });
+        assert_eq!(github_status(&err), Some(StatusCode::NOT_FOUND));
+    }
+
+    #[test]
+    fn github_status_is_none_for_anything_that_is_not_ours() {
+        assert_eq!(github_status(&AppError::NotFound), None);
+        assert_eq!(
+            github_status(&AppError::internal(anyhow::anyhow!("something else broke"))),
+            None
+        );
+    }
 
     fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
         let mut map = HeaderMap::new();

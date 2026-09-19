@@ -9,8 +9,16 @@
 //! Rows here are rows, never wire types — the API layer maps them to its own DTOs,
 //! the same split [`crate::secrets`] and [`crate::domain::project`] use.
 
+use std::fmt;
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, SqliteConnection};
+use serde::Serialize;
+use sqlx::database::Database;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::{Decode, Encode, FromRow, Sqlite, SqliteConnection, Type};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::auth::to_sql_timestamp;
@@ -30,8 +38,82 @@ use super::RepoRef;
 macro_rules! project_repo_columns {
     () => {
         "id, project_id, credential_id, owner, repo, repo_id, default_branch, \
-         branch_prefix, webhook_id, created_at, updated_at"
+         branch_prefix, webhook_id, link_status, link_error, created_at, updated_at"
     };
+}
+
+/// Why a link-status string could not be read.
+#[derive(Debug, thiserror::Error)]
+#[error("unknown repo link status {0:?}")]
+pub struct LinkStatusError(String);
+
+/// Whether a project's linked repo is actually reachable, as of the last live GitHub call
+/// Atlas happened to make against it — see the migration `0016_project_repo_link_health.sql`
+/// for why this is a cache of an outcome, not a probe with its own schedule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkStatus {
+    /// The last call against this repo succeeded (or none has been made yet — a fresh link
+    /// starts here optimistically).
+    Ok,
+    /// The last call failed with something that means the *link itself* is broken: a 401/403
+    /// (the stored credential no longer works) or a 404 (renamed beyond this credential's
+    /// reach, or deleted). [`ProjectRepo::link_error`] carries which.
+    Broken,
+}
+
+impl LinkStatus {
+    /// The status's database and JSON spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Broken => "broken",
+        }
+    }
+}
+
+impl fmt::Display for LinkStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for LinkStatus {
+    type Err = LinkStatusError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ok" => Ok(Self::Ok),
+            "broken" => Ok(Self::Broken),
+            other => Err(LinkStatusError(other.to_owned())),
+        }
+    }
+}
+
+impl Type<Sqlite> for LinkStatus {
+    fn type_info() -> <Sqlite as Database>::TypeInfo {
+        <String as Type<Sqlite>>::type_info()
+    }
+
+    fn compatible(ty: &<Sqlite as Database>::TypeInfo) -> bool {
+        <String as Type<Sqlite>>::compatible(ty)
+    }
+}
+
+impl<'q> Encode<'q, Sqlite> for LinkStatus {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Sqlite as Database>::ArgumentBuffer,
+    ) -> Result<IsNull, BoxDynError> {
+        <&str as Encode<'q, Sqlite>>::encode(self.as_str(), buf)
+    }
+}
+
+impl<'r> Decode<'r, Sqlite> for LinkStatus {
+    fn decode(value: <Sqlite as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let text = <String as Decode<'r, Sqlite>>::decode(value)?;
+        Ok(text.parse()?)
+    }
 }
 
 /// A row of `project_repos`: the one repository a project is linked to.
@@ -56,6 +138,10 @@ pub struct ProjectRepo {
     pub branch_prefix: String,
     /// The id of the Atlas webhook on this repo, once one is installed.
     pub webhook_id: Option<i64>,
+    /// Whether the last live GitHub call against this repo succeeded.
+    pub link_status: LinkStatus,
+    /// Why the link is broken, when it is. `None` while `link_status` is `Ok`.
+    pub link_error: Option<String>,
     /// When the link was created.
     pub created_at: DateTime<Utc>,
     /// When it last changed.
@@ -128,8 +214,8 @@ pub async fn upsert_project_repo(
     sqlx::query(
         "INSERT INTO project_repos \
            (id, project_id, credential_id, owner, repo, repo_id, default_branch, \
-            branch_prefix, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+            branch_prefix, link_status, link_error, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ok', NULL, ?, ?) \
          ON CONFLICT (project_id) DO UPDATE SET \
             credential_id  = excluded.credential_id, \
             owner          = excluded.owner, \
@@ -137,6 +223,8 @@ pub async fn upsert_project_repo(
             repo_id        = excluded.repo_id, \
             default_branch = excluded.default_branch, \
             branch_prefix  = excluded.branch_prefix, \
+            link_status    = 'ok', \
+            link_error     = NULL, \
             updated_at     = excluded.updated_at",
     )
     .bind(Uuid::now_v7().to_string())
@@ -185,6 +273,48 @@ pub async fn delete_project_repo(tx: &mut SqliteConnection, project_id: &str) ->
         .execute(&mut *tx)
         .await?;
     Ok(result.rows_affected() > 0)
+}
+
+/// Marks a repo link broken, from a live call that hit an error meaning the link itself —
+/// not just this one request — is the problem. A no-op write (the `WHERE` guards it) when
+/// the row is already broken with the same reason, so a run of identical failures across
+/// many polls does not keep touching `updated_at`.
+pub async fn mark_repo_link_broken(
+    db: &Db,
+    repo_id: &str,
+    reason: &str,
+    now: DateTime<Utc>,
+) -> AppResult<()> {
+    let mut tx = db.begin_write().await?;
+    sqlx::query(
+        "UPDATE project_repos SET link_status = 'broken', link_error = ?, updated_at = ? \
+          WHERE id = ? AND (link_status != 'broken' OR link_error IS NOT ?)",
+    )
+    .bind(reason)
+    .bind(to_sql_timestamp(now))
+    .bind(repo_id)
+    .bind(reason)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Marks a repo link healthy again, from a live call that actually succeeded. The common
+/// case on every call once nothing is wrong: a no-op write, same idempotence as
+/// [`mark_repo_link_broken`].
+pub async fn mark_repo_link_ok(db: &Db, repo_id: &str, now: DateTime<Utc>) -> AppResult<()> {
+    let mut tx = db.begin_write().await?;
+    sqlx::query(
+        "UPDATE project_repos SET link_status = 'ok', link_error = NULL, updated_at = ? \
+          WHERE id = ? AND link_status != 'ok'",
+    )
+    .bind(to_sql_timestamp(now))
+    .bind(repo_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -770,5 +900,123 @@ mod tests {
         assert_eq!(open.len(), 1, "{open:?}");
         assert_eq!(open[0].git_ref, "7");
         assert_eq!(open[0].card_id, card_id);
+    }
+
+    async fn a_linked_repo(db: &Db, project_id: &str) -> ProjectRepo {
+        let mut tx = db.begin_write().await.unwrap();
+        let repo = upsert_project_repo(
+            &mut tx,
+            &NewProjectRepo {
+                project_id,
+                credential_id: None,
+                owner: "octocat",
+                repo: "hello",
+                repo_id: 42,
+                default_branch: "main",
+                branch_prefix: "feature",
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        repo
+    }
+
+    #[tokio::test]
+    async fn a_fresh_link_starts_ok_and_marking_it_broken_round_trips_the_reason() {
+        let (db, _temp) = db().await;
+        let project_id = a_project(&db, "ATLAS").await;
+        let repo = a_linked_repo(&db, &project_id).await;
+        assert_eq!(repo.link_status, LinkStatus::Ok);
+        assert_eq!(repo.link_error, None);
+
+        mark_repo_link_broken(
+            &db,
+            &repo.id,
+            "the credential was revoked",
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+
+        let found = find_project_repo(&db, &project_id).await.unwrap().unwrap();
+        assert_eq!(found.link_status, LinkStatus::Broken);
+        assert_eq!(
+            found.link_error.as_deref(),
+            Some("the credential was revoked")
+        );
+    }
+
+    #[tokio::test]
+    async fn marking_ok_again_clears_the_error() {
+        let (db, _temp) = db().await;
+        let project_id = a_project(&db, "ATLAS").await;
+        let repo = a_linked_repo(&db, &project_id).await;
+
+        mark_repo_link_broken(&db, &repo.id, "gone", crate::auth::now())
+            .await
+            .unwrap();
+        mark_repo_link_ok(&db, &repo.id, crate::auth::now())
+            .await
+            .unwrap();
+
+        let found = find_project_repo(&db, &project_id).await.unwrap().unwrap();
+        assert_eq!(found.link_status, LinkStatus::Ok);
+        assert_eq!(found.link_error, None);
+    }
+
+    #[tokio::test]
+    async fn relinking_resets_a_broken_link_to_ok() {
+        let (db, _temp) = db().await;
+        let project_id = a_project(&db, "ATLAS").await;
+        let repo = a_linked_repo(&db, &project_id).await;
+        mark_repo_link_broken(&db, &repo.id, "gone", crate::auth::now())
+            .await
+            .unwrap();
+
+        let mut tx = db.begin_write().await.unwrap();
+        let relinked = upsert_project_repo(
+            &mut tx,
+            &NewProjectRepo {
+                project_id: &project_id,
+                credential_id: None,
+                owner: "octocat",
+                repo: "hello-renamed",
+                repo_id: 42,
+                default_branch: "main",
+                branch_prefix: "feature",
+            },
+            crate::auth::now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(relinked.link_status, LinkStatus::Ok);
+        assert_eq!(relinked.link_error, None);
+    }
+
+    #[tokio::test]
+    async fn marking_broken_twice_with_the_same_reason_does_not_touch_updated_at() {
+        let (db, _temp) = db().await;
+        let project_id = a_project(&db, "ATLAS").await;
+        let repo = a_linked_repo(&db, &project_id).await;
+
+        let first_call = crate::auth::now();
+        mark_repo_link_broken(&db, &repo.id, "gone", first_call)
+            .await
+            .unwrap();
+        let after_first = find_project_repo(&db, &project_id).await.unwrap().unwrap();
+
+        // A later instant, but the reason has not changed — the guard in the UPDATE's WHERE
+        // clause must make this a no-op, not a fresh timestamp for an unchanged verdict.
+        let later = first_call + chrono::Duration::hours(1);
+        mark_repo_link_broken(&db, &repo.id, "gone", later)
+            .await
+            .unwrap();
+        let after_second = find_project_repo(&db, &project_id).await.unwrap().unwrap();
+
+        assert_eq!(after_second.updated_at, after_first.updated_at);
     }
 }
