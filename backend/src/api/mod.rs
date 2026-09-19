@@ -19,6 +19,7 @@ pub mod tags;
 pub mod users;
 pub mod webhooks;
 pub mod workflow;
+pub mod worklogs;
 
 use std::fmt;
 use std::sync::Arc;
@@ -151,6 +152,7 @@ impl AppState {
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
         (name = "cycles", description = "Cycles (sprints/iterations): their lifecycle, and which cards belong to them"),
+        (name = "worklogs", description = "Time logged against a card, from a smart commit or a direct entry"),
         (name = "search", description = "AQL search, query validation, and saved filters"),
         (name = "credentials", description = "The encrypted secrets vault: API keys and PATs. Admin only; never returns a secret"),
         (name = "github", description = "GitHub integration: link a project to a repo, pick repos, and create a branch from a card"),
@@ -240,6 +242,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(cards::routes())
         .merge(board::routes())
         .merge(comments::routes())
+        .merge(worklogs::routes())
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())

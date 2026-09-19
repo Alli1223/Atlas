@@ -427,6 +427,17 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/cards/{key}/comments",
         Scope::Card(ProjectRole::Member),
     ),
+    // --- worklogs ---
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/worklogs",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/worklogs",
+        Scope::Card(ProjectRole::Member),
+    ),
     // Project Member gets you as far as the route; the handler then requires you
     // to be the author (edit) or the author-or-instance-admin (delete).
     (

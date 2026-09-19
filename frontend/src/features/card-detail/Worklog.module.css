@@ -1,0 +1,46 @@
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--ds-space-100);
+  margin-bottom: var(--ds-space-200);
+}
+
+.durationField {
+  flex: 0 0 140px;
+}
+
+.noteField {
+  flex: 1;
+  min-width: 0;
+}
+
+.duration {
+  font-weight: var(--ds-font-weight-semibold);
+  color: var(--ds-text);
+}
+
+.source {
+  display: inline-flex;
+  align-items: center;
+  padding-inline: var(--ds-space-050);
+  border-radius: var(--ds-radius-small);
+  background: var(--ds-background-neutral);
+  color: var(--ds-text-subtle);
+  font: var(--ds-font-body-small);
+}
+
+.note {
+  margin: var(--ds-space-050) 0 0;
+  color: var(--ds-text-subtle);
+  font: var(--ds-font-body-small);
+}
+
+@media (max-width: 480px) {
+  .composer {
+    flex-wrap: wrap;
+  }
+
+  .durationField {
+    flex: 1 1 100%;
+  }
+}

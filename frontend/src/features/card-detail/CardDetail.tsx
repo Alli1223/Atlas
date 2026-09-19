@@ -24,6 +24,7 @@ import {
   usePatchCard,
 } from './queries'
 import { Sidebar } from './Sidebar'
+import { Worklog } from './Worklog'
 
 export interface CardDetailProps {
   cardKey: string
@@ -198,7 +199,7 @@ function Description({
   )
 }
 
-type Tab = 'comments' | 'history'
+type Tab = 'comments' | 'worklog' | 'history'
 
 function MainTabs({
   cardKey,
@@ -219,12 +220,15 @@ function MainTabs({
         <TabButton isActive={tab === 'comments'} onClick={() => setTab('comments')}>
           Comments
         </TabButton>
+        <TabButton isActive={tab === 'worklog'} onClick={() => setTab('worklog')}>
+          Time logged
+        </TabButton>
         <TabButton isActive={tab === 'history'} onClick={() => setTab('history')}>
           History
         </TabButton>
       </div>
 
-      {tab === 'comments' ? (
+      {tab === 'comments' && (
         <div role="tabpanel">
           <Comments
             cardKey={cardKey}
@@ -233,7 +237,13 @@ function MainTabs({
             members={members}
           />
         </div>
-      ) : (
+      )}
+      {tab === 'worklog' && (
+        <div role="tabpanel">
+          <Worklog cardKey={cardKey} members={members} />
+        </div>
+      )}
+      {tab === 'history' && (
         <div role="tabpanel">
           <HistoryTab cardKey={cardKey} members={members} enabled={tab === 'history'} />
         </div>

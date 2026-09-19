@@ -20,6 +20,7 @@ import type {
   LinkRepoInput,
   ProjectMember,
   ProjectRepo,
+  Worklog,
 } from './api'
 import { projectKeyOf } from './api'
 
@@ -34,6 +35,7 @@ export const cardKeys = {
   all: ['card-detail'] as const,
   card: (key: string) => [...cardKeys.all, 'card', key] as const,
   comments: (key: string) => [...cardKeys.all, 'comments', key] as const,
+  worklogs: (key: string) => [...cardKeys.all, 'worklogs', key] as const,
   history: (key: string) => [...cardKeys.all, 'history', key] as const,
   children: (key: string) => [...cardKeys.all, 'children', key] as const,
   transitions: (key: string) => [...cardKeys.all, 'transitions', key] as const,
@@ -62,6 +64,10 @@ export function useCard(key: string) {
 
 export function useComments(key: string) {
   return useQuery({ queryKey: cardKeys.comments(key), queryFn: () => cardApi.fetchComments(key) })
+}
+
+export function useWorklogs(key: string) {
+  return useQuery({ queryKey: cardKeys.worklogs(key), queryFn: () => cardApi.fetchWorklogs(key) })
 }
 
 export function useHistory(key: string, enabled = true) {
@@ -386,6 +392,21 @@ export function useAddComment(key: string) {
     mutationFn: (body) => cardApi.postComment(key, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: cardKeys.comments(key) })
+    },
+  })
+}
+
+/**
+ * Logs time directly against a card, then refetches (the server computes minutes and the
+ * new total, and `card_worklogs` is append-only so there is nothing to optimistically insert
+ * that the list wouldn't just as soon get from a refetch).
+ */
+export function useLogTime(key: string) {
+  const queryClient = useQueryClient()
+  return useMutation<Worklog, ApiError, { duration: string; note?: string }>({
+    mutationFn: ({ duration, note }) => cardApi.logTime(key, duration, note),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: cardKeys.worklogs(key) })
     },
   })
 }

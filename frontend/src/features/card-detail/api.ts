@@ -5,6 +5,10 @@ import type { components } from '@/lib/api-schema'
 export type Card = components['schemas']['CardDto']
 /** A comment. Mirrors `crate::domain::comment::Comment`. */
 export type Comment = components['schemas']['Comment']
+/** A worklog. Mirrors `crate::domain::worklog::Worklog`. */
+export type Worklog = components['schemas']['Worklog']
+/** A card's worklogs plus their total. Mirrors `crate::api::worklogs::WorklogsResponse`. */
+export type WorklogsResponse = components['schemas']['WorklogsResponse']
 /** A changelog row. Mirrors `crate::domain::history::HistoryEntry`. */
 export type HistoryEntry = components['schemas']['HistoryEntry']
 /** A move a card may legally make right now. Mirrors `AvailableTransition`. */
@@ -88,6 +92,24 @@ export async function patchComment(id: string, body: string): Promise<Comment> {
 /** Deletes a comment. The author, or an admin. */
 export async function deleteComment(id: string): Promise<void> {
   unwrap(await api.DELETE('/api/v1/comments/{id}', { params: { path: { id } } }))
+}
+
+/** Every worklog on a card, newest first, plus the running total. */
+export async function fetchWorklogs(key: string): Promise<WorklogsResponse> {
+  return unwrap(await api.GET('/api/v1/cards/{key}/worklogs', { params: { path: { key } } }))
+}
+
+/**
+ * Logs time against a card directly. `duration` is a string of `w`/`d`/`h`/`m` tokens, e.g.
+ * `"2h 30m"` — the same grammar a smart commit's `#time` directive parses.
+ */
+export async function logTime(key: string, duration: string, note?: string): Promise<Worklog> {
+  return unwrap(
+    await api.POST('/api/v1/cards/{key}/worklogs', {
+      params: { path: { key } },
+      body: { duration, ...(note !== undefined && note !== '' && { note }) },
+    }),
+  )
 }
 
 /** A card's changelog, oldest first. */
