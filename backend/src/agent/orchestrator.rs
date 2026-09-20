@@ -17,11 +17,13 @@
 //!
 //! # What happens if Atlas restarts mid-run
 //!
-//! The detached task dies with the process, and the session is left `running` forever with
-//! no error recorded — a known, narrow gap (worth a stale-session sweep on startup later),
-//! not silent data loss: the CLI's own child process is not orphaned regardless
+//! The detached task dies with the process — the CLI's own child is not orphaned regardless
 //! ([`crate::agent::runner`]'s `KillOnDrop` + process-group kill), so nothing keeps spending
-//! after Atlas is gone.
+//! after Atlas is gone, but the session row is left `running` with no drain task to ever
+//! finish it. [`resume_stale_sessions`] is `main`'s answer: on the next startup, every session
+//! still `running` is either handed back to the CLI via `--resume`, in the same workspace as
+//! it stood, or recorded `failed` with a reason that says a restart (not the run) is why —
+//! never left `running` forever.
 //!
 //! # Transcript persistence
 //!
@@ -50,6 +52,7 @@
 //! for, not a coin flip over which event the drain loop's `select!` happened to observe first.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::oneshot;
@@ -57,19 +60,37 @@ use tokio::sync::oneshot;
 use crate::agent::claude_code::{self, Event, Outcome, ResultEvent};
 use crate::agent::mcp;
 use crate::agent::runner::{AgentRunner, RunEvent, RunHandle, RunLimits, RunRequest};
-use crate::agent::workspace::WorkspacePreparer;
+use crate::agent::workspace::{self, WorkspacePreparer};
 use crate::auth::now;
 use crate::db::Db;
 use crate::domain::agent_session::{
     self, AgentSession, AgentSessionStatus, NewAgentSession, SessionOutcome,
 };
 use crate::domain::agent_session_transcript;
-use crate::domain::card::Card;
+use crate::domain::card::{self, Card};
 use crate::error::{AppError, AppResult};
 use crate::secrets::vault::Vault;
 
 /// Live runs' cancel signals, keyed by agent session id. See the module doc.
 pub type CancelRegistry = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
+
+/// Turns per-run — enough for a genuinely multi-step task without an unbounded bill. Not yet
+/// per-project configurable; `TODO.md`'s "permission mode per project" bullet covers making
+/// this (and the tool allowlist below) a setting rather than a constant. Shared by [`start`]
+/// (via `api::agent_sessions`) and [`resume_stale_sessions`] — a resumed run gets the same
+/// policy a fresh one would, since there is nowhere yet that a session's own limits are
+/// stored to resume *with* instead.
+pub const DEFAULT_MAX_TURNS: u32 = 50;
+
+/// Spend cap per run, in USD. Required by the CLI itself — see `agent::runner`'s module doc —
+/// and picked here as a number small enough that a runaway loop is a nuisance, not a bill.
+pub const DEFAULT_MAX_BUDGET_USD: f64 = 5.0;
+
+/// The tools a run may use. Deliberately not `bypassPermissions` or an unrestricted
+/// `--allowedTools`: this is the least permissive set that can still actually do the work a
+/// card describes (read/edit/write files, run shell commands, search the tree) inside its own
+/// cloned workspace. `TODO.md`'s permission-mode bullet is what makes this configurable.
+pub const DEFAULT_ALLOWED_TOOLS: &[&str] = &["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
 
 /// A poisoned lock still holds a perfectly usable `HashMap` — the panic that poisoned it
 /// happened in an unrelated request's critical section, not in this one, and refusing to look
@@ -181,6 +202,191 @@ pub async fn start(
     );
 
     Ok(session)
+}
+
+/// Finds every session a restart left `running` and either resumes it against the CLI's own
+/// `--resume`, continuing in the same on-disk workspace exactly as it was left, or — if that
+/// is not possible — records it as `failed` so it does not stay `running` forever.
+///
+/// Called once, at startup (`main`), never on a schedule: this reconciles what a *restart*
+/// left behind, which cannot happen while Atlas is up — the in-memory [`CancelRegistry`] and
+/// the drain task a live run's `RunHandle` lives in are exactly what a restart loses.
+///
+/// # Why this never calls [`WorkspacePreparer::prepare`]
+///
+/// `prepare` fetches and hard-resets a project's workspace to a clean copy of its default
+/// branch — exactly right for a *fresh* run, and exactly wrong here: whatever the interrupted
+/// run had already written to that checkout (in-progress edits, a branch it created) is the
+/// very thing `--resume` needs to still be there. So this reads the path a fresh run *would*
+/// have prepared ([`workspace::workspace_path`], deterministic from the
+/// project id — the same reason `docs/research/claude-code-cli.md` calls `--resume`
+/// CWD-scoped) and uses it exactly as it stands, only checking that it still exists.
+///
+/// # The capability token
+///
+/// A session's original MCP capability may still be sitting in `agent_capabilities` (nothing
+/// revoked it — the run never reached its own cleanup), but its token value is unrecoverable
+/// by design (only the hash is stored, see `agent::mcp::capability`'s own doc), so the
+/// resumed process cannot reuse it. Each resume revokes-then-mints fresh under the same
+/// session id before spawning, exactly mirroring [`start`]'s own "row and capability exist
+/// before the run is spawned" ordering.
+pub async fn resume_stale_sessions(
+    db: &Db,
+    runner: &dyn AgentRunner,
+    registry: &CancelRegistry,
+    workspace_root: &Path,
+    database_url: &str,
+) {
+    let stale = match agent_session::list_running(db).await {
+        Ok(sessions) => sessions,
+        Err(err) => {
+            tracing::error!(error = %err, "failed to list running agent sessions at startup");
+            return;
+        }
+    };
+
+    for session in stale {
+        resume_one(db, runner, registry, workspace_root, database_url, session).await;
+    }
+}
+
+async fn resume_one(
+    db: &Db,
+    runner: &dyn AgentRunner,
+    registry: &CancelRegistry,
+    workspace_root: &Path,
+    database_url: &str,
+    session: AgentSession,
+) {
+    let Some(claude_session_id) = session.claude_session_id.clone() else {
+        // Should never happen — every session has one from the moment it is spawned (`start`
+        // generates it up front) — but a session that cannot be resumed must not stay
+        // `running` forever regardless of why.
+        fail_unresumed(db, &session, "no CLI session id was recorded for this run").await;
+        return;
+    };
+
+    let card = match card::find_by_id(db, &session.card_id).await {
+        Ok(Some(card)) => card,
+        Ok(None) => {
+            fail_unresumed(
+                db,
+                &session,
+                "the card this session ran against no longer exists",
+            )
+            .await;
+            return;
+        }
+        Err(err) => {
+            tracing::error!(
+                session = %session.id,
+                error = %err,
+                "failed to look up a stale agent session's card at startup"
+            );
+            return;
+        }
+    };
+
+    let working_dir = workspace::workspace_path(workspace_root, &card.project_id);
+    if !matches!(tokio::fs::try_exists(&working_dir).await, Ok(true)) {
+        fail_unresumed(db, &session, "its workspace no longer exists on disk").await;
+        return;
+    }
+
+    let mut tx = match db.begin_write().await {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::error!(session = %session.id, error = %err, "failed to open a transaction to resume a session");
+            return;
+        }
+    };
+    if let Err(err) = mcp::capability::revoke(&mut tx, &session.id).await {
+        tracing::error!(session = %session.id, error = %err, "failed to revoke a stale capability before resuming");
+        return;
+    }
+    let minted = match mcp::capability::mint(&mut tx, &session.id, now()).await {
+        Ok(minted) => minted,
+        Err(err) => {
+            tracing::error!(session = %session.id, error = %err, "failed to mint a capability to resume a session");
+            return;
+        }
+    };
+    if let Err(err) = tx.commit().await {
+        tracing::error!(session = %session.id, error = %err, "failed to commit a resumed session's capability");
+        return;
+    }
+
+    let atlas_exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(ToOwned::to_owned))
+        .unwrap_or_else(|| "atlas".to_owned());
+    let mcp_config = mcp::mcp_config_json(&atlas_exe, &minted.token, database_url).to_string();
+
+    let mut allowed_tools: Vec<String> = DEFAULT_ALLOWED_TOOLS
+        .iter()
+        .map(|t| (*t).to_owned())
+        .collect();
+    allowed_tools.extend(mcp::ALLOWED_TOOLS.iter().map(|t| (*t).to_owned()));
+
+    let handle = match runner
+        .spawn(RunRequest {
+            prompt: session.prompt.clone(),
+            working_dir,
+            resume_session_id: Some(claude_session_id),
+            session_id: None,
+            allowed_tools,
+            mcp_config: Some(mcp_config),
+            permission_mode: RunRequest::default_permission_mode(),
+            limits: RunLimits {
+                max_turns: DEFAULT_MAX_TURNS,
+                max_budget_usd: DEFAULT_MAX_BUDGET_USD,
+            },
+        })
+        .await
+    {
+        Ok(handle) => handle,
+        Err(err) => {
+            fail_unresumed(
+                db,
+                &session,
+                &format!("the run could not be resumed: {err}"),
+            )
+            .await;
+            return;
+        }
+    };
+
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    lock(registry).insert(session.id.clone(), cancel_tx);
+
+    tracing::info!(session = %session.id, card = %card.key, "resumed an agent session across a restart");
+
+    spawn_drain(
+        db.clone(),
+        session.clone(),
+        handle,
+        registry.clone(),
+        cancel_rx,
+    );
+}
+
+/// Marks a session that could not be resumed as `failed`, with a reason that says a restart
+/// (not the run itself) is why. Best-effort, the same as [`fail_unstarted`]: there is no
+/// caller left to answer by the time this runs.
+async fn fail_unresumed(db: &Db, session: &AgentSession, reason: &str) {
+    let outcome = OutcomeFields {
+        status: AgentSessionStatus::Failed,
+        result_text: None,
+        total_cost_usd: None,
+        num_turns: None,
+        error_message: Some(format!(
+            "Atlas restarted while this session was running, and it could not be resumed: {reason}."
+        )),
+    };
+    if let Err(err) = finish(db, session, &outcome).await {
+        tracing::error!(session = %session.id, error = ?err, "failed to record an unresumable session as failed");
+    }
+    revoke_capability(db, &session.id).await;
 }
 
 /// Marks a session that failed to spawn as `failed` and revokes its capability. Best-effort:
@@ -960,5 +1166,244 @@ mod tests {
         })
         .await
         .expect("the capability must be revoked after the run finishes");
+    }
+
+    // --- resume_stale_sessions ---------------------------------------------------------
+
+    /// Inserts a session row directly as `running`, the way a restart would have left one —
+    /// never through [`start`], which would actually spawn a process.
+    async fn a_stale_session(db: &Db, card: &Card, claude_session_id: &str) -> AgentSession {
+        let mut tx = db.begin_write().await.unwrap();
+        let session = agent_session::insert(
+            &mut tx,
+            &NewAgentSession {
+                card_id: &card.id,
+                claude_session_id,
+                prompt: "Fix the thing\n\nDo the needful.",
+                started_by: None,
+            },
+            now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        session
+    }
+
+    #[tokio::test]
+    async fn a_stale_session_is_resumed_with_resume_not_session_id_in_the_same_workspace() {
+        let (db, _temp, card) = fixture().await;
+        let workspace_root = TempDir::new();
+        let workspace = workspace::workspace_path(&workspace_root.0, &card.project_id);
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let claude_session_id = "11111111-1111-1111-1111-111111111111";
+        let session = a_stale_session(&db, &card, claude_session_id).await;
+
+        let scripts = TempDir::new();
+        let args_file = scripts.0.join("args.txt");
+        let cwd_file = scripts.0.join("cwd.txt");
+        let program = fake_program(
+            &scripts.0,
+            &format!(
+                "printf '%s\\n' \"$@\" > {}\npwd > {}\necho '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":1,\"session_id\":\"x\",\"result\":\"ok\",\"total_cost_usd\":0.0,\"terminal_reason\":\"completed\"}}'",
+                args_file.display(),
+                cwd_file.display(),
+            ),
+        );
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let registry = CancelRegistry::default();
+
+        resume_stale_sessions(
+            &db,
+            &runner,
+            &registry,
+            &workspace_root.0,
+            "sqlite::memory:",
+        )
+        .await;
+        wait_for_finish(&db, &session.id).await;
+
+        let argv = std::fs::read_to_string(&args_file).expect("the fake CLI recorded its argv");
+        assert!(argv.contains("--resume"), "no --resume in: {argv}");
+        assert!(
+            argv.contains(claude_session_id),
+            "the original CLI session id was not passed to --resume: {argv}"
+        );
+        assert!(
+            !argv.contains("--session-id"),
+            "a resume must never also pass --session-id: {argv}"
+        );
+
+        let cwd = std::fs::read_to_string(&cwd_file).unwrap();
+        assert_eq!(
+            cwd.trim(),
+            workspace.canonicalize().unwrap().to_string_lossy(),
+            "must run in exactly the workspace a fresh run would have prepared"
+        );
+
+        let finished = agent_session::find_by_id(&db, &session.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(finished.status, AgentSessionStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn a_session_whose_workspace_no_longer_exists_is_failed_not_left_running() {
+        let (db, _temp, card) = fixture().await;
+        // Nothing under this root is ever created — the resume must find no workspace there.
+        let empty_root = TempDir::new();
+        let session = a_stale_session(&db, &card, "some-id").await;
+
+        let scripts = TempDir::new();
+        let program = fake_program(&scripts.0, "sleep 60");
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let registry = CancelRegistry::default();
+
+        resume_stale_sessions(&db, &runner, &registry, &empty_root.0, "sqlite::memory:").await;
+
+        let finished = agent_session::find_by_id(&db, &session.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(finished.status, AgentSessionStatus::Failed);
+        let reason = finished.error_message.unwrap();
+        assert!(reason.contains("restart"), "{reason}");
+        assert!(reason.contains("workspace"), "{reason}");
+    }
+
+    #[tokio::test]
+    async fn a_session_with_no_recorded_cli_session_id_is_failed_not_left_running() {
+        let (db, _temp, card) = fixture().await;
+        let workspace_root = TempDir::new();
+        let session = a_stale_session(&db, &card, "placeholder").await;
+        // Simulates the defensive branch — every session gets a `claude_session_id` from
+        // `start` itself, so this can only be reached by data that predates that guarantee.
+        sqlx::query("UPDATE agent_sessions SET claude_session_id = NULL WHERE id = ?")
+            .bind(&session.id)
+            .execute(db.writer())
+            .await
+            .unwrap();
+
+        let scripts = TempDir::new();
+        let program = fake_program(&scripts.0, "sleep 60");
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let registry = CancelRegistry::default();
+
+        resume_stale_sessions(
+            &db,
+            &runner,
+            &registry,
+            &workspace_root.0,
+            "sqlite::memory:",
+        )
+        .await;
+
+        let finished = agent_session::find_by_id(&db, &session.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(finished.status, AgentSessionStatus::Failed);
+        assert!(
+            finished
+                .error_message
+                .unwrap()
+                .contains("no CLI session id")
+        );
+    }
+
+    /// A second project/card in the same database as [`fixture`]'s, so a test can give two
+    /// stale sessions genuinely independent workspaces without needing two databases (which
+    /// [`resume_stale_sessions`] could not observe as "one pass" at all).
+    async fn second_card(db: &Db, creator_id: &str) -> Card {
+        let mut tx = db.begin_write().await.unwrap();
+        let project = template::create_project(
+            &mut tx,
+            Template::Programming,
+            "OTHER",
+            "Other",
+            None,
+            None,
+            now(),
+        )
+        .await
+        .unwrap();
+        let type_id: String = sqlx::query_scalar(
+            "SELECT id FROM card_types WHERE project_id = ? ORDER BY level DESC, name LIMIT 1",
+        )
+        .bind(&project.id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        let created = card::create(
+            &mut tx,
+            &project,
+            &NewCard {
+                type_id,
+                parent_id: None,
+                summary: "Do another thing".to_owned(),
+                description: None,
+                status_id: None,
+                priority_id: None,
+                assignee_id: None,
+                reporter_id: None,
+                due_date: None,
+                start_date: None,
+                estimate: None,
+                placement: Placement::Bottom,
+            },
+            creator_id,
+            now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        created
+    }
+
+    #[tokio::test]
+    async fn one_unresumable_session_does_not_stop_another_from_being_resumed() {
+        let (db, _temp, card) = fixture().await;
+        let other_card = second_card(&db, &card.creator_id).await;
+
+        let workspace_root = TempDir::new();
+        // Only the first project's workspace exists on disk — the second's session must
+        // fail on that basis alone, independently of the first.
+        let workspace = workspace::workspace_path(&workspace_root.0, &card.project_id);
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let doomed = a_stale_session(&db, &other_card, "doomed").await;
+        let resumable = a_stale_session(&db, &card, "resumable").await;
+
+        let scripts = TempDir::new();
+        let program = fake_program(
+            &scripts.0,
+            r#"echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"x","result":"ok","total_cost_usd":0.0,"terminal_reason":"completed"}'"#,
+        );
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let registry = CancelRegistry::default();
+
+        resume_stale_sessions(
+            &db,
+            &runner,
+            &registry,
+            &workspace_root.0,
+            "sqlite::memory:",
+        )
+        .await;
+        wait_for_finish(&db, &resumable.id).await;
+
+        let resumed = agent_session::find_by_id(&db, &resumable.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(resumed.status, AgentSessionStatus::Completed);
+
+        let failed = agent_session::find_by_id(&db, &doomed.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(failed.status, AgentSessionStatus::Failed);
     }
 }

@@ -247,6 +247,20 @@ pub async fn list_for_card(db: &Db, card_id: &str) -> AppResult<Vec<AgentSession
     .await?)
 }
 
+/// Every session still `running`, oldest first — exactly what a restart leaves behind for
+/// [`crate::agent::orchestrator::resume_stale_sessions`] to reconcile. Never populated by
+/// anything else: nothing else can leave a session `running` without a live drain task
+/// racing to finish it, and that race is normal, not something this needs to see.
+pub async fn list_running(db: &Db) -> AppResult<Vec<AgentSession>> {
+    Ok(sqlx::query_as::<_, AgentSession>(concat!(
+        "SELECT ",
+        agent_session_columns!(),
+        " FROM agent_sessions WHERE status = 'running' ORDER BY started_at"
+    ))
+    .fetch_all(db.reader())
+    .await?)
+}
+
 /// Records a session's terminal outcome. Requires the session to still be `running` — a
 /// finished session's record does not change after the fact, the same invariant
 /// [`crate::domain::card::update`]'s history keeps for a card's fields.
@@ -568,6 +582,56 @@ mod tests {
         assert_eq!(sessions.len(), 2);
         assert_eq!(sessions[0].id, second.id);
         assert_eq!(sessions[1].id, first.id);
+    }
+
+    #[tokio::test]
+    async fn list_running_finds_only_sessions_still_running_oldest_first() {
+        let (db, _temp, card_id, user_id) = fixture().await;
+
+        let mut tx = db.begin_write().await.unwrap();
+        let still_running = insert(
+            &mut tx,
+            &NewAgentSession {
+                card_id: &card_id,
+                claude_session_id: "s-running",
+                prompt: "running",
+                started_by: Some(&user_id),
+            },
+            now(),
+        )
+        .await
+        .unwrap();
+        let finished = insert(
+            &mut tx,
+            &NewAgentSession {
+                card_id: &card_id,
+                claude_session_id: "s-finished",
+                prompt: "finished",
+                started_by: Some(&user_id),
+            },
+            now(),
+        )
+        .await
+        .unwrap();
+        finish(
+            &mut tx,
+            &finished,
+            &SessionOutcome {
+                status: AgentSessionStatus::Completed,
+                result_text: None,
+                total_cost_usd: None,
+                num_turns: None,
+                error_message: None,
+            },
+            now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let running = list_running(&db).await.unwrap();
+        assert_eq!(running.len(), 1);
+        assert_eq!(running[0].id, still_running.id);
     }
 
     #[test]
