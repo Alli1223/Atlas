@@ -24,7 +24,9 @@ use axum::response::Json;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::agent::orchestrator::{self, StartRequest};
+use crate::agent::orchestrator::{
+    self, DEFAULT_ALLOWED_TOOLS, DEFAULT_MAX_BUDGET_USD, DEFAULT_MAX_TURNS, StartRequest,
+};
 use crate::agent::runner::RunLimits;
 use crate::api::AppState;
 use crate::auth::CurrentUser;
@@ -32,21 +34,6 @@ use crate::domain::agent_session::{self, AgentSession};
 use crate::domain::agent_session_transcript::{self, TranscriptLine};
 use crate::domain::card;
 use crate::error::{AppError, AppResult, Problem};
-
-/// Turns per-run — enough for a genuinely multi-step task without an unbounded bill. Not yet
-/// per-project configurable; `TODO.md`'s "permission mode per project" bullet covers making
-/// this (and the tool allowlist below) a setting rather than a constant.
-const DEFAULT_MAX_TURNS: u32 = 50;
-
-/// Spend cap per run, in USD. Required by the CLI itself — see `agent::runner`'s module doc —
-/// and picked here as a number small enough that a runaway loop is a nuisance, not a bill.
-const DEFAULT_MAX_BUDGET_USD: f64 = 5.0;
-
-/// The tools a run may use. Deliberately not `bypassPermissions` or an unrestricted
-/// `--allowedTools`: this is the least permissive set that can still actually do the work a
-/// card describes (read/edit/write files, run shell commands, search the tree) inside its own
-/// cloned workspace. `TODO.md`'s permission-mode bullet is what makes this configurable.
-const DEFAULT_ALLOWED_TOOLS: &[&str] = &["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
 
 /// Builds the prompt Atlas sends: the card's summary, and its description if it has one and
 /// it is not blank.

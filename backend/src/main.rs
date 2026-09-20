@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
+use atlas::agent::orchestrator;
 use atlas::api::{self, AppState};
 use atlas::auth::seed;
 use atlas::config::Config;
@@ -91,6 +92,18 @@ async fn serve(config: Config) -> anyhow::Result<()> {
 
     let state = AppState::new(db.clone(), config);
     let app = api::router(state.clone());
+
+    // Reconcile whatever the *last* restart left `running` before this one starts serving —
+    // see `agent::orchestrator::resume_stale_sessions` for why this runs once, here, rather
+    // than as a scheduled job.
+    orchestrator::resume_stale_sessions(
+        &state.db,
+        state.agent_runner.as_ref(),
+        &state.cancel_registry,
+        &state.config.workspace_dir,
+        &state.config.database_url,
+    )
+    .await;
 
     // Background jobs: the GitHub poll fallback (Phase 12) and the daily cycle snapshot
     // (Phase 10) — both no-op themselves when there is nothing to do, so both run
