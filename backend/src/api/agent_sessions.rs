@@ -18,9 +18,11 @@
 //! Phase 13, explicitly flagged there for confirmation before it is built (the request's own
 //! wording, "move to the backlog", is an unusual destination for finished work).
 
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::Json;
+use axum::response::{Json, Response};
+use tokio::sync::broadcast;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -97,6 +99,7 @@ async fn start_agent_session(
         state.agent_runner.as_ref(),
         state.workspace_preparer.as_ref(),
         &state.cancel_registry,
+        &state.live_registry,
         StartRequest {
             card: &card,
             prompt,
@@ -212,6 +215,87 @@ async fn cancel_agent_session(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// Streams a running session's `stream-json` lines live, one raw line per WebSocket text
+/// message — see `agent::orchestrator`'s "Streaming a run live" doc for the wire format
+/// (deliberately the same shape [`get_agent_session_transcript`] returns for a finished one)
+/// and the subscribe-then-snapshot ordering that makes a client connecting mid-run see every
+/// line with no gap.
+///
+/// OpenAPI 3 has no real representation for a WebSocket upgrade — this `#[utoipa::path]` is
+/// a GET that documents the handshake, not a response shape anything ever parses as JSON —
+/// but going through `routes!()` like every other route here, rather than a plain `.route()`
+/// call, is what keeps this route inside `tests/project_access.rs`'s enumeration of the
+/// document. A plain route would be invisible to that check in *both* directions: a missing
+/// `Scope` entry would go undetected, and (found the hard way) a `Scope` entry with no
+/// matching documented route trips the OPPOSITE self-check, which refuses to start rather
+/// than trust a table entry the framework never verified was for a real route.
+#[utoipa::path(
+    get,
+    path = "/agent-sessions/{id}/live",
+    tag = "agent-sessions",
+    params(("id" = String, Path, description = "The session id")),
+    responses(
+        (status = 101, description = "Switching Protocols: a live, one-raw-line-per-message stream of the session's stream-json output"),
+        (status = 404, description = "No such session", body = Problem),
+    )
+)]
+async fn agent_session_live(
+    State(state): State<AppState>,
+    _current: CurrentUser,
+    Path(id): Path<String>,
+    ws: WebSocketUpgrade,
+) -> AppResult<Response> {
+    agent_session::find_by_id(&state.db, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    Ok(ws.on_upgrade(move |socket| stream_agent_session_live(socket, state, id)))
+}
+
+async fn stream_agent_session_live(mut socket: WebSocket, state: AppState, id: String) {
+    let Some((snapshot, mut receiver)) = orchestrator::subscribe(&state.live_registry, &id) else {
+        // Not live — already finished, or never existed. Either way there is nothing to
+        // stream; a client wanting a finished session's output reads it back through
+        // `GET /agent-sessions/{id}/transcript` instead.
+        let _ = socket.send(Message::Close(None)).await;
+        return;
+    };
+
+    for line in snapshot {
+        if socket.send(line.into()).await.is_err() {
+            return;
+        }
+    }
+
+    loop {
+        tokio::select! {
+            // The only thing worth listening for from the client side is the connection
+            // dying — nothing it could send means anything here, but a closed or errored
+            // read is exactly when to stop writing to a socket nobody is reading any more.
+            incoming = socket.recv() => {
+                if !matches!(incoming, Some(Ok(_))) {
+                    return;
+                }
+            }
+            line = receiver.recv() => {
+                match line {
+                    Ok(line) => {
+                        if socket.send(line.into()).await.is_err() {
+                            return;
+                        }
+                    }
+                    // A lagging receiver skips ahead rather than closing — the client just
+                    // missed some lines, which is not a reason to stop streaming the rest.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => {
+                        let _ = socket.send(Message::Close(None)).await;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Assembles the routes.
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -219,6 +303,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
         .routes(routes!(get_agent_session))
         .routes(routes!(get_agent_session_transcript))
         .routes(routes!(cancel_agent_session))
+        .routes(routes!(agent_session_live))
 }
 
 #[cfg(test)]

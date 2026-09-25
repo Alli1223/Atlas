@@ -31,7 +31,11 @@ use atlas::{auth::seed, auth::session};
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Method, Request, StatusCode, header};
+use futures_util::StreamExt;
 use serde_json::{Value, json};
+use tokio::net::TcpListener;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -727,5 +731,211 @@ async fn cancelling_a_session_that_already_finished_is_a_conflict() {
         .await;
     assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.raw_body);
 
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn a_running_sessions_output_streams_live_over_websocket() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+    let type_id = create_project(&app, &router, &admin, "ATLAS").await;
+    let card = create_card(
+        &app,
+        &router,
+        &admin,
+        "ATLAS",
+        &type_id,
+        "Fix the thing",
+        None,
+    )
+    .await;
+
+    let scripts = TempDir::new();
+    // A pause between lines, so subscribing right after the run starts is genuinely mid-run.
+    let program = fake_program(
+        &scripts.0,
+        r#"echo '{"type":"system","subtype":"init","session_id":"x"}'
+sleep 0.2
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"x","result":"ok","total_cost_usd":0.0,"terminal_reason":"completed"}'"#,
+    );
+    let fake_router = app.router_with_fakes(
+        Arc::new(LocalRunner::with_program(program.to_string_lossy())),
+        std::env::temp_dir(),
+    );
+
+    let reply = app
+        .send(
+            &fake_router,
+            post(
+                &format!("/api/v1/cards/{card}/agent-sessions"),
+                Some(&admin),
+                json!({}),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    let session_id = reply.json()["id"].as_str().unwrap().to_owned();
+
+    // A real upgrade handshake needs a real duplex connection — `oneshot` cannot provide one,
+    // so this is the one test in the file that actually binds a listener and serves on it.
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("failed to bind a test listener");
+    let addr = listener
+        .local_addr()
+        .expect("failed to read the test listener's address");
+    let serve_router = fake_router.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, serve_router)
+            .await
+            .expect("test server failed");
+    });
+
+    let mut request = format!("ws://{addr}/api/v1/agent-sessions/{session_id}/live")
+        .into_client_request()
+        .expect("failed to build the websocket request");
+    request.headers_mut().insert(
+        header::COOKIE,
+        format!("{}={admin}", session::COOKIE_NAME)
+            .parse()
+            .expect("failed to build the cookie header"),
+    );
+
+    let (mut ws, _response) = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio_tungstenite::connect_async(request),
+    )
+    .await
+    .expect("the websocket handshake must not hang")
+    .expect("the websocket handshake must succeed for a session the caller can see");
+
+    let mut lines = Vec::new();
+    let drained = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while let Some(message) = ws.next().await {
+            match message.expect("the websocket must not error") {
+                Message::Text(text) => lines.push(text.to_string()),
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    })
+    .await;
+    assert!(
+        drained.is_ok(),
+        "the stream must close once the run finishes"
+    );
+
+    assert!(
+        lines.iter().any(|line| line.contains(r#""type":"system""#)),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains(r#""type":"result""#)),
+        "{lines:?}"
+    );
+
+    server.abort();
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn a_finished_sessions_websocket_upgrade_closes_immediately() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+    let type_id = create_project(&app, &router, &admin, "ATLAS").await;
+    let card = create_card(
+        &app,
+        &router,
+        &admin,
+        "ATLAS",
+        &type_id,
+        "Fix the thing",
+        None,
+    )
+    .await;
+
+    let scripts = TempDir::new();
+    let program = fake_program(
+        &scripts.0,
+        r#"echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"x","result":"ok","total_cost_usd":0.0,"terminal_reason":"completed"}'"#,
+    );
+    let fake_router = app.router_with_fakes(
+        Arc::new(LocalRunner::with_program(program.to_string_lossy())),
+        std::env::temp_dir(),
+    );
+
+    let reply = app
+        .send(
+            &fake_router,
+            post(
+                &format!("/api/v1/cards/{card}/agent-sessions"),
+                Some(&admin),
+                json!({}),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    let session_id = reply.json()["id"].as_str().unwrap().to_owned();
+
+    // Give the fake CLI a moment to finish and the drain task to remove the live entry.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let reply = app
+                .send(
+                    &fake_router,
+                    get(
+                        &format!("/api/v1/agent-sessions/{session_id}"),
+                        Some(&admin),
+                    ),
+                )
+                .await;
+            if reply.json()["status"] != "running" {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the session must reach a terminal status");
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("failed to bind a test listener");
+    let addr = listener
+        .local_addr()
+        .expect("failed to read the test listener's address");
+    let serve_router = fake_router.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, serve_router)
+            .await
+            .expect("test server failed");
+    });
+
+    let mut request = format!("ws://{addr}/api/v1/agent-sessions/{session_id}/live")
+        .into_client_request()
+        .expect("failed to build the websocket request");
+    request.headers_mut().insert(
+        header::COOKIE,
+        format!("{}={admin}", session::COOKIE_NAME)
+            .parse()
+            .expect("failed to build the cookie header"),
+    );
+
+    let (mut ws, _response) = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio_tungstenite::connect_async(request),
+    )
+    .await
+    .expect("the websocket handshake must not hang")
+    .expect("the upgrade itself must still succeed — there is simply nothing to stream");
+
+    // The handler closes the socket at once for a session with no live feed; the connection
+    // must not just sit open forever.
+    let next = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next()).await;
+    assert!(next.is_ok(), "the socket must close rather than hang");
+
+    server.abort();
     app.db.close().await;
 }

@@ -24,6 +24,10 @@ axum-extra = { version = "0.12.6", features = [
   "typed-header",
 ] }
 tokio = { version = "1.52.4", features = ["full"] }
+# Dev-only: a real WebSocket client for `api::agent_sessions`'s live-streaming test — axum's
+# own `ws` feature (above) is the server side; there is no in-process way to drive a real
+# upgrade handshake, so the test binds a real listener and connects with this.
+tokio-tungstenite = "0.30.0"
 # `catch_unwind` for the background scheduler (`scheduler::run_job`), so one panicking job
 # tick cannot silently end that job's task forever. Already resolved in the tree at this
 # version via reqwest/sqlx's own dependencies — this adds no new crate to compile, just a
