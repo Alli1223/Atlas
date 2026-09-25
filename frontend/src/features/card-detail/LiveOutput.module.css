@@ -1,0 +1,37 @@
+.output {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-025);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--ds-space-100);
+  margin-top: var(--ds-space-100);
+  background: var(--ds-surface-sunken);
+  border-radius: var(--ds-radius-medium);
+  font: var(--ds-font-body-small);
+}
+
+.line {
+  margin: 0;
+  color: var(--ds-text-subtle);
+  overflow-wrap: anywhere;
+}
+
+.line[data-kind='assistant'] {
+  color: var(--ds-text);
+}
+
+.line[data-kind='tool-use'] {
+  color: var(--ds-icon-brand);
+  font-weight: var(--ds-font-weight-semibold);
+}
+
+.line[data-kind='result'] {
+  color: var(--ds-text-success);
+  font-weight: var(--ds-font-weight-semibold);
+}
+
+.waiting {
+  margin: 0;
+  color: var(--ds-text-subtlest);
+}

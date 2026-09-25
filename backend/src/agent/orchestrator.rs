@@ -12,8 +12,29 @@
 //! `running`; a `tokio::spawn`ed task owns draining [`RunHandle::events`] to its terminal
 //! `result` event and calling [`agent_session::finish`] — the same "return once queued,
 //! finish in the background" shape [`crate::agent::runner`]'s own stderr-drain task already
-//! uses. A caller sees progress by polling `GET /agent-sessions/{id}` (or, later, subscribing
-//! over WebSocket); nothing here blocks a request thread for the run's lifetime.
+//! uses. A caller sees progress by polling `GET /agent-sessions/{id}`, or by streaming it
+//! live — see "Streaming a run live" below; nothing here blocks a request thread for the
+//! run's lifetime.
+//!
+//! # Streaming a run live
+//!
+//! [`LiveRegistry`] is [`CancelRegistry`]'s sibling: one entry per running session, this time
+//! holding a [`LiveSession`] — every raw line seen so far, plus a `broadcast::Sender` for
+//! whatever arrives next. [`start`] creates one before spawning, the same moment it registers
+//! the cancel sender; [`spawn_drain`]'s detached task pushes every line to it as
+//! [`drain_to_result`] reads it, and removes the entry once the run ends.
+//!
+//! [`subscribe`] is the only way anything outside this module reaches a live feed —
+//! `api::agent_sessions`'s WebSocket handler calls it once per connection and forwards
+//! everything it gets back to the socket. See its own doc for the subscribe-then-snapshot
+//! ordering that makes a late joiner see every line with no gap, at the cost of a possible
+//! one-line duplicate at the exact moment it connects.
+//!
+//! A finished session has no live feed at all — [`subscribe`] returns `None`, and the wire
+//! format is one raw line per WebSocket text message, exactly what `GET
+//! /agent-sessions/{id}/transcript` already stores for exactly that reason: a client that
+//! reconnects mid-run and a client that opens a session afterwards read the same lines
+//! through two different doors, never two different shapes.
 //!
 //! # What happens if Atlas restarts mid-run
 //!
@@ -52,7 +73,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
 
 use crate::agent::claude_code::{self, Event, Outcome, ResultEvent};
 use crate::agent::mcp;
@@ -81,6 +102,84 @@ fn lock(
     registry.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// How many just-broadcast lines a lagging subscriber may fall behind by before it starts
+/// missing them (`tokio::sync::broadcast`'s own backpressure, not a transcript length cap —
+/// [`LiveSession::lines_so_far`] is unbounded and holds the whole run). Generous: a run's
+/// lines arrive far slower than a subscriber can forward them to a WebSocket, so this is
+/// realistically never hit; it exists so a genuinely stuck client cannot pin a whole run's
+/// output in memory a second time forever.
+const LIVE_CHANNEL_CAPACITY: usize = 256;
+
+/// A running session's live feed — every raw `stream-json` line the CLI has written so far,
+/// plus the channel new lines are broadcast on as they arrive. See the module doc's
+/// "Streaming a run live" section for why both halves exist and the order a subscriber must
+/// read them in.
+#[derive(Debug, Clone)]
+pub struct LiveSession {
+    lines_so_far: Arc<Mutex<Vec<String>>>,
+    sender: broadcast::Sender<String>,
+}
+
+impl LiveSession {
+    fn new() -> Self {
+        Self {
+            lines_so_far: Arc::new(Mutex::new(Vec::new())),
+            sender: broadcast::channel(LIVE_CHANNEL_CAPACITY).0,
+        }
+    }
+
+    /// Records a line that just arrived and broadcasts it to any live subscribers. A send
+    /// with no receivers is not an error — most lines happen while nobody is watching.
+    fn push(&self, line: &str) {
+        self.lines_so_far
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(line.to_owned());
+        let _ = self.sender.send(line.to_owned());
+    }
+}
+
+/// Live runs' feeds, keyed by agent session id. See [`LiveSession`].
+pub type LiveRegistry = Arc<Mutex<HashMap<String, LiveSession>>>;
+
+fn lock_live(registry: &LiveRegistry) -> std::sync::MutexGuard<'_, HashMap<String, LiveSession>> {
+    registry.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Every line a live session has produced so far, plus a receiver for everything after that
+/// — everything a caller needs to show a run's output from the moment it connects, with
+/// neither a gap nor (bar one unavoidable edge case, below) a repeat.
+///
+/// `None` if the session is not currently live — already finished (read its transcript via
+/// `GET /agent-sessions/{id}/transcript` instead), or never existed.
+///
+/// # Ordering, and the one case this does not fully solve
+///
+/// Subscribes to the broadcast channel **before** reading the accumulated-so-far snapshot,
+/// deliberately in that order: [`LiveSession::push`] appends to the snapshot and only then
+/// broadcasts, so subscribing first guarantees every line broadcast from this instant on is
+/// captured, and the snapshot taken immediately after is at least as current as "everything
+/// up to just before subscribing". The one line that can appear **twice** is one whose
+/// `push` straddles this call — appended to the snapshot moments before this reads it, and
+/// then also delivered again over the now-live receiver. Reversing the order would instead
+/// risk a **gap** (a line pushed between snapshot and subscribe, seen by neither) — strictly
+/// worse for a transcript than an occasional duplicate line a renderer can dedupe by content
+/// or simply re-render harmlessly.
+#[must_use]
+pub fn subscribe(
+    registry: &LiveRegistry,
+    session_id: &str,
+) -> Option<(Vec<String>, broadcast::Receiver<String>)> {
+    let live = lock_live(registry).get(session_id)?.clone();
+    let receiver = live.sender.subscribe();
+    let snapshot = live
+        .lines_so_far
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    Some((snapshot, receiver))
+}
+
 /// What to run, and for whom. The API handler builds this from a card and its own defaults —
 /// nothing here reads a `Card` field itself beyond `project_id`/`id`, so a caller cannot
 /// forget to pass the prompt it actually means to send.
@@ -107,6 +206,7 @@ pub async fn start(
     runner: &dyn AgentRunner,
     preparer: &dyn WorkspacePreparer,
     registry: &CancelRegistry,
+    live_registry: &LiveRegistry,
     request: StartRequest<'_>,
 ) -> AppResult<AgentSession> {
     let working_dir = preparer
@@ -171,12 +271,14 @@ pub async fn start(
 
     let (cancel_tx, cancel_rx) = oneshot::channel();
     lock(registry).insert(session.id.clone(), cancel_tx);
+    lock_live(live_registry).insert(session.id.clone(), LiveSession::new());
 
     spawn_drain(
         db.clone(),
         session.clone(),
         handle,
         registry.clone(),
+        live_registry.clone(),
         cancel_rx,
     );
 
@@ -263,15 +365,25 @@ fn spawn_drain(
     session: AgentSession,
     handle: RunHandle,
     registry: CancelRegistry,
+    live_registry: LiveRegistry,
     cancel_rx: oneshot::Receiver<()>,
 ) {
     tokio::spawn(async move {
-        let drained = drain_to_result(handle, cancel_rx).await;
+        // Looked up rather than threaded in as its own parameter: `start` and
+        // `resume_stale_sessions` both already insert it into `live_registry` before calling
+        // this, and reaching back in here (rather than also passing the `LiveSession` by
+        // value) keeps there being exactly one place — the registry — that can ever answer
+        // "is this session live right now".
+        let live = lock_live(&live_registry).get(&session.id).cloned();
+        let drained = drain_to_result(handle, cancel_rx, live.as_ref()).await;
 
-        // The run is over one way or another; nothing can cancel it any more, so its entry
-        // (if the session was not already cancelled, which removes it itself) has no further
-        // reason to exist.
+        // The run is over one way or another; nothing can cancel or subscribe to it any
+        // more, so neither entry (cancel may already be gone — see [`cancel`]) has any
+        // further reason to exist. A subscriber connected earlier keeps its already-cloned
+        // `broadcast::Sender`/`Receiver` pair working until it notices the channel close on
+        // its own; removing the registry entry only stops a *new* subscriber from finding it.
         lock(&registry).remove(&session.id);
+        lock_live(&live_registry).remove(&session.id);
 
         if let Err(err) = persist_transcript(&db, &session.id, &drained.lines).await {
             tracing::error!(
@@ -320,7 +432,11 @@ struct Drained {
 /// and a sent signal look identical to its `tokio::select!` — so the run would be killed and
 /// its events truncated before this had read any of them. Keeping the whole handle alive keeps
 /// the sender alive for exactly as long as a real caller holding it would.
-async fn drain_to_result(mut handle: RunHandle, mut cancel_rx: oneshot::Receiver<()>) -> Drained {
+async fn drain_to_result(
+    mut handle: RunHandle,
+    mut cancel_rx: oneshot::Receiver<()>,
+    live_session: Option<&LiveSession>,
+) -> Drained {
     let mut lines = Vec::new();
     let mut result_event = None;
     let mut cancelled = false;
@@ -339,12 +455,20 @@ async fn drain_to_result(mut handle: RunHandle, mut cancel_rx: oneshot::Receiver
                 let Some(event) = event else { break };
                 match event {
                     RunEvent::Parsed(line, event) => {
+                        if let Some(live_session) = live_session {
+                            live_session.push(&line);
+                        }
                         lines.push(line);
                         if let Event::Result(result) = *event {
                             result_event = Some(result);
                         }
                     }
-                    RunEvent::Unparseable(line) => lines.push(line),
+                    RunEvent::Unparseable(line) => {
+                        if let Some(live_session) = live_session {
+                            live_session.push(&line);
+                        }
+                        lines.push(line);
+                    }
                 }
             }
         }
@@ -599,6 +723,96 @@ mod tests {
         }
     }
 
+    // --- live streaming ---------------------------------------------------------------
+
+    #[test]
+    fn subscribe_returns_none_for_a_session_that_is_not_live() {
+        let registry = LiveRegistry::default();
+        assert!(subscribe(&registry, "no-such-session").is_none());
+    }
+
+    #[test]
+    fn a_subscriber_gets_every_line_pushed_before_it_connects_and_every_line_after() {
+        let registry = LiveRegistry::default();
+        let live = LiveSession::new();
+        live.push(r#"{"type":"system"}"#);
+        live.push(r#"{"type":"assistant"}"#);
+        lock_live(&registry).insert("s-1".to_owned(), live.clone());
+
+        let (snapshot, mut receiver) = subscribe(&registry, "s-1").expect("a live session");
+        assert_eq!(
+            snapshot,
+            vec![
+                r#"{"type":"system"}"#.to_owned(),
+                r#"{"type":"assistant"}"#.to_owned(),
+            ]
+        );
+
+        live.push(r#"{"type":"result"}"#);
+        assert_eq!(
+            receiver.try_recv().unwrap(),
+            r#"{"type":"result"}"#.to_owned()
+        );
+    }
+
+    #[tokio::test]
+    async fn starting_a_run_streams_every_line_live_to_a_subscriber() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        // A short pause between lines, so a subscription made right after `start` returns is
+        // genuinely mid-run — proving this is a live stream, not just a snapshot taken after
+        // the fact.
+        let program = fake_program(
+            &scripts.0,
+            r#"echo '{"type":"system","subtype":"init","session_id":"x"}'
+sleep 0.2
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"x","result":"ok","total_cost_usd":0.0,"terminal_reason":"completed"}'"#,
+        );
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
+
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            &live_registry,
+            request(&card, "go"),
+        )
+        .await
+        .unwrap();
+
+        let (snapshot, mut receiver) =
+            subscribe(&live_registry, &session.id).expect("the session must still be live");
+
+        let mut lines = snapshot;
+        loop {
+            match receiver.recv().await {
+                Ok(line) => lines.push(line),
+                // The channel closes once `spawn_drain` removes the session on finishing —
+                // exactly the signal that there is nothing more to stream.
+                Err(broadcast::error::RecvError::Closed) => break,
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+            }
+        }
+
+        assert!(lines[0].contains(r#""type":"system""#), "{lines:?}");
+        assert!(
+            lines.last().unwrap().contains(r#""type":"result""#),
+            "{lines:?}"
+        );
+
+        wait_for_finish(&db, &session.id).await;
+        assert!(
+            subscribe(&live_registry, &session.id).is_none(),
+            "a finished session must not still be live"
+        );
+    }
+
     #[tokio::test]
     async fn starting_a_run_records_a_running_session_with_the_clis_session_id() {
         let (db, _temp, card) = fixture().await;
@@ -608,6 +822,7 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
         let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
 
         let session = start(
             &db,
@@ -615,6 +830,7 @@ mod tests {
             &runner,
             &preparer,
             &registry,
+            &live_registry,
             request(&card, "Fix the thing\n\nDo the needful."),
         )
         .await
@@ -644,6 +860,7 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
         let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
 
         let session = start(
             &db,
@@ -651,6 +868,7 @@ mod tests {
             &runner,
             &preparer,
             &registry,
+            &live_registry,
             request(&card, "do it"),
         )
         .await
@@ -681,6 +899,7 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
         let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
 
         let session = start(
             &db,
@@ -688,6 +907,7 @@ mod tests {
             &runner,
             &preparer,
             &registry,
+            &live_registry,
             request(&card, "do it"),
         )
         .await
@@ -716,6 +936,7 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
         let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
 
         let session = start(
             &db,
@@ -723,6 +944,7 @@ mod tests {
             &runner,
             &preparer,
             &registry,
+            &live_registry,
             request(&card, "do it"),
         )
         .await
@@ -753,6 +975,7 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
         let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
 
         let session = start(
             &db,
@@ -760,6 +983,7 @@ mod tests {
             &runner,
             &preparer,
             &registry,
+            &live_registry,
             request(&card, "do it"),
         )
         .await
@@ -791,6 +1015,7 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
         let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
 
         let session = start(
             &db,
@@ -798,6 +1023,7 @@ mod tests {
             &runner,
             &preparer,
             &registry,
+            &live_registry,
             request(&card, "do it"),
         )
         .await
@@ -822,6 +1048,7 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
         let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
 
         let session = start(
             &db,
@@ -829,6 +1056,7 @@ mod tests {
             &runner,
             &preparer,
             &registry,
+            &live_registry,
             request(&card, "do it"),
         )
         .await
@@ -887,6 +1115,7 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
         let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
 
         let session = start(
             &db,
@@ -894,6 +1123,7 @@ mod tests {
             &runner,
             &preparer,
             &registry,
+            &live_registry,
             request(&card, "go"),
         )
         .await
@@ -932,6 +1162,7 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let preparer = FixedWorkspace(std::env::temp_dir());
         let registry = CancelRegistry::default();
+        let live_registry = LiveRegistry::default();
 
         let session = start(
             &db,
@@ -939,6 +1170,7 @@ mod tests {
             &runner,
             &preparer,
             &registry,
+            &live_registry,
             request(&card, "go"),
         )
         .await

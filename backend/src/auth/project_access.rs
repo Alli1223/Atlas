@@ -770,6 +770,14 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/agent-sessions/{id}/transcript",
         Scope::AgentSession(ProjectRole::Viewer),
     ),
+    // A WebSocket upgrade — still registered through `routes!()` like every other route
+    // here (see `api::agent_sessions::agent_session_live`'s doc for why that matters), so
+    // this route reaches `every_project_scoped_route_refuses_an_outsider` the ordinary way.
+    (
+        Method::GET,
+        "/api/v1/agent-sessions/{id}/live",
+        Scope::AgentSession(ProjectRole::Viewer),
+    ),
     (
         Method::POST,
         "/api/v1/agent-sessions/{id}/cancel",

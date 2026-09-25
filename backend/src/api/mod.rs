@@ -33,7 +33,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::agent::orchestrator::CancelRegistry;
+use crate::agent::orchestrator::{CancelRegistry, LiveRegistry};
 use crate::agent::runner::AgentRunner;
 use crate::agent::workspace::WorkspacePreparer;
 use crate::config::Config;
@@ -81,6 +81,9 @@ pub struct AppState {
     /// `agent::orchestrator::CancelRegistry`'s own doc for why this lives here rather than
     /// inside the orchestrator module itself.
     pub cancel_registry: CancelRegistry,
+    /// Live runs' streamed output, keyed by agent session id — see
+    /// `agent::orchestrator::LiveRegistry`'s own doc.
+    pub live_registry: LiveRegistry,
 }
 
 impl fmt::Debug for AppState {
@@ -95,6 +98,7 @@ impl fmt::Debug for AppState {
             .field("agent_runner", &"Arc<dyn AgentRunner>")
             .field("workspace_preparer", &"Arc<dyn WorkspacePreparer>")
             .field("cancel_registry", &"CancelRegistry")
+            .field("live_registry", &"LiveRegistry")
             .finish()
     }
 }
@@ -125,6 +129,7 @@ impl AppState {
             agent_runner,
             workspace_preparer,
             cancel_registry: CancelRegistry::default(),
+            live_registry: LiveRegistry::default(),
         }
     }
 }

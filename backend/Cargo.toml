@@ -57,6 +57,7 @@ proptest.workspace = true
 # `test` unlocks figment::Jail, which sandboxes env vars + cwd so config tests
 # cannot leak into each other (they run on threads in a shared process).
 figment = { workspace = true, features = ["test"] }
+tokio-tungstenite.workspace = true
 
 [lints]
 workspace = true
