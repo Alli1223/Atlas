@@ -6,6 +6,7 @@ import { ICON, ICON_SMALL } from '@/lib/icon'
 import type { AgentSession, AgentSessionStatus, Card } from './api'
 import styles from './AgentSessions.module.css'
 import { formatDateTime } from './format'
+import { LiveOutput } from './LiveOutput'
 import { useCancelAgentSession, useCardAgentSessions, useStartAgentSession } from './queries'
 
 const STATUS_APPEARANCE: Record<AgentSessionStatus, LozengeAppearance> = {
@@ -134,6 +135,7 @@ function SessionRow({
       )}
       {session.errorMessage && <p className={styles.error}>{session.errorMessage}</p>}
       {session.resultText && <p className={styles.result}>{session.resultText}</p>}
+      {session.status === 'running' && <LiveOutput sessionId={session.id} />}
     </li>
   )
 }
