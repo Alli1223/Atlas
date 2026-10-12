@@ -9,30 +9,21 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as StyleguideRouteImport } from './routes/styleguide'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as ChangePasswordRouteImport } from './routes/change-password'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
-import { Route as CardsKeyRouteImport } from './routes/cards.$key'
+import { Route as ChangePasswordRouteImport } from './routes/change-password'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as StyleguideRouteImport } from './routes/styleguide'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
-import { Route as ProjectsProjectKeyCyclesRouteImport } from './routes/projects.$projectKey.cycles'
+import { Route as CardsKeyRouteImport } from './routes/cards.$key'
+import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as ProjectsProjectKeyBoardRouteImport } from './routes/projects.$projectKey.board'
+import { Route as ProjectsProjectKeyCyclesRouteImport } from './routes/projects.$projectKey.cycles'
+import { Route as ProjectsProjectKeySettingsRouteImport } from './routes/projects.$projectKey.settings'
 
-const StyleguideRoute = StyleguideRouteImport.update({
-  id: '/styleguide',
-  path: '/styleguide',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChangePasswordRoute = ChangePasswordRouteImport.update({
@@ -40,14 +31,24 @@ const ChangePasswordRoute = ChangePasswordRouteImport.update({
   path: '/change-password',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
-  id: '/projects/',
-  path: '/projects/',
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StyleguideRoute = StyleguideRouteImport.update({
+  id: '/styleguide',
+  path: '/styleguide',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/admin/settings',
+  path: '/admin/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CardsKeyRoute = CardsKeyRouteImport.update({
@@ -55,9 +56,14 @@ const CardsKeyRoute = CardsKeyRouteImport.update({
   path: '/cards/$key',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminSettingsRoute = AdminSettingsRouteImport.update({
-  id: '/admin/settings',
-  path: '/admin/settings',
+const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
+  id: '/projects/',
+  path: '/projects/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsProjectKeyBoardRoute = ProjectsProjectKeyBoardRouteImport.update({
+  id: '/projects/$projectKey/board',
+  path: '/projects/$projectKey/board',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsProjectKeyCyclesRoute =
@@ -66,11 +72,12 @@ const ProjectsProjectKeyCyclesRoute =
     path: '/projects/$projectKey/cycles',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ProjectsProjectKeyBoardRoute = ProjectsProjectKeyBoardRouteImport.update({
-  id: '/projects/$projectKey/board',
-  path: '/projects/$projectKey/board',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const ProjectsProjectKeySettingsRoute =
+  ProjectsProjectKeySettingsRouteImport.update({
+    id: '/projects/$projectKey/settings',
+    path: '/projects/$projectKey/settings',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
   '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
+  '/projects/$projectKey/settings': typeof ProjectsProjectKeySettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -95,6 +103,7 @@ export interface FileRoutesByTo {
   '/projects': typeof ProjectsIndexRoute
   '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
   '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
+  '/projects/$projectKey/settings': typeof ProjectsProjectKeySettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -108,6 +117,7 @@ export interface FileRoutesById {
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
   '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
+  '/projects/$projectKey/settings': typeof ProjectsProjectKeySettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -122,6 +132,7 @@ export interface FileRouteTypes {
     | '/projects/'
     | '/projects/$projectKey/board'
     | '/projects/$projectKey/cycles'
+    | '/projects/$projectKey/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -134,6 +145,7 @@ export interface FileRouteTypes {
     | '/projects'
     | '/projects/$projectKey/board'
     | '/projects/$projectKey/cycles'
+    | '/projects/$projectKey/settings'
   id:
     | '__root__'
     | '/'
@@ -146,6 +158,7 @@ export interface FileRouteTypes {
     | '/projects/'
     | '/projects/$projectKey/board'
     | '/projects/$projectKey/cycles'
+    | '/projects/$projectKey/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -159,29 +172,16 @@ export interface RootRouteChildren {
   ProjectsIndexRoute: typeof ProjectsIndexRoute
   ProjectsProjectKeyBoardRoute: typeof ProjectsProjectKeyBoardRoute
   ProjectsProjectKeyCyclesRoute: typeof ProjectsProjectKeyCyclesRoute
+  ProjectsProjectKeySettingsRoute: typeof ProjectsProjectKeySettingsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/styleguide': {
-      id: '/styleguide'
-      path: '/styleguide'
-      fullPath: '/styleguide'
-      preLoaderRoute: typeof StyleguideRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/change-password': {
@@ -191,25 +191,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChangePasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/projects/': {
-      id: '/projects/'
-      path: '/projects'
-      fullPath: '/projects/'
-      preLoaderRoute: typeof ProjectsIndexRouteImport
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/cards/$key': {
-      id: '/cards/$key'
-      path: '/cards/$key'
-      fullPath: '/cards/$key'
-      preLoaderRoute: typeof CardsKeyRouteImport
+    '/styleguide': {
+      id: '/styleguide'
+      path: '/styleguide'
+      fullPath: '/styleguide'
+      preLoaderRoute: typeof StyleguideRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/settings': {
@@ -219,11 +219,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/projects/$projectKey/cycles': {
-      id: '/projects/$projectKey/cycles'
-      path: '/projects/$projectKey/cycles'
-      fullPath: '/projects/$projectKey/cycles'
-      preLoaderRoute: typeof ProjectsProjectKeyCyclesRouteImport
+    '/cards/$key': {
+      id: '/cards/$key'
+      path: '/cards/$key'
+      fullPath: '/cards/$key'
+      preLoaderRoute: typeof CardsKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/': {
+      id: '/projects/'
+      path: '/projects'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof ProjectsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects/$projectKey/board': {
@@ -231,6 +238,20 @@ declare module '@tanstack/react-router' {
       path: '/projects/$projectKey/board'
       fullPath: '/projects/$projectKey/board'
       preLoaderRoute: typeof ProjectsProjectKeyBoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$projectKey/cycles': {
+      id: '/projects/$projectKey/cycles'
+      path: '/projects/$projectKey/cycles'
+      fullPath: '/projects/$projectKey/cycles'
+      preLoaderRoute: typeof ProjectsProjectKeyCyclesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$projectKey/settings': {
+      id: '/projects/$projectKey/settings'
+      path: '/projects/$projectKey/settings'
+      fullPath: '/projects/$projectKey/settings'
+      preLoaderRoute: typeof ProjectsProjectKeySettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -247,6 +268,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProjectsIndexRoute: ProjectsIndexRoute,
   ProjectsProjectKeyBoardRoute: ProjectsProjectKeyBoardRoute,
   ProjectsProjectKeyCyclesRoute: ProjectsProjectKeyCyclesRoute,
+  ProjectsProjectKeySettingsRoute: ProjectsProjectKeySettingsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

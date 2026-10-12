@@ -1,0 +1,18 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.backLink {
+  padding: var(--ds-space-200) var(--ds-space-200) 0;
+  font: var(--ds-font-body-small);
+  font-weight: var(--ds-font-weight-semibold);
+  color: var(--ds-text-subtle);
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--ds-text);
+}

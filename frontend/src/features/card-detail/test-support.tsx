@@ -134,6 +134,7 @@ export function makeGithubRepo(overrides: Partial<GithubRepo> = {}): GithubRepo 
 /** An agent session DTO, overridable per test. */
 export function makeAgentSession(overrides: Partial<AgentSession> = {}): AgentSession {
   return {
+    provider: 'claude',
     id: '019f-session',
     cardId: '019f-card',
     claudeSessionId: '11111111-1111-1111-1111-111111111111',

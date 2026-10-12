@@ -3,7 +3,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import type { ApiError } from '@/lib/api'
 
 import * as projectsApi from './api'
-import type { CreateProjectInput, Project } from './api'
+import type { CreateProjectInput, Project, ProjectPatch } from './api'
 
 /**
  * Query keys for everything projects.
@@ -68,6 +68,19 @@ export function useCreateProject() {
     mutationFn: projectsApi.createProject,
     onSuccess: (project) => {
       queryClient.setQueryData(projectKeys.detail(project.key), project)
+      void queryClient.invalidateQueries({ queryKey: projectKeys.list() })
+    },
+  })
+}
+
+/** Edits a project and refreshes its cached detail. */
+export function useUpdateProject(key: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation<Project, ApiError, ProjectPatch>({
+    mutationFn: (patch) => projectsApi.patchProject(key, patch),
+    onSuccess: (project) => {
+      queryClient.setQueryData(projectKeys.detail(key), project)
       void queryClient.invalidateQueries({ queryKey: projectKeys.list() })
     },
   })

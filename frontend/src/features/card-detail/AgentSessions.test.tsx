@@ -14,6 +14,33 @@ afterEach(() => {
 const CARD = makeCard({ key: 'ATLAS-1', summary: 'Add login' })
 
 describe('AgentSessions', () => {
+  it('sends the selected provider when starting a ticket', async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([]),
+      'POST /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse(makeAgentSession({ provider: 'codex' }), 201),
+    })
+    renderWithClient(<AgentSessions card={CARD} />)
+    await screen.findByText('No runs yet.')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Agent' }), 'codex')
+    await user.click(screen.getByRole('button', { name: 'Run with Codex' }))
+    await screen.findByText('Running')
+    const request = vi.mocked(fetch).mock.calls.map(([input]) => input)
+      .find((input): input is Request => input instanceof Request && input.method === 'POST')
+    expect(await request?.clone().json()).toEqual({ provider: 'codex' })
+  })
+
+  it('loads a finished session transcript on demand', async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([makeAgentSession({ status: 'completed', id: 'done' })]),
+      'GET /api/v1/agent-sessions/done/transcript': () => jsonResponse([{ line: '{"type":"result","result":"Tests pass"}' }]),
+    })
+    renderWithClient(<AgentSessions card={CARD} />)
+    await user.click(await screen.findByText('View transcript'))
+    expect(await screen.findByText(/Tests pass/)).toBeInTheDocument()
+  })
+
   it('shows an empty state and a working Run button when there is no history', async () => {
     const user = userEvent.setup()
     const { calls } = stubFetch({

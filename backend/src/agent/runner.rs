@@ -41,6 +41,7 @@ use uuid::Uuid;
 
 use crate::agent::BoxFuture;
 use crate::agent::claude_code::{self, Event};
+use crate::agent::providers::{AgentProvider, ProviderOutput};
 use crate::error::{AppError, AppResult};
 
 /// How many turns/how much spend Atlas allows before the CLI cuts a run off itself.
@@ -57,6 +58,7 @@ pub struct RunLimits {
 /// What to run, and where.
 #[derive(Debug, Clone)]
 pub struct RunRequest {
+    pub provider: AgentProvider,
     /// The prompt. Passed as a positional CLI argument, never shell-interpolated.
     pub prompt: String,
     /// The directory the CLI is spawned in — a card's cloned workspace. Must stay the exact
@@ -176,7 +178,16 @@ impl LocalRunner {
 
 impl AgentRunner for LocalRunner {
     fn spawn(&self, request: RunRequest) -> BoxFuture<'_, AppResult<RunHandle>> {
-        let program = self.program.clone();
+        let program = if self.program == "claude" {
+            match request.provider {
+                AgentProvider::Claude => "claude",
+                AgentProvider::Codex => "codex",
+                AgentProvider::Antigravity => "agy",
+            }
+            .to_owned()
+        } else {
+            self.program.clone()
+        };
         Box::pin(async move { spawn_local(&program, &request) })
     }
 }
@@ -195,42 +206,7 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
     };
 
     let mut command = CommandWrap::with_new(program, |command| {
-        command
-            .arg("-p")
-            .arg(&request.prompt)
-            .args(["--output-format", "stream-json", "--verbose"])
-            .args(["--permission-mode", &request.permission_mode])
-            .arg("--strict-mcp-config")
-            .arg("--max-turns")
-            .arg(request.limits.max_turns.to_string())
-            .arg("--max-budget-usd")
-            .arg(format!("{:.2}", request.limits.max_budget_usd))
-            .current_dir(&request.working_dir)
-            // Left in unless a later increment deliberately opts a project into API billing
-            // — see the module doc.
-            .env_remove("ANTHROPIC_API_KEY")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        if let Some(mcp_config) = &request.mcp_config {
-            // Inline JSON, so there is no temp-file lifecycle to manage. Paired with the
-            // always-on --strict-mcp-config above, the session sees exactly this one server.
-            command.arg("--mcp-config").arg(mcp_config);
-        }
-        if !request.allowed_tools.is_empty() {
-            command
-                .arg("--allowedTools")
-                .arg(request.allowed_tools.join(","));
-        }
-        match &request.resume_session_id {
-            Some(resume) => {
-                command.arg("--resume").arg(resume);
-            }
-            None => {
-                command.arg("--session-id").arg(&session_id);
-            }
-        }
+        configure_command(command, request, &session_id);
     });
     command.wrap(ProcessGroup::leader());
     command.wrap(KillOnDrop);
@@ -255,9 +231,12 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
 
     let (events_tx, events_rx) = mpsc::channel(64);
     let (cancel_tx, mut cancel_rx) = oneshot::channel();
+    let mut output = ProviderOutput::new(request.provider, session_id.clone());
 
     tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
+        let deadline = tokio::time::sleep(std::time::Duration::from_mins(30));
+        tokio::pin!(deadline);
         loop {
             tokio::select! {
                 biased;
@@ -265,9 +244,22 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
                     let _ = Box::into_pin(child.kill()).await;
                     break;
                 }
+                () = &mut deadline => {
+                    let _ = Box::into_pin(child.kill()).await;
+                    let line = serde_json::json!({
+                        "type":"result", "subtype":"error", "is_error":true,
+                        "errors":["The agent exceeded the 30 minute run limit."],
+                        "session_id":"timeout", "num_turns":0, "total_cost_usd":0.0,
+                        "terminal_reason":"error",
+                    }).to_string();
+                    if let Ok(Some(event)) = claude_code::parse_line(&line) {
+                        let _ = events_tx.send(RunEvent::Parsed(line, Box::new(event))).await;
+                    }
+                    break;
+                }
                 line = lines.next_line() => {
                     let Ok(Some(line)) = line else { break };
-                    let event = match claude_code::parse_line(&line) {
+                    let event = match output.parse(&line) {
                         Ok(Some(event)) => RunEvent::Parsed(line, Box::new(event)),
                         Ok(None) => continue,
                         Err(_) => RunEvent::Unparseable(line),
@@ -291,6 +283,117 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
         events: events_rx,
         cancel: Some(cancel_tx),
     })
+}
+
+fn configure_command(
+    command: &mut tokio::process::Command,
+    request: &RunRequest,
+    session_id: &str,
+) {
+    match request.provider {
+        AgentProvider::Claude => {
+            command
+                .arg("-p")
+                .arg(&request.prompt)
+                .args(["--output-format", "stream-json", "--verbose"])
+                .args(["--permission-mode", &request.permission_mode])
+                .arg("--strict-mcp-config")
+                .arg("--max-turns")
+                .arg(request.limits.max_turns.to_string())
+                .arg("--max-budget-usd")
+                .arg(format!("{:.2}", request.limits.max_budget_usd));
+        }
+        AgentProvider::Codex => {
+            command
+                .args([
+                    "exec",
+                    "--json",
+                    "--ignore-user-config",
+                    "--sandbox",
+                    "workspace-write",
+                ])
+                .args([
+                    "-c",
+                    "approval_policy=\"never\"",
+                    "-c",
+                    "sandbox_workspace_write.network_access=true",
+                ])
+                .arg(&request.prompt);
+            if let Some(config) = request
+                .mcp_config
+                .as_deref()
+                .and_then(|config| serde_json::from_str::<serde_json::Value>(config).ok())
+            {
+                let server = &config["mcpServers"]["atlas"];
+                if let Some(executable) = server["command"].as_str() {
+                    command.args([
+                        "-c",
+                        &format!(
+                            "mcp_servers.atlas.command={}",
+                            serde_json::json!(executable)
+                        ),
+                    ]);
+                    command.args(["-c", "mcp_servers.atlas.args=[\"mcp\"]"]);
+                    if let Some(env) = server["env"].as_object() {
+                        let env = env
+                            .iter()
+                            .map(|(key, value)| format!("{key}={value}"))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        command.args(["-c", &format!("mcp_servers.atlas.env={{{env}}}")]);
+                    }
+                }
+            }
+        }
+        AgentProvider::Antigravity => {
+            command.arg("-p").arg(&request.prompt).args([
+                "--output-format",
+                "stream-json",
+                "--mode",
+                "accept-edits",
+                "--print-timeout",
+                "30m",
+            ]);
+        }
+    }
+    command
+        .current_dir(&request.working_dir)
+        // Left in unless a later increment deliberately opts a project into API billing
+        // — see the module doc.
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("CODEX_API_KEY")
+        .env_remove("GEMINI_API_KEY")
+        .env_remove("ATLAS_MASTER_KEY")
+        // The scoped MCP process needs the database, not the instance's vault key.
+        .env("ATLAS_ENV", "dev")
+        .env("CARGO_HOME", request.working_dir.join(".atlas-cargo"))
+        .env("NPM_CONFIG_CACHE", request.working_dir.join(".atlas-npm"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    if request.provider != AgentProvider::Claude {
+        return;
+    }
+    if let Some(mcp_config) = &request.mcp_config {
+        // Inline JSON, so there is no temp-file lifecycle to manage. Paired with the
+        // always-on --strict-mcp-config above, the session sees exactly this one server.
+        command.arg("--mcp-config").arg(mcp_config);
+    }
+    if !request.allowed_tools.is_empty() {
+        command
+            .arg("--allowedTools")
+            .arg(request.allowed_tools.join(","));
+    }
+    match &request.resume_session_id {
+        Some(resume) => {
+            command.arg("--resume").arg(resume);
+        }
+        None => {
+            command.arg("--session-id").arg(session_id);
+        }
+    }
 }
 
 /// Retries a spawn a few times on `ETXTBSY` (errno 26).
@@ -367,6 +470,7 @@ mod tests {
 
     fn request(working_dir: PathBuf) -> RunRequest {
         RunRequest {
+            provider: AgentProvider::Claude,
             prompt: "do the thing".to_owned(),
             working_dir,
             resume_session_id: None,

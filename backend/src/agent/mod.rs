@@ -16,11 +16,12 @@
 //! - [`orchestrator`] — [`orchestrator::start`], the thin glue wiring the three above plus
 //!   [`crate::domain::agent_session`] into one "run Claude Code against this card" operation.
 //!   `crate::api::agent_sessions` is the HTTP handler over it.
+//! - [`completion`] — [`completion::run`], called from `orchestrator`'s detached drain task
+//!   once a session finishes: posts a transcript-summary comment, commits/pushes/PRs whatever
+//!   the run left uncommitted, and moves the card into the project's configured destination.
 //!
-//! The live session UI over WebSocket, Atlas's own MCP server, and the on-completion actions
-//! (move the card, attach the PR) are later work in this phase — see
-//! `docs/research/claude-code-cli.md` for the exact CLI behaviour this module encodes, most
-//! importantly its two documented traps: `subtype: "success"` staying put on API/auth
+//! See `docs/research/claude-code-cli.md` for the exact CLI behaviour `claude_code` encodes,
+//! most importantly its two documented traps: `subtype: "success"` staying put on API/auth
 //! failures (`is_error: true` is the real signal), and `result` being an ABSENT key, not
 //! `null`, on every error subtype.
 
@@ -28,8 +29,10 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub mod claude_code;
+pub mod completion;
 pub mod mcp;
 pub mod orchestrator;
+pub mod providers;
 pub mod runner;
 pub mod workspace;
 

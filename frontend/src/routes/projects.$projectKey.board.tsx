@@ -166,6 +166,13 @@ function BoardRoute() {
                 Cycles
               </Link>
             )}
+            <Link
+              to="/projects/$projectKey/settings"
+              params={{ projectKey }}
+              className={styles.cyclesLink}
+            >
+              Settings
+            </Link>
             <div className={styles.swimlaneControl}>
               <Select
                 aria-label="Swimlanes"

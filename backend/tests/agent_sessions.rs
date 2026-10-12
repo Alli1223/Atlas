@@ -333,6 +333,88 @@ async fn starting_a_run_without_a_linked_repo_is_a_conflict() {
 }
 
 #[tokio::test]
+async fn selecting_codex_persists_the_provider_and_interprets_its_terminal_event() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+    let type_id = create_project(&app, &router, &admin, "ATLAS").await;
+    let card = create_card(&app, &router, &admin, "ATLAS", &type_id, "Task", None).await;
+    let scripts = TempDir::new();
+    let program = fake_program(
+        &scripts.0,
+        r#"
+        echo '{"type":"item.completed","item":{"type":"agent_message","text":"Implemented."}}'
+        echo '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
+    "#,
+    );
+    let router = app.router_with_fakes(
+        Arc::new(LocalRunner::with_program(program.to_string_lossy())),
+        scripts.0.clone(),
+    );
+    let reply = app
+        .send(
+            &router,
+            post(
+                &format!("/api/v1/cards/{card}/agent-sessions"),
+                Some(&admin),
+                json!({"provider":"codex"}),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    assert_eq!(reply.json()["provider"], "codex");
+    let id = reply.json()["id"].as_str().unwrap().to_owned();
+    let finished = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let reply = app
+                .send(
+                    &router,
+                    get(&format!("/api/v1/agent-sessions/{id}"), Some(&admin)),
+                )
+                .await;
+            if reply.json()["status"] != "running" {
+                break reply.json();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(finished["status"], "completed");
+    assert_eq!(finished["resultText"], "Implemented.");
+    assert_eq!(
+        finished["totalCostUsd"],
+        Value::Null,
+        "Do not invent costs for CLI subscriptions"
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_provider_is_rejected_instead_of_starting_claude() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+    let type_id = create_project(&app, &router, &admin, "ATLAS").await;
+    let card = create_card(&app, &router, &admin, "ATLAS", &type_id, "Task", None).await;
+    let reply = app
+        .send(
+            &router,
+            post(
+                &format!("/api/v1/cards/{card}/agent-sessions"),
+                Some(&admin),
+                json!({"provider":"not-a-provider"}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.raw_body
+    );
+}
+
+#[tokio::test]
 async fn a_fresh_cards_agent_sessions_are_an_empty_list() {
     let app = App::new().await;
     let router = app.router();

@@ -21,10 +21,13 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Json;
+use serde::Deserialize;
+use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::agent::orchestrator::{self, StartRequest};
+use crate::agent::providers::AgentProvider;
 use crate::agent::runner::RunLimits;
 use crate::api::AppState;
 use crate::auth::CurrentUser;
@@ -48,6 +51,13 @@ const DEFAULT_MAX_BUDGET_USD: f64 = 5.0;
 /// cloned workspace. `TODO.md`'s permission-mode bullet is what makes this configurable.
 const DEFAULT_ALLOWED_TOOLS: &[&str] = &["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
 
+#[derive(Debug, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StartAgentSessionRequest {
+    #[serde(default)]
+    pub provider: AgentProvider,
+}
+
 /// Builds the prompt Atlas sends: the card's summary, and its description if it has one and
 /// it is not blank.
 ///
@@ -67,6 +77,7 @@ fn build_prompt(summary: &str, description: Option<&str>) -> String {
     post,
     path = "/cards/{key}/agent-sessions",
     tag = "agent-sessions",
+    request_body = Option<StartAgentSessionRequest>,
     params(("key" = String, Path, description = "The card key, e.g. ATLAS-42")),
     responses(
         (status = 201, description = "The run, recorded as running", body = AgentSession),
@@ -79,8 +90,9 @@ async fn start_agent_session(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(key): Path<String>,
+    request: Option<Json<StartAgentSessionRequest>>,
 ) -> AppResult<(StatusCode, Json<AgentSession>)> {
-    let vault = state.vault.as_deref().ok_or_else(|| {
+    let vault = state.vault.as_ref().ok_or_else(|| {
         AppError::internal(anyhow::anyhow!(
             "the secrets vault is not configured: set ATLAS_MASTER_KEY"
         ))
@@ -98,6 +110,9 @@ async fn start_agent_session(
         state.workspace_preparer.as_ref(),
         &state.cancel_registry,
         StartRequest {
+            provider: request
+                .map(|Json(request)| request.provider)
+                .unwrap_or_default(),
             card: &card,
             prompt,
             allowed_tools: DEFAULT_ALLOWED_TOOLS

@@ -312,6 +312,7 @@ export async function fetchCredentialRepos(
 export type AgentSession = components['schemas']['AgentSession']
 /** An agent session's lifecycle state. */
 export type AgentSessionStatus = components['schemas']['AgentSessionStatus']
+export type AgentProvider = 'claude' | 'codex' | 'antigravity'
 
 /** A card's agent sessions, most recent first. */
 export async function fetchCardAgentSessions(cardKey: string): Promise<AgentSession[]> {
@@ -320,13 +321,19 @@ export async function fetchCardAgentSessions(cardKey: string): Promise<AgentSess
   )
 }
 
+export async function fetchAgentTranscript(sessionId: string) {
+  return unwrap(await api.GET('/api/v1/agent-sessions/{id}/transcript', {
+    params: { path: { id: sessionId } },
+  }))
+}
+
 /**
  * Starts a Claude Code run against a card. Takes no body — the prompt is the card's own
  * summary and description, built server-side.
  */
-export async function startAgentSession(cardKey: string): Promise<AgentSession> {
+export async function startAgentSession(cardKey: string, provider: AgentProvider): Promise<AgentSession> {
   return unwrap(
-    await api.POST('/api/v1/cards/{key}/agent-sessions', { params: { path: { key: cardKey } } }),
+    await api.POST('/api/v1/cards/{key}/agent-sessions', { params: { path: { key: cardKey } }, body: { provider } }),
   )
 }
 

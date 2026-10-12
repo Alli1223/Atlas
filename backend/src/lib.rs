@@ -24,6 +24,7 @@ pub mod agent;
 pub mod api;
 pub mod aql;
 pub mod auth;
+pub mod bootstrap;
 pub mod config;
 pub mod db;
 pub mod domain;

@@ -1640,6 +1640,8 @@ export interface components {
             /** @description Who to grant access to. */
             userId: string;
         };
+        /** @enum {string} */
+        AgentProvider: "claude" | "codex" | "antigravity";
         /** @description A row of `agent_sessions`. */
         AgentSession: {
             cardId: string;
@@ -1664,6 +1666,8 @@ export interface components {
              *     get edited and a session's record of what it was asked must not drift with them.
              */
             prompt: string;
+            /** @description The CLI used for this run: claude, codex or antigravity. */
+            provider: string;
             /**
              * @description The terminal `result` event's `result` field. `None` until finished, and may stay
              *     `None` even then — absent on every CLI error subtype.
@@ -2672,6 +2676,8 @@ export interface components {
         };
         /** @description A project as the API describes it. */
         ProjectDto: {
+            /** @description Where a successful Claude Code run moves a card. */
+            agentCompletionCategory: components["schemas"]["StatusCategory"];
             /**
              * Format: date-time
              * @description When the project was archived, if it is.
@@ -2974,6 +2980,9 @@ export interface components {
             lastSeenAt: string;
             /** @description The creating client's `User-Agent`, if it sent one. */
             userAgent?: string | null;
+        };
+        StartAgentSessionRequest: {
+            provider?: components["schemas"]["AgentProvider"];
         };
         /** @description The body of `POST /cycles/{id}/start`. */
         StartCycleRequest: {
@@ -3293,6 +3302,7 @@ export interface components {
          *     card key under it. That is a bulk move, not a field edit.
          */
         UpdateProjectRequest: {
+            agentCompletionCategory?: null | components["schemas"]["StatusCategory"];
             /** @description Absent leaves it, `null` clears it, a value sets it. */
             avatarUrl?: string | null;
             /** @description Absent leaves it, `null` clears it, a value sets it. */
@@ -4425,7 +4435,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["StartAgentSessionRequest"];
+            };
+        };
         responses: {
             /** @description The run, recorded as running */
             201: {

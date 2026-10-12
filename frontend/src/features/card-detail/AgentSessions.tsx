@@ -1,9 +1,12 @@
 import { Bot, X } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 
-import { Banner, Button, Lozenge, type LozengeAppearance, Spinner } from '@/components/ui'
+import { Banner, Button, Lozenge, type LozengeAppearance, Select, Spinner } from '@/components/ui'
 import { ICON, ICON_SMALL } from '@/lib/icon'
 
-import type { AgentSession, AgentSessionStatus, Card } from './api'
+import type { AgentProvider, AgentSession, AgentSessionStatus, Card } from './api'
+import { fetchAgentTranscript } from './api'
 import styles from './AgentSessions.module.css'
 import { formatDateTime } from './format'
 import { useCancelAgentSession, useCardAgentSessions, useStartAgentSession } from './queries'
@@ -26,6 +29,10 @@ const STATUS_LABEL: Record<AgentSessionStatus, string> = {
   cancelled: 'Cancelled',
 }
 
+const PROVIDER_LABEL: Record<AgentProvider, string> = {
+  claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity',
+}
+
 /**
  * "Run with Claude": starts a Claude Code session against the card (prompt = summary +
  * description, built server-side) and shows the card's session history.
@@ -37,6 +44,7 @@ const STATUS_LABEL: Record<AgentSessionStatus, string> = {
  * something this panel needs to pre-check.
  */
 export function AgentSessions({ card }: { card: Card }) {
+  const [provider, setProvider] = useState<AgentProvider>('claude')
   const sessions = useCardAgentSessions(card.key)
   const start = useStartAgentSession(card.key)
   const cancel = useCancelAgentSession(card.key)
@@ -47,19 +55,22 @@ export function AgentSessions({ card }: { card: Card }) {
   return (
     <section className={styles.agentSessions} aria-labelledby={`agent-${card.key}`}>
       <span id={`agent-${card.key}`} className={styles.label}>
-        Claude Code
+        Coding agent
       </span>
 
       <div className={styles.body}>
+        <Select label="Agent" value={provider} disabled={isRunning || start.isPending}
+          options={Object.entries(PROVIDER_LABEL).map(([value, label]) => ({value, label}))}
+          onChange={(event) => setProvider(event.target.value as AgentProvider)} />
         <Button
           appearance="default"
           size="compact"
           iconBefore={<Bot {...ICON} aria-hidden="true" />}
           isLoading={start.isPending}
           disabled={isRunning}
-          onClick={() => start.mutate()}
+          onClick={() => start.mutate(provider)}
         >
-          Run with Claude
+          Run with {PROVIDER_LABEL[provider]}
         </Button>
 
         {start.isError && (
@@ -73,7 +84,9 @@ export function AgentSessions({ card }: { card: Card }) {
           </Banner>
         )}
 
-        {sessions.isPending ? (
+        {sessions.isError ? (
+          <Banner appearance="error">Could not load agent sessions.</Banner>
+        ) : sessions.isPending ? (
           <Spinner label="Loading sessions" />
         ) : sessions.data && sessions.data.length > 0 ? (
           <ul className={styles.sessions}>
@@ -109,6 +122,7 @@ function SessionRow({
         <Lozenge appearance={STATUS_APPEARANCE[session.status]} isBold>
           {STATUS_LABEL[session.status]}
         </Lozenge>
+        <span className={styles.meta}>{PROVIDER_LABEL[session.provider as AgentProvider] ?? 'Claude'}</span>
         <span className={styles.started} title={formatDateTime(session.startedAt)}>
           {formatDateTime(session.startedAt)}
         </span>
@@ -134,6 +148,24 @@ function SessionRow({
       )}
       {session.errorMessage && <p className={styles.error}>{session.errorMessage}</p>}
       {session.resultText && <p className={styles.result}>{session.resultText}</p>}
+      {session.status !== 'running' && <SessionTranscript sessionId={session.id} />}
     </li>
+  )
+}
+
+function SessionTranscript({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = useState(false)
+  const transcript = useQuery({
+    queryKey: ['agent-transcript', sessionId],
+    queryFn: () => fetchAgentTranscript(sessionId),
+    enabled: open,
+  })
+  return (
+    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>View transcript</summary>
+      {open && (transcript.isError ? <Banner appearance="error">Could not load the transcript.</Banner>
+        : transcript.isPending ? <Spinner label="Loading transcript" />
+        : <pre className={styles.transcript}>{transcript.data.map((entry) => entry.line).join('\n') || 'No transcript recorded.'}</pre>)}
+    </details>
   )
 }

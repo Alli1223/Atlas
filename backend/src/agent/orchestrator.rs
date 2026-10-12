@@ -50,12 +50,15 @@
 //! for, not a coin flip over which event the drain loop's `select!` happened to observe first.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use tokio::sync::oneshot;
 
 use crate::agent::claude_code::{self, Event, Outcome, ResultEvent};
+use crate::agent::completion;
 use crate::agent::mcp;
+use crate::agent::providers::AgentProvider;
 use crate::agent::runner::{AgentRunner, RunEvent, RunHandle, RunLimits, RunRequest};
 use crate::agent::workspace::WorkspacePreparer;
 use crate::auth::now;
@@ -70,6 +73,32 @@ use crate::secrets::vault::Vault;
 
 /// Live runs' cancel signals, keyed by agent session id. See the module doc.
 pub type CancelRegistry = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
+
+/// Hold the project's shared checkout through preparation, execution and publication.
+/// Weak entries let idle projects disappear instead of growing this map forever.
+fn reserve_workspace(project_id: &str) -> AppResult<tokio::sync::OwnedMutexGuard<()>> {
+    type WorkspaceLocks = Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>;
+    static WORKSPACES: OnceLock<WorkspaceLocks> = OnceLock::new();
+    let workspace = {
+        let mut locks = WORKSPACES
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        let workspace = locks
+            .get(project_id)
+            .and_then(Weak::upgrade)
+            .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(())));
+        locks.insert(project_id.to_owned(), Arc::downgrade(&workspace));
+        workspace
+    };
+    workspace.try_lock_owned().map_err(|_| {
+        AppError::Conflict(
+            "another agent run is using this project's workspace; try again when it finishes"
+                .to_owned(),
+        )
+    })
+}
 
 /// A poisoned lock still holds a perfectly usable `HashMap` — the panic that poisoned it
 /// happened in an unrelated request's critical section, not in this one, and refusing to look
@@ -86,6 +115,7 @@ fn lock(
 /// forget to pass the prompt it actually means to send.
 #[derive(Debug)]
 pub struct StartRequest<'a> {
+    pub provider: AgentProvider,
     pub card: &'a Card,
     pub prompt: String,
     pub allowed_tools: Vec<String>,
@@ -103,12 +133,14 @@ pub struct StartRequest<'a> {
 /// that.
 pub async fn start(
     db: &Db,
-    vault: &Vault,
+    vault: &Arc<Vault>,
     runner: &dyn AgentRunner,
     preparer: &dyn WorkspacePreparer,
     registry: &CancelRegistry,
     request: StartRequest<'_>,
 ) -> AppResult<AgentSession> {
+    let workspace_guard = reserve_workspace(&request.card.project_id)?;
+    let card = request.card.clone();
     let working_dir = preparer
         .prepare(db, vault, &request.card.project_id)
         .await?;
@@ -120,7 +152,7 @@ pub async fn start(
     let claude_session_id = uuid::Uuid::new_v4().to_string();
 
     let mut tx = db.begin_write().await?;
-    let session = agent_session::insert(
+    let mut session = agent_session::insert(
         &mut tx,
         &NewAgentSession {
             card_id: &request.card.id,
@@ -131,6 +163,12 @@ pub async fn start(
         now(),
     )
     .await?;
+    sqlx::query("UPDATE agent_sessions SET provider = ? WHERE id = ?")
+        .bind(request.provider.as_str())
+        .bind(&session.id)
+        .execute(&mut *tx)
+        .await?;
+    request.provider.as_str().clone_into(&mut session.provider);
     let minted = mcp::capability::mint(&mut tx, &session.id, now()).await?;
     tx.commit().await?;
 
@@ -149,8 +187,9 @@ pub async fn start(
 
     let handle = match runner
         .spawn(RunRequest {
+            provider: request.provider,
             prompt: request.prompt.clone(),
-            working_dir,
+            working_dir: working_dir.clone(),
             resume_session_id: None,
             session_id: Some(claude_session_id),
             allowed_tools,
@@ -173,8 +212,14 @@ pub async fn start(
     lock(registry).insert(session.id.clone(), cancel_tx);
 
     spawn_drain(
-        db.clone(),
-        session.clone(),
+        DrainContext {
+            db: db.clone(),
+            vault: vault.clone(),
+            working_dir,
+            card,
+            session: session.clone(),
+            workspace_guard,
+        },
         handle,
         registry.clone(),
         cancel_rx,
@@ -252,6 +297,18 @@ pub async fn cancel(db: &Db, registry: &CancelRegistry, session_id: &str) -> App
     Ok(())
 }
 
+/// What [`spawn_drain`]'s detached task needs once the run itself is over: everything
+/// [`completion::run`] needs to attribute and attach its on-completion actions, alongside the
+/// `db`/`session` the drain and the outcome write already needed on their own.
+struct DrainContext {
+    db: Db,
+    vault: Arc<Vault>,
+    working_dir: PathBuf,
+    card: Card,
+    session: AgentSession,
+    workspace_guard: tokio::sync::OwnedMutexGuard<()>,
+}
+
 /// Drains a run's events to its terminal `result` event (if any), persists every raw line as
 /// the session's transcript, and records the outcome.
 ///
@@ -259,12 +316,19 @@ pub async fn cancel(db: &Db, registry: &CancelRegistry, session_id: &str) -> App
 /// recording the outcome is logged, not surfaced — there is no request left to answer by the
 /// time a detached task's own write fails.
 fn spawn_drain(
-    db: Db,
-    session: AgentSession,
+    ctx: DrainContext,
     handle: RunHandle,
     registry: CancelRegistry,
     cancel_rx: oneshot::Receiver<()>,
 ) {
+    let DrainContext {
+        db,
+        vault,
+        working_dir,
+        card,
+        session,
+        workspace_guard,
+    } = ctx;
     tokio::spawn(async move {
         let drained = drain_to_result(handle, cancel_rx).await;
 
@@ -281,7 +345,11 @@ fn spawn_drain(
             );
         }
 
-        let outcome = outcome_for_drain(&drained);
+        let mut outcome = outcome_for_drain(&drained);
+        if session.provider != "claude" {
+            // These CLIs report token usage, but do not provide an actual dollar cost.
+            outcome.total_cost_usd = None;
+        }
         if let Err(err) = finish(&db, &session, &outcome).await {
             tracing::error!(
                 session = %session.id,
@@ -290,10 +358,32 @@ fn spawn_drain(
             );
         }
 
+        // On-completion actions (comment, branch/PR, card move) run after the outcome is
+        // durably recorded, so a crash partway through them never leaves the session itself
+        // looking unfinished — see `agent::completion`'s module doc for why each of its three
+        // steps is independently best-effort.
+        completion::run(
+            &db,
+            &vault,
+            &working_dir,
+            &session,
+            &card,
+            &completion::Summary {
+                status: outcome.status,
+                result_text: outcome.result_text.as_deref(),
+                total_cost_usd: outcome.total_cost_usd,
+                num_turns: outcome.num_turns,
+            },
+            now(),
+        )
+        .await;
+
         // The run is over: revoke its MCP capability so the token cannot be reused. Ordered
         // after `finish` so the session is already non-`running` — a tool call racing this is
         // refused by the status check regardless.
         revoke_capability(&db, &session.id).await;
+        // Explicit use at the end keeps the checkout reserved during completion actions.
+        drop(workspace_guard);
     });
 }
 
@@ -505,10 +595,10 @@ mod tests {
         }
     }
 
-    fn test_vault() -> Vault {
-        Vault::new(
+    fn test_vault() -> Arc<Vault> {
+        Arc::new(Vault::new(
             Crypto::from_master_b64("dGhpcy1pcy1hLTMyLWJ5dGUtdGVzdC1tYXN0ZXIta2V5MDA=").unwrap(),
-        )
+        ))
     }
 
     fn fake_program(dir: &Path, body: &str) -> PathBuf {
@@ -587,6 +677,7 @@ mod tests {
 
     fn request<'a>(card: &'a Card, prompt: &str) -> StartRequest<'a> {
         StartRequest {
+            provider: AgentProvider::Claude,
             card,
             prompt: prompt.to_owned(),
             allowed_tools: vec!["Read".to_owned()],
@@ -597,6 +688,25 @@ mod tests {
             started_by: None,
             database_url: "sqlite::memory:".to_owned(),
         }
+    }
+
+    #[test]
+    fn workspace_reservation_rejects_a_second_run_and_releases_after_drop() {
+        let project = Uuid::new_v4().to_string();
+        let first = reserve_workspace(&project).unwrap();
+        assert!(matches!(
+            reserve_workspace(&project),
+            Err(AppError::Conflict(_))
+        ));
+        drop(first);
+        assert!(reserve_workspace(&project).is_ok());
+    }
+
+    #[test]
+    fn workspace_reservations_allow_different_projects() {
+        let first = reserve_workspace(&Uuid::new_v4().to_string()).unwrap();
+        let second = reserve_workspace(&Uuid::new_v4().to_string()).unwrap();
+        drop((first, second));
     }
 
     #[tokio::test]
@@ -630,6 +740,46 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(stored.id, session.id);
+    }
+
+    #[tokio::test]
+    async fn a_second_run_on_the_project_is_rejected_without_creating_a_session() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        let program = fake_program(&scripts.0, "sleep 60");
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
+        let first = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "first"),
+        )
+        .await
+        .unwrap();
+        let second = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "second"),
+        )
+        .await;
+        assert!(matches!(second, Err(AppError::Conflict(_))));
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM agent_sessions WHERE card_id = ?")
+                .bind(&card.id)
+                .fetch_one(db.reader())
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+        cancel(&db, &registry, &first.id).await.unwrap();
+        wait_for_finish(&db, &first.id).await;
     }
 
     #[tokio::test]

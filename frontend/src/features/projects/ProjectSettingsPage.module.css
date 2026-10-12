@@ -1,0 +1,28 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-300);
+  max-width: 32rem;
+  padding: var(--ds-space-300);
+}
+
+.title {
+  font: var(--ds-font-heading-large);
+  color: var(--ds-text);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-150);
+}
+
+.sectionTitle {
+  font: var(--ds-font-heading-small);
+  color: var(--ds-text);
+}
+
+.sectionHint {
+  font: var(--ds-font-body-small);
+  color: var(--ds-text-subtle);
+}

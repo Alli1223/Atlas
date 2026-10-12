@@ -371,6 +371,12 @@ pub async fn move_to_category(
     now: DateTime<Utc>,
 ) -> AppResult<Option<String>> {
     let mut tx = db.begin_write().await?;
+    // Callers may hold a card read before a long agent run or webhook request. Resolve the
+    // workflow against its current state under the same write lock as the transition.
+    let Some(current) = card::find_by_id_tx(&mut tx, &card.id).await? else {
+        return Ok(None);
+    };
+    let card = &current;
     let Some(target) =
         config::first_status_in_category_tx(&mut tx, &card.project_id, category).await?
     else {

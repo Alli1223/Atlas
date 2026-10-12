@@ -251,8 +251,8 @@ export function useCardAgentSessions(cardKey: string) {
 /** Starts a run, prepending it into the session list rather than refetching. */
 export function useStartAgentSession(cardKey: string) {
   const queryClient = useQueryClient()
-  return useMutation<AgentSession, ApiError, void>({
-    mutationFn: () => cardApi.startAgentSession(cardKey),
+  return useMutation<AgentSession, ApiError, cardApi.AgentProvider>({
+    mutationFn: (provider) => cardApi.startAgentSession(cardKey, provider),
     onSuccess: (session) => {
       queryClient.setQueryData<AgentSession[]>(cardKeys.agentSessions(cardKey), (list) => [
         session,
