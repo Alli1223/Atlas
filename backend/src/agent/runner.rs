@@ -221,15 +221,23 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
         AppError::internal(anyhow::anyhow!("the child process had no stderr pipe"))
     })?;
 
-    // Drained on its own task for the whole lifetime of the child — see the module doc.
+    let (events_tx, events_rx) = mpsc::channel(64);
+    // Diagnostics belong to the ticket console, never the host's general logs.
+    // This sender keeps the transcript open until stderr has also reached EOF.
+    let stderr_tx = events_tx.clone();
     tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            tracing::warn!(target: "agent::claude_code", %line, "claude stderr");
+            let record = serde_json::json!({
+                "type": "atlas_console", "stream": "stderr", "text": line,
+            })
+            .to_string();
+            if stderr_tx.send(RunEvent::Unparseable(record)).await.is_err() {
+                break;
+            }
         }
     });
 
-    let (events_tx, events_rx) = mpsc::channel(64);
     let (cancel_tx, mut cancel_rx) = oneshot::channel();
     let mut output = ProviderOutput::new(request.provider, session_id.clone());
 
@@ -581,11 +589,24 @@ mod tests {
         let runner = LocalRunner::with_program(program.to_string_lossy());
         let mut handle = runner.spawn(request(std::env::temp_dir())).await.unwrap();
 
-        let event = timeout(Duration::from_secs(10), handle.events.recv())
-            .await
-            .expect("must not deadlock on an undrained stderr pipe")
-            .expect("one event");
-        assert!(matches!(parsed(event), Event::Result(_)));
+        let (diagnostics, result_seen) = timeout(Duration::from_secs(10), async {
+            let mut diagnostics = 0;
+            let mut result_seen = false;
+            while let Some(event) = handle.events.recv().await {
+                match event {
+                    RunEvent::Unparseable(line) => {
+                        assert!(line.contains("noisy diagnostic line"));
+                        diagnostics += 1;
+                    }
+                    RunEvent::Parsed(_, event) => result_seen |= matches!(*event, Event::Result(_)),
+                }
+            }
+            (diagnostics, result_seen)
+        })
+        .await
+        .expect("must not deadlock on an undrained stderr pipe");
+        assert_eq!(diagnostics, 4000);
+        assert!(result_seen);
     }
 
     #[tokio::test]

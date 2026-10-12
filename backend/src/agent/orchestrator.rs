@@ -15,22 +15,11 @@
 //! uses. A caller sees progress by polling `GET /agent-sessions/{id}` (or, later, subscribing
 //! over WebSocket); nothing here blocks a request thread for the run's lifetime.
 //!
-//! # What happens if Atlas restarts mid-run
-//!
-//! The detached task dies with the process, and the session is left `running` forever with
-//! no error recorded — a known, narrow gap (worth a stale-session sweep on startup later),
-//! not silent data loss: the CLI's own child process is not orphaned regardless
-//! ([`crate::agent::runner`]'s `KillOnDrop` + process-group kill), so nothing keeps spending
-//! after Atlas is gone.
-//!
 //! # Transcript persistence
 //!
-//! Every raw line the CLI wrote — not just the terminal `result` — is written to
-//! [`crate::domain::agent_session_transcript`] once the run ends, in one transaction, rather
-//! than one row per line as they arrive: a run's lines live only in memory for its duration
-//! (bounded by how long a run itself is), and batching means a transcript write can never
-//! race the outcome write that follows it. A restart mid-run loses the in-flight lines the
-//! same way it loses the outcome (see above) — there is nothing to batch-write yet.
+//! Output is persisted as it arrives, before recording the terminal outcome. Ticket
+//! consoles can poll it while a run is active, and startup recovery retains output from
+//! interrupted runs. Each append uses a short transaction, preserving arrival order.
 //!
 //! # Cancelling a run
 //!
@@ -330,20 +319,12 @@ fn spawn_drain(
         workspace_guard,
     } = ctx;
     tokio::spawn(async move {
-        let drained = drain_to_result(handle, cancel_rx).await;
+        let drained = drain_to_result(handle, cancel_rx, &db, &session).await;
 
         // The run is over one way or another; nothing can cancel it any more, so its entry
         // (if the session was not already cancelled, which removes it itself) has no further
         // reason to exist.
         lock(&registry).remove(&session.id);
-
-        if let Err(err) = persist_transcript(&db, &session.id, &drained.lines).await {
-            tracing::error!(
-                session = %session.id,
-                error = %err,
-                "failed to persist an agent session's transcript"
-            );
-        }
 
         let mut outcome = outcome_for_drain(&drained);
         if session.provider != "claude" {
@@ -387,16 +368,15 @@ fn spawn_drain(
     });
 }
 
-/// What draining a run's events to completion produced: every raw line, in arrival order, the
+/// What draining a run's events to completion produced: the
 /// terminal `result` event if the run reached one, and whether an external [`cancel`] request
 /// landed during the drain.
 struct Drained {
-    lines: Vec<String>,
     result: Option<ResultEvent>,
     cancelled: bool,
 }
 
-/// Reads every event until the channel closes, collecting each raw line and keeping the last
+/// Reads every event until the channel closes, persisting each raw line and keeping the last
 /// (only) `result` event seen — and, once `cancel_rx` fires, calling [`RunHandle::cancel`] and
 /// continuing to drain (rather than stopping immediately), so whatever the process managed to
 /// say before it actually died still ends up in the transcript.
@@ -410,8 +390,13 @@ struct Drained {
 /// and a sent signal look identical to its `tokio::select!` — so the run would be killed and
 /// its events truncated before this had read any of them. Keeping the whole handle alive keeps
 /// the sender alive for exactly as long as a real caller holding it would.
-async fn drain_to_result(mut handle: RunHandle, mut cancel_rx: oneshot::Receiver<()>) -> Drained {
-    let mut lines = Vec::new();
+async fn drain_to_result(
+    mut handle: RunHandle,
+    mut cancel_rx: oneshot::Receiver<()>,
+    db: &Db,
+    session: &AgentSession,
+) -> Drained {
+    let mut seq = 0;
     let mut result_event = None;
     let mut cancelled = false;
     loop {
@@ -427,39 +412,93 @@ async fn drain_to_result(mut handle: RunHandle, mut cancel_rx: oneshot::Receiver
             }
             event = handle.events.recv() => {
                 let Some(event) = event else { break };
-                match event {
-                    RunEvent::Parsed(line, event) => {
-                        lines.push(line);
-                        if let Event::Result(result) = *event {
-                            result_event = Some(result);
-                        }
-                    }
-                    RunEvent::Unparseable(line) => lines.push(line),
+                let line = match &event {
+                    RunEvent::Parsed(line, _) | RunEvent::Unparseable(line) => line,
+                };
+                if let Err(err) = persist_line(db, session, seq, line).await {
+                    tracing::error!(session = %session.id, error = %err, "failed to persist agent output");
+                }
+                seq += 1;
+                if let RunEvent::Parsed(_, event) = event
+                    && let Event::Result(result) = *event {
+                    result_event = Some(result);
                 }
             }
         }
     }
     Drained {
-        lines,
         result: result_event,
         cancelled,
     }
 }
 
-/// Writes a run's whole transcript in one transaction — see the module doc for why this is
-/// batched rather than appended line-by-line as events arrive.
-async fn persist_transcript(db: &Db, session_id: &str, lines: &[String]) -> AppResult<()> {
-    if lines.is_empty() {
-        return Ok(());
-    }
+/// Saves output and explicit requests for user input together.
+async fn persist_line(db: &Db, session: &AgentSession, seq: usize, line: &str) -> AppResult<()> {
     let mut tx = db.begin_write().await?;
-    for (seq, line) in lines.iter().enumerate() {
-        let seq =
-            i64::try_from(seq).expect("a transcript will never remotely approach i64::MAX lines");
-        agent_session_transcript::append(&mut tx, session_id, seq, line, now()).await?;
+    let seq = i64::try_from(seq).expect("a transcript fits in i64");
+    agent_session_transcript::append(&mut tx, &session.id, seq, line, now()).await?;
+    if let (Some(actor), Some(question)) = (&session.started_by, input_request(line)) {
+        let body = format!(
+            "**Agent needs your input** ({} run `{}`)\n\n{}\n\nThis run uses a non-interactive CLI. Add your answer to the ticket description and rerun after this run ends, or cancel it first.",
+            session.provider, session.id, question
+        );
+        crate::domain::comment::insert(&mut tx, &session.card_id, actor, &body, now()).await?;
     }
     tx.commit().await?;
     Ok(())
+}
+
+/// Recognize explicit CLI request events, not question marks in ordinary prose.
+fn input_request(line: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if matches!(
+        value["type"].as_str().or(value["event"].as_str()),
+        Some("input_required" | "user_input_required" | "permission_request")
+    ) {
+        return Some(
+            value["question"]
+                .as_str()
+                .or(value["message"].as_str())
+                .unwrap_or("The CLI requested input or permission. See its console output.")
+                .to_owned(),
+        );
+    }
+    let step = &value["step_update"];
+    if step["state"] == "ACTIVE"
+        && matches!(
+            step["tool_name"].as_str(),
+            Some("ask_question" | "ask_permission" | "ask_custom_permission")
+        )
+    {
+        return Some(step["tool_info"]["parameters"].to_string());
+    }
+    let blocks = value["message"]["content"].as_array()?;
+    let questions: Vec<String> = blocks
+        .iter()
+        .filter(|block| block["type"] == "tool_use" && block["name"] == "AskUserQuestion")
+        .filter_map(|block| block["input"]["questions"].as_array())
+        .flatten()
+        .filter_map(|q| {
+            q["question"].as_str().map(|text| {
+                let options = q["options"]
+                    .as_array()
+                    .map(|options| {
+                        options
+                            .iter()
+                            .filter_map(|option| option["label"].as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                if options.is_empty() {
+                    text.to_owned()
+                } else {
+                    format!("{text}\nOptions: {options}")
+                }
+            })
+        })
+        .collect();
+    (!questions.is_empty()).then(|| questions.join("\n\n"))
 }
 
 /// The status/outcome fields to record, as owned values — kept alive in the caller's scope so
@@ -813,6 +852,85 @@ mod tests {
         assert_eq!(finished.num_turns, Some(2));
         assert!(finished.error_message.is_none());
         assert!(finished.ended_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn output_and_input_requests_are_visible_before_the_run_finishes() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        let program = fake_program(
+            &scripts.0,
+            r#"
+            echo '{"type":"input_required","question":"Which database should I use?"}'
+            echo 'Compiler diagnostic' >&2
+            sleep 60
+            echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"test","total_cost_usd":0,"terminal_reason":"completed"}'
+        "#,
+        );
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let actor: String = sqlx::query_scalar("SELECT id FROM users WHERE username = 'pm'")
+            .fetch_one(db.reader())
+            .await
+            .unwrap();
+        let registry = CancelRegistry::default();
+        let mut run_request = request(&card, "do it");
+        run_request.started_by = Some(&actor);
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &FixedWorkspace(std::env::temp_dir()),
+            &registry,
+            run_request,
+        )
+        .await
+        .unwrap();
+        timeout(Duration::from_secs(3), async {
+            loop {
+                let lines = agent_session_transcript::list_for_session(&db, &session.id)
+                    .await
+                    .unwrap();
+                if lines.len() >= 2 {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let active = agent_session::find_by_id(&db, &session.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(active.status, AgentSessionStatus::Running);
+        let comments = crate::domain::comment::list(&db, &card.id).await.unwrap();
+        assert!(
+            comments
+                .iter()
+                .any(|comment| comment.body.contains("Which database should I use?"))
+        );
+        let lines = agent_session_transcript::list_for_session(&db, &session.id)
+            .await
+            .unwrap();
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.line.contains("Compiler diagnostic"))
+        );
+        cancel(&db, &registry, &session.id).await.unwrap();
+        wait_for_finish(&db, &session.id).await;
+    }
+
+    #[test]
+    fn questions_are_recognized_without_treating_ordinary_output_as_a_request() {
+        assert_eq!(
+            input_request(r#"{"type":"input_required","question":"Pick a database"}"#).as_deref(),
+            Some("Pick a database")
+        );
+        assert!(input_request(r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Tests pass? Yes."}]}}"#).is_none());
+        let question = input_request(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"AskUserQuestion","input":{"questions":[{"question":"Which database?","options":[{"label":"SQLite"}]}]}}]}}"#).unwrap();
+        assert!(question.contains("SQLite"));
     }
 
     #[tokio::test]

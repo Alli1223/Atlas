@@ -1,6 +1,6 @@
 import { Bot, X } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 
 import { Banner, Button, Lozenge, type LozengeAppearance, Select, Spinner } from '@/components/ui'
 import { ICON, ICON_SMALL } from '@/lib/icon'
@@ -9,7 +9,8 @@ import type { AgentProvider, AgentSession, AgentSessionStatus, Card } from './ap
 import { fetchAgentTranscript } from './api'
 import styles from './AgentSessions.module.css'
 import { formatDateTime } from './format'
-import { useCancelAgentSession, useCardAgentSessions, useStartAgentSession } from './queries'
+import { consoleEntry } from './agent-console'
+import { cardKeys, useCancelAgentSession, useCardAgentSessions, useStartAgentSession } from './queries'
 
 const STATUS_APPEARANCE: Record<AgentSessionStatus, LozengeAppearance> = {
   running: 'inprogress',
@@ -94,6 +95,7 @@ export function AgentSessions({ card }: { card: Card }) {
               <SessionRow
                 key={session.id}
                 session={session}
+                cardKey={card.key}
                 onCancel={() => cancel.mutate(session.id)}
                 isCancelling={cancel.isPending && cancel.variables === session.id}
               />
@@ -109,10 +111,12 @@ export function AgentSessions({ card }: { card: Card }) {
 
 function SessionRow({
   session,
+  cardKey,
   onCancel,
   isCancelling,
 }: {
   session: AgentSession
+  cardKey: string
   onCancel: () => void
   isCancelling: boolean
 }) {
@@ -148,24 +152,52 @@ function SessionRow({
       )}
       {session.errorMessage && <p className={styles.error}>{session.errorMessage}</p>}
       {session.resultText && <p className={styles.result}>{session.resultText}</p>}
-      {session.status !== 'running' && <SessionTranscript sessionId={session.id} />}
+      <SessionTranscript session={session} cardKey={cardKey} />
     </li>
   )
 }
 
-function SessionTranscript({ sessionId }: { sessionId: string }) {
-  const [open, setOpen] = useState(false)
+function SessionTranscript({ session, cardKey }: { session: AgentSession; cardKey: string }) {
+  const queryClient = useQueryClient()
+  const running = session.status === 'running'
+  const [expanded, setExpanded] = useState(false)
+  const [raw, setRaw] = useState(false)
+  const open = running || expanded
   const transcript = useQuery({
-    queryKey: ['agent-transcript', sessionId],
-    queryFn: () => fetchAgentTranscript(sessionId),
+    queryKey: ['agent-transcript', session.id],
+    queryFn: () => fetchAgentTranscript(session.id),
     enabled: open,
+    refetchInterval: running ? 1500 : false,
+    staleTime: 0,
   })
+  useEffect(() => {
+    if (!running) void queryClient.invalidateQueries({ queryKey: ['agent-transcript', session.id] })
+  }, [running, session.id, queryClient])
+  const entries = transcript.data?.map(entry => consoleEntry(entry.line)) ?? []
+  const requests = entries.filter(entry => entry.attention)
+  const requestCount = requests.length
+  useEffect(() => {
+    if (requestCount > 0) void queryClient.invalidateQueries({ queryKey: cardKeys.comments(cardKey) })
+  }, [requestCount, queryClient, cardKey])
   return (
-    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>View transcript</summary>
-      {open && (transcript.isError ? <Banner appearance="error">Could not load the transcript.</Banner>
-        : transcript.isPending ? <Spinner label="Loading transcript" />
-        : <pre className={styles.transcript}>{transcript.data.map((entry) => entry.line).join('\n') || 'No transcript recorded.'}</pre>)}
+    <details open={open} onToggle={(event) => { if (!running) setExpanded(event.currentTarget.open) }}>
+      <summary>{running ? 'Live console output' : 'View transcript'}</summary>
+      {requests.length > 0 && <Banner appearance="warning">
+        <strong>Agent needs attention</strong>
+        {requests.map((request, index) => <pre className={styles.request} key={index}>{request.text}</pre>)}
+        <p>This CLI runs without interactive input. For a question, add your answer to the ticket description,
+          then rerun after completion. Cancel first if it is still running. Review denied permissions before rerunning.</p>
+      </Banner>}
+      {open && <>
+        <p className={styles.meta}>{running ? 'Updates every 1.5 seconds while this ticket is open.' : 'Recorded console output.'}</p>
+        <label className={styles.meta}><input type="checkbox" checked={raw} onChange={event => setRaw(event.target.checked)} /> Show raw events</label>
+        {transcript.isError ? <Banner appearance="error">Could not load the transcript. Retrying while the run is active.</Banner>
+          : transcript.isPending ? <Spinner label="Loading transcript" />
+          : <pre className={styles.transcript} aria-label="Agent console" tabIndex={0}>{
+            (raw ? transcript.data.map(entry => entry.line) : entries.map(entry => entry.text).filter(Boolean)).join('\n\n')
+            || (running ? 'Waiting for agent output…' : 'No transcript recorded.')
+          }</pre>}
+      </>}
     </details>
   )
 }

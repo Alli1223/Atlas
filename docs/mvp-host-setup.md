@@ -197,3 +197,19 @@ environment file is `~/.local/share/atlas/atlas.env`. Keep `ATLAS_MASTER_KEY` sa
 it is the existing encryption key for stored integrations. Data remains in
 `/home/alli/apps/Atlas/data/atlas.db`; checkouts remain in `workspaces/`.
 The pre-upgrade SQLite backup is in `data/backups/` after deployment.
+
+## Live ticket console and questions
+
+Open a ticket while its agent is running to see **Live console output**, refreshed every
+1.5 seconds. It includes agent messages, tools, commands, file changes, and stderr diagnostics.
+Use **Show raw events** for the provider's original events. Finished runs retain their console
+under **View transcript**. Output is saved during the run, so a restart retains the output
+already received.
+
+Explicit CLI question/permission events are highlighted as **Agent needs attention**.
+Questions also become ticket comments attributed to the user who started the run. The
+current CLI modes are non-interactive: there is no live terminal stdin or approval forwarding.
+Add the answer to the ticket description and rerun after completion; cancel first if the
+run is still active. Denied tools appear in the attention panel and need configuration review.
+Ordinary prose and unknown diagnostics stay visible in the console, but are not guessed to
+be structured requests for input.

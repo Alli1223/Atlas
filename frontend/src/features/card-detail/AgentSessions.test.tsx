@@ -34,6 +34,38 @@ describe('AgentSessions', () => {
     expect(queryClient.getQueryState(cardKeys.comments(CARD.key))?.isInvalidated).toBe(true)
   })
 
+  it('opens the live console and shows input requests while running', async () => {
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([makeAgentSession({ id: 'live' })]),
+      'GET /api/v1/agent-sessions/live/transcript': () => jsonResponse([
+        { line: '{"type":"input_required","question":"Which database should I use?"}' },
+        { line: '{"type":"atlas_console","stream":"stderr","text":"Compiler diagnostic"}' },
+      ]),
+    })
+    renderWithClient(<AgentSessions card={CARD} />)
+    expect(await screen.findByText('Agent needs attention')).toBeInTheDocument()
+    expect(screen.getByLabelText('Agent console')).toHaveTextContent('Which database should I use?')
+    expect(screen.getByLabelText('Agent console')).toHaveTextContent('[stderr] Compiler diagnostic')
+    expect(screen.getByText('Live console output').closest('details')).toHaveAttribute('open')
+  })
+
+  it('fetches the final output when a live run finishes', async () => {
+    const session = makeAgentSession({ id: 'live-finish' })
+    let finished = false
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([session]),
+      'GET /api/v1/agent-sessions/live-finish/transcript': () => jsonResponse([
+        { line: finished ? 'Final output received' : 'Working on files' },
+      ]),
+    })
+    const { queryClient } = renderWithClient(<AgentSessions card={CARD} />)
+    expect(await screen.findByText('Working on files')).toBeInTheDocument()
+    finished = true
+    await act(() => queryClient.setQueryData(cardKeys.agentSessions(CARD.key), [{ ...session, status: 'completed' }]))
+    await userEvent.setup().click(await screen.findByText('View transcript'))
+    expect(await screen.findByText('Final output received')).toBeInTheDocument()
+  })
+
   it('sends the selected provider when starting a ticket', async () => {
     const user = userEvent.setup()
     stubFetch({
