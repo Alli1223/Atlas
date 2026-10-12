@@ -142,3 +142,12 @@ must_use_candidate = "allow"
 lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
+
+# Password hashing must keep its production parameters in tests and development.
+# Optimize the crypto loops rather than weakening Argon2 or allowing debug builds
+# to turn one login into several seconds of CPU work.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

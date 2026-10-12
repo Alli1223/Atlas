@@ -1,10 +1,12 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { jsonResponse, problemResponse, stubFetch } from '@/features/auth/test-support'
 
 import { AgentSessions } from './AgentSessions'
+import { cardKeys } from './queries'
+import { boardKeys } from '@/features/board/queries'
 import { makeAgentSession, makeCard, renderWithClient } from './test-support'
 
 afterEach(() => {
@@ -14,6 +16,24 @@ afterEach(() => {
 const CARD = makeCard({ key: 'ATLAS-1', summary: 'Add login' })
 
 describe('AgentSessions', () => {
+  it('refreshes the card and board after a running session finishes', async () => {
+    const session = makeAgentSession()
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([session]),
+    })
+    const { queryClient } = renderWithClient(<AgentSessions card={CARD} />)
+    await screen.findByText('Running')
+    queryClient.setQueryData(cardKeys.comments(CARD.key), [])
+    const boardKey = boardKeys.data('ATLAS', {})
+    queryClient.setQueryData(boardKey, { columns: [], swimlanes: [] })
+    await act(() => queryClient.setQueryData(cardKeys.agentSessions(CARD.key), [
+      { ...session, status: 'completed' },
+    ]))
+    await screen.findByText('Completed')
+    await waitFor(() => expect(queryClient.getQueryState(boardKey)?.isInvalidated).toBe(true))
+    expect(queryClient.getQueryState(cardKeys.comments(CARD.key))?.isInvalidated).toBe(true)
+  })
+
   it('sends the selected provider when starting a ticket', async () => {
     const user = userEvent.setup()
     stubFetch({

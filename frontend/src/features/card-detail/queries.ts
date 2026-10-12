@@ -5,6 +5,9 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
+
+import { boardKeys } from '@/features/board/queries'
 
 import type { ApiError } from '@/lib/api'
 
@@ -241,11 +244,31 @@ export function useCreatePr(cardKey: string) {
  * one query: the list is already ordered newest-first, so its head *is* "the current run".
  */
 export function useCardAgentSessions(cardKey: string) {
-  return useQuery({
+  const queryClient = useQueryClient()
+  const previous = useRef<{ id: string; status: AgentSession['status'] } | null>(null)
+  const query = useQuery({
     queryKey: cardKeys.agentSessions(cardKey),
     queryFn: () => cardApi.fetchCardAgentSessions(cardKey),
     refetchInterval: (query) => (query.state.data?.[0]?.status === 'running' ? 3_000 : false),
   })
+  const latestId = query.data?.[0]?.id
+  const latestStatus = query.data?.[0]?.status
+  useEffect(() => {
+    const old = previous.current
+    previous.current = latestId && latestStatus ? { id: latestId, status: latestStatus } : null
+    if (!latestId || old?.id !== latestId || old.status !== 'running' || latestStatus === 'running') return
+    const refresh = () => {
+      invalidateCard(queryClient, cardKey)
+      void queryClient.invalidateQueries({ queryKey: cardKeys.comments(cardKey) })
+      void queryClient.invalidateQueries({ queryKey: cardKeys.gitLinks(cardKey) })
+      void queryClient.invalidateQueries({ queryKey: boardKeys.all })
+    }
+    refresh()
+    // Completion actions follow the durable outcome write and can finish a moment later.
+    const timer = setTimeout(refresh, 5_000)
+    return () => clearTimeout(timer)
+  }, [cardKey, latestId, latestStatus, queryClient])
+  return query
 }
 
 /** Starts a run, prepending it into the session list rather than refetching. */
