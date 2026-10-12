@@ -24,7 +24,10 @@ pub struct ProviderUsage {
 
 fn metrics(line: &str) -> Option<Value> {
     let value: Value = serde_json::from_str(line).ok()?;
-    if value["type"] == "turn.completed" || value["type"] == "result" {
+    if matches!(
+        value["type"].as_str(),
+        Some("turn.completed" | "turn.failed" | "result")
+    ) {
         Some(value)
     } else if value["event"] == "result" {
         Some(value["result"].clone())
@@ -44,7 +47,7 @@ pub async fn record(
         return Ok(());
     };
     let usage = &value["usage"];
-    let cost = if provider == "claude" {
+    let cost = if provider == "claude" && value["terminal_reason"] != "timeout" {
         value["total_cost_usd"]
             .as_f64()
             .filter(|cost| cost.is_finite() && *cost >= 0.0)
@@ -70,6 +73,7 @@ mod tests {
     use super::*;
     #[test]
     fn only_terminal_events_supply_usage() {
+        assert!(metrics(r#"{"type":"turn.failed","error":{"message":"Failed"}}"#).is_some());
         assert!(metrics(r#"{"type":"assistant","usage":{"input_tokens":10}}"#).is_none());
         assert_eq!(
             metrics(r#"{"type":"turn.completed","usage":{"input_tokens":10}}"#).unwrap()["usage"]["input_tokens"],
