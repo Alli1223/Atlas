@@ -1347,6 +1347,8 @@ async fn a_comment_is_the_authors_even_from_inside_the_project() {
 /// - `POST /projects` cannot be project-scoped: there is no project yet;
 /// - `GET /project-templates` is static seed data and names no project.
 const NOT_PROJECT_SCOPED: &[&str] = &[
+    // Personal usage is scoped by the signed-in user, tested below.
+    "GET /api/v1/agent-usage",
     "POST /api/v1/auth/login",
     "POST /api/v1/auth/logout",
     "GET /api/v1/auth/me",
@@ -3253,4 +3255,36 @@ async fn two_owners_deactivated_at_once_cannot_leave_a_project_ownerless() {
         gone_a.raw_body,
         gone_b.raw_body
     );
+}
+
+#[tokio::test]
+async fn provider_usage_is_personal_even_for_an_instance_admin() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let (actor_id, actor) = user(&app, &admin, "usage-owner", "member").await;
+    let (_, outsider) = user(&app, &admin, "usage-outsider", "member").await;
+    sqlx::query("INSERT INTO agent_usage(run_id, actor_id, provider, input_tokens, created_at) VALUES ('private-run', ?, 'codex', 777, ?)")
+        .bind(&actor_id).bind(chrono::Utc::now().to_rfc3339()).execute(app.db.writer()).await.unwrap();
+    let own = app.send(get("/api/v1/agent-usage", Some(&actor))).await;
+    assert_eq!(own.status, StatusCode::OK);
+    assert!(
+        own.json()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|usage| usage["inputTokens"] == 777)
+    );
+    for cookie in [&outsider, &admin] {
+        let reply = app.send(get("/api/v1/agent-usage", Some(cookie))).await;
+        assert_eq!(reply.status, StatusCode::OK);
+        assert!(
+            reply
+                .json()
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|usage| usage["runs"] == 0 && usage["inputTokens"].is_null())
+        );
+    }
+    app.db.close().await;
 }
