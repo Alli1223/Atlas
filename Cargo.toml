@@ -143,6 +143,12 @@ lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
 
+# Keep a full workspace test build within a small self-hosted server's disk budget.
+# Developers can opt into symbols with CARGO_PROFILE_DEV_DEBUG=1 (or 2).
+[profile.dev]
+debug = 0
+incremental = false
+
 # Password hashing must keep its production parameters in tests and development.
 # Optimize the crypto loops rather than weakening Argon2 or allowing debug builds
 # to turn one login into several seconds of CPU work.

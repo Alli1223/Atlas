@@ -44,6 +44,8 @@ Private copies of the existing build container's Rust and Node binaries are unde
 `~/.local/share/atlas/tools`. No host rustup manager was installed. The service has these
 paths configured explicitly and limits Rust build/test parallelism for this host. Use `rustc --version`, `cargo --version`, and `node --version`
 to check an interactive shell. Agent package caches stay inside their checkout.
+Development/test builds omit debug symbols and incremental caches to keep disk usage
+bounded. Set `CARGO_PROFILE_DEV_DEBUG=1` when you need debugging symbols.
 
 ### Codex
 
