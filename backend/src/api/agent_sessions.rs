@@ -101,6 +101,17 @@ async fn start_agent_session(
     let card = card::find_by_key(&state.db, &key)
         .await?
         .ok_or(AppError::NotFound)?;
+    if crate::domain::automation::info(&state.db, &card.id)
+        .await?
+        .blocked_by
+        .iter()
+        .any(|dependency| !dependency.done)
+    {
+        return Err(AppError::Conflict(
+            "This ticket has unfinished blocking dependencies. Finish them before starting work."
+                .to_owned(),
+        ));
+    }
     let prompt = build_prompt(&card.summary, card.description.as_deref());
 
     let session = orchestrator::start(

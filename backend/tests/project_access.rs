@@ -1435,7 +1435,7 @@ impl Targets {
             let value = if segment.starts_with('{') {
                 match (previous, segment) {
                     ("projects", "{key}") => &self.project_key,
-                    ("cards", "{key}") => &self.card_key,
+                    ("cards", "{key}") | ("dependencies", "{blockerKey}") => &self.card_key,
                     ("comments", "{id}") => &self.comment_id,
                     // `/tags/{id}` and `/cards/{key}/tags/{tagId}` both sit under
                     // a `tags` segment and both name a tag.

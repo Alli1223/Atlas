@@ -311,48 +311,7 @@ fn configure_command(
                 .arg("--max-budget-usd")
                 .arg(format!("{:.2}", request.limits.max_budget_usd));
         }
-        AgentProvider::Codex => {
-            command
-                .args([
-                    "exec",
-                    "--json",
-                    "--ignore-user-config",
-                    "--sandbox",
-                    "workspace-write",
-                ])
-                .args([
-                    "-c",
-                    "approval_policy=\"never\"",
-                    "-c",
-                    "sandbox_workspace_write.network_access=true",
-                ])
-                .arg(&request.prompt);
-            if let Some(config) = request
-                .mcp_config
-                .as_deref()
-                .and_then(|config| serde_json::from_str::<serde_json::Value>(config).ok())
-            {
-                let server = &config["mcpServers"]["atlas"];
-                if let Some(executable) = server["command"].as_str() {
-                    command.args([
-                        "-c",
-                        &format!(
-                            "mcp_servers.atlas.command={}",
-                            serde_json::json!(executable)
-                        ),
-                    ]);
-                    command.args(["-c", "mcp_servers.atlas.args=[\"mcp\"]"]);
-                    if let Some(env) = server["env"].as_object() {
-                        let env = env
-                            .iter()
-                            .map(|(key, value)| format!("{key}={value}"))
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        command.args(["-c", &format!("mcp_servers.atlas.env={{{env}}}")]);
-                    }
-                }
-            }
-        }
+        AgentProvider::Codex => configure_codex(command, request),
         AgentProvider::Antigravity => {
             command.arg("-p").arg(&request.prompt).args([
                 "--output-format",
@@ -400,6 +359,58 @@ fn configure_command(
         }
         None => {
             command.arg("--session-id").arg(session_id);
+        }
+    }
+}
+
+/// Worker runs write their checkout; metadata-only planning uses a read-only sandbox.
+fn configure_codex(command: &mut tokio::process::Command, request: &RunRequest) {
+    command
+        .args([
+            "exec",
+            "--json",
+            "--ignore-user-config",
+            "--sandbox",
+            if request.mcp_config.is_none() {
+                "read-only"
+            } else {
+                "workspace-write"
+            },
+        ])
+        .args([
+            "-c",
+            "approval_policy=\"never\"",
+            "-c",
+            "sandbox_workspace_write.network_access=true",
+        ])
+        .arg(&request.prompt);
+    if request.mcp_config.is_none() {
+        // The board planner reads supplied metadata in its own temporary folder.
+        command.arg("--skip-git-repo-check");
+    }
+    if let Some(config) = request
+        .mcp_config
+        .as_deref()
+        .and_then(|config| serde_json::from_str::<serde_json::Value>(config).ok())
+    {
+        let server = &config["mcpServers"]["atlas"];
+        if let Some(executable) = server["command"].as_str() {
+            command.args([
+                "-c",
+                &format!(
+                    "mcp_servers.atlas.command={}",
+                    serde_json::json!(executable)
+                ),
+            ]);
+            command.args(["-c", "mcp_servers.atlas.args=[\"mcp\"]"]);
+            if let Some(env) = server["env"].as_object() {
+                let env = env
+                    .iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                command.args(["-c", &format!("mcp_servers.atlas.env={{{env}}}")]);
+            }
         }
     }
 }

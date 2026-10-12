@@ -3,6 +3,7 @@
 pub mod admin;
 pub mod agent_sessions;
 pub mod auth;
+pub mod automation;
 pub mod board;
 pub mod cards;
 pub mod comments;
@@ -252,6 +253,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(credentials::routes())
         .merge(github::routes())
         .merge(agent_sessions::routes())
+        .merge(automation::routes())
         .merge(admin::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

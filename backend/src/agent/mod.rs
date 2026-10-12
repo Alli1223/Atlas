@@ -41,3 +41,5 @@ pub mod workspace;
 /// in the trait), so both can be held as `Arc<dyn Trait>` in [`crate::api::AppState`], chosen
 /// once at startup. The same shape [`crate::secrets::vault::Validator`] uses.
 pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+pub mod board_auto;

@@ -197,6 +197,19 @@ pub async fn start(
         }
     };
 
+    if let Some(actor) = &session.started_by
+        && let Err(err) = crate::integrations::github::smart_commit::move_to_category(
+            db,
+            &card,
+            crate::domain::StatusCategory::InProgress,
+            actor,
+            now(),
+        )
+        .await
+    {
+        tracing::warn!(session = %session.id, error = %err, "could not move running ticket into progress");
+    }
+
     let (cancel_tx, cancel_rx) = oneshot::channel();
     lock(registry).insert(session.id.clone(), cancel_tx);
 
@@ -365,6 +378,14 @@ fn spawn_drain(
         revoke_capability(&db, &session.id).await;
         // Explicit use at the end keeps the checkout reserved during completion actions.
         drop(workspace_guard);
+        if let Err(err) = sqlx::query("UPDATE agent_sessions SET finalized_at = ? WHERE id = ?")
+            .bind(crate::auth::to_sql_timestamp(now()))
+            .bind(&session.id)
+            .execute(db.writer())
+            .await
+        {
+            tracing::error!(session = %session.id, error = %err, "failed to finalize agent session");
+        }
     });
 }
 

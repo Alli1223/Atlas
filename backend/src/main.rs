@@ -113,6 +113,8 @@ async fn serve(config: Config) -> anyhow::Result<()> {
         );
     }
 
+    atlas::agent::board_auto::recover(&db).await?;
+
     let listener = TcpListener::bind(config.bind_addr)
         .await
         .with_context(|| format!("failed to bind {}", config.bind_addr))?;

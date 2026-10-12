@@ -75,6 +75,18 @@ pub async fn run(
     summary: &Summary<'_>,
     now: DateTime<Utc>,
 ) {
+    if let (Some(actor), Some(text)) = (session.started_by.as_deref(), summary.result_text) {
+        for line in text.lines() {
+            if let Some(request) = line.trim().strip_prefix("ATLAS_BLOCKED_BY:")
+                && let Some((key, reason)) = request.split_once('|')
+                && let Err(err) =
+                    crate::domain::automation::block(db, card, key.trim(), reason.trim(), actor)
+                        .await
+            {
+                tracing::warn!(error = %err, "could not record worker's reported blocker");
+            }
+        }
+    }
     if !matches!(
         summary.status,
         AgentSessionStatus::Completed | AgentSessionStatus::CompletedWithDenials
@@ -91,7 +103,24 @@ pub async fn run(
 
     post_comment(db, card, actor, &session.provider, summary, now).await;
     attach_branch_and_pr(db, vault, working_dir, session, card, now).await;
-    move_card(db, card, actor, now).await;
+    let automation = crate::domain::automation::info(db, &card.id).await;
+    match automation {
+        Ok(info) if info.blocked_by.iter().any(|dependency| !dependency.done) => {
+            if let Err(err) =
+                crate::domain::automation::move_named(db, &card.id, "Blocked", actor).await
+            {
+                tracing::warn!(error = %err, "could not keep ticket in blocked lane");
+            }
+        }
+        Ok(info) if info.assignment.is_some() => {
+            if let Err(err) =
+                crate::domain::automation::move_named(db, &card.id, "In Review", actor).await
+            {
+                tracing::warn!(error = %err, "could not move agent ticket into review");
+            }
+        }
+        _ => move_card(db, card, actor, now).await,
+    }
 }
 
 /// Posts a transcript-summary comment, attributed to whoever started the run.

@@ -558,6 +558,36 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/cards/{key}/tags/{tagId}",
         Scope::Card(ProjectRole::Member),
     ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/auto",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/auto",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/auto/stop",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/automation",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/dependencies",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/cards/{key}/dependencies/{blockerKey}",
+        Scope::Card(ProjectRole::Member),
+    ),
     // --- workflows: reading is Viewer, editing is Owner (it is configuration) ---
     (
         Method::GET,
