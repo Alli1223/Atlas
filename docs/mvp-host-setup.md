@@ -240,3 +240,22 @@ ticket remains a blocker. Status changes obey the project's workflow gates.
 **Cancel run** control to stop that worker too. A failed/denied worker or invalid plan stops
 Auto with an explanation. Restart-interrupted Auto runs become Failed and do not restart
 spending automatically. Auto saves branches and never merges or deploys them.
+
+## Activity and provider usage
+
+The Auto panel's **Agent activity** timeline keeps planning decisions, provider assignments,
+review outcomes, and blocked outcomes for the latest batch. Each worker entry links its
+card and has an expandable **Worker console**, with live tool activity, command output,
+run status, and highlighted input requests. The coordinator's provider does not restrict
+worker selection: a Claude coordinator can dispatch Codex or Antigravity, and vice versa.
+All three CLIs must be installed and authenticated to allow unrestricted selection.
+
+Open **AI usage** in the application header for your last 24 hours of Atlas-recorded
+provider usage. It includes active workers/coordinators, finished CLI calls, reported input,
+output and cached-input tokens, and reported cost. Coordinator calls count too. Metrics
+include historical worker results retained in transcripts, while planner metrics start with
+this release. The panel refreshes every 15 seconds; token/cost totals update
+when a CLI reports its terminal result. Cancelled calls without a result cannot contribute
+measured usage. These are CLI estimates, not subscription quotas or billing balances.
+Claude's reported cost is a list-price estimate even on a subscription; Codex and
+Antigravity costs remain **Not reported**. Missing token reports remain unknown.

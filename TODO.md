@@ -468,6 +468,10 @@ The project board also has an Auto coordinator: a chosen CLI plans ready work, a
 worker provider, and records its reasoning. Workers run sequentially and move through
 In Progress, In Review, or Blocked with explicit blocker references. Fixed batches and
 work-until-no-ready-tickets are supported; review/merge/deployment remain manual.
+The Auto activity timeline records provider assignments and outcomes, with expandable live
+worker consoles. The header shows per-provider active agents and personal 24-hour CLI usage
+(tokens and reported cost), including coordinator calls and historical worker transcripts.
+Subscription quotas, billing balances, per-model dashboards, and live token estimates remain pending.
 
 ## Progress
 
