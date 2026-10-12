@@ -25,7 +25,7 @@ These MVP runs use your cached CLI sign-ins. Atlas removes inherited API-key var
 from agent children, rather than switching a subscription run to API billing. Codex and
 Antigravity do not report a dollar price here, so their cost is shown as unknown. Runs have a
 30-minute wall-clock limit. Restart-interrupted sessions become Failed and can be rerun;
-automatic resume and live transcript streaming remain backlog work.
+automatic resume remains backlog work. The live console polls saved output during a run.
 
 ## CLI installation and sign-in
 
@@ -213,3 +213,30 @@ Add the answer to the ticket description and rerun after completion; cancel firs
 run is still active. Denied tools appear in the attention panel and need configuration review.
 Ordinary prose and unknown diagnostics stay visible in the console, but are not guessed to
 be structured requests for input.
+
+## Auto board coordinator
+
+On the project board, open **Auto**, select the coordinator CLI and a task limit, then
+click **Auto**. The default is a three-task batch. **Until no ready tickets** continues
+until no eligible backlog tickets remain. Project-owner access is required. The coordinator
+uses a CLI to inspect the board snapshot, choose the next ready ticket, select Codex,
+Claude, or Antigravity, and explain its assignment in a ticket comment. Its console and
+current ticket are available in the Auto panel.
+
+Workers run sequentially because a project has one shared checkout. Starting a worker
+moves its ticket into In Progress; successful assigned work moves to In Review. Agents
+receive instructions to post progress and move through legal workflow transitions. Codex
+and Claude can call `atlas_block_card`; Antigravity reports blockers with
+`ATLAS_BLOCKED_BY: ATLAS-123 | specific reason` in its final response.
+
+A dependency creates a clickable blocker reference and moves the ticket into Blocked.
+You can add or remove dependencies in the ticket's **Blocking tickets** section. Cross-project
+references, self-blocking, and dependency cycles are refused. Auto skips tickets whose
+blockers are unfinished, and moves an unblocked ticket back to the backlog when planning
+again. Review and merge a foundation task's branch before marking it Done; an In Review
+ticket remains a blocker. Status changes obey the project's workflow gates.
+
+**Stop Auto** stops further dispatches and lets the current worker finish. Use the ticket's
+**Cancel run** control to stop that worker too. A failed/denied worker or invalid plan stops
+Auto with an explanation. Restart-interrupted Auto runs become Failed and do not restart
+spending automatically. Auto saves branches and never merges or deploys them.

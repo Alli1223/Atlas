@@ -457,12 +457,17 @@ As of 2026-10-12, the native host service runs Atlas at
 unchecked phase checklist items, with phase tags and source notes. The import is repeatable
 and preserves manual edits and status. The existing account and Test project are retained.
 
-Card-detail supports Codex, Claude, and Antigravity selection, cancellation, finished-run
-transcripts, and result/error history. All three installed CLIs passed isolated real file-writing
+Card-detail supports Codex, Claude, and Antigravity selection, cancellation, live console
+output (including stderr), readable tools/commands, input-request comments, and result/error history. All three installed CLIs passed isolated real file-writing
 smoke tests. The host setup and sequential backlog worker are documented in
 [`docs/mvp-host-setup.md`](docs/mvp-host-setup.md). Review/merge and application deployment
 remain explicit steps. Restarted runs become Failed rather than remaining Running forever;
-automatic resume and in-flight transcript durability are still pending.
+output is persisted as it arrives. Automatic resume and WebSocket transport remain pending.
+
+The project board also has an Auto coordinator: a chosen CLI plans ready work, assigns a
+worker provider, and records its reasoning. Workers run sequentially and move through
+In Progress, In Review, or Blocked with explicit blocker references. Fixed batches and
+work-until-no-ready-tickets are supported; review/merge/deployment remain manual.
 
 ## Progress
 
@@ -482,7 +487,7 @@ automatic resume and in-flight transcript durability are still pending.
 | 10 Cycles | `feat/10-cycles`, `feat/10-cycles-ui` | 🚧 backend + core UI done: state machine (start/complete/reopen), scope tracking (`card_cycle`), carry-over, full REST API, a `/cycles` lifecycle page, card-detail sidebar integration, and daily `cycle_snapshot` writes via the new `scheduler` (#44). Remaining: a drag-and-drop backlog board for bulk card↔cycle moves, start/complete-triggered snapshot rows, a direct time-logging path, and reports |
 | 11 Secrets | `feat/11-secrets` | ✅ (#12) |
 | 12 GitHub | `feat/12-github` | 🚧 nearly done: vault→PAT, repo linking (+ picker), branch/PR creation, mergeable+reviews, dev panel (live commits/CI), rate-limit handling, webhooks (receiver, installable, replay guard, push/PR/check_suite), poll fallback for hookless repos via the new `scheduler`, backfill on link (#12, #15–#17, #25–#33, #42–#43). Remaining: surfacing a broken repo link (revoked PAT, renamed/deleted repo) in the UI |
-| 13 Claude agent | `feat/13-claude-agent` | 🚧 the runner core, workspaces, session + transcript persistence, the wiring endpoint (start/list/get/cancel/transcript), and a frontend: `stream-json` event parsing + outcome interpretation, `AgentRunner`/`LocalRunner` spawning the CLI as its own killable process group, `agent::workspace::WorkspacePreparer`/`GitWorkspacePreparer` cloning/refreshing a project's linked repo (credential never touches argv or the stored git config), `domain::agent_session` recording a run's status/outcome, `domain::agent_session_transcript` recording every raw line, `agent::orchestrator` wiring it all behind `POST /cards/{key}/agent-sessions` ("Run with Claude"), `GET .../agent-sessions`, `GET /agent-sessions/{id}`, `GET .../transcript`, and `POST .../cancel` (a new in-memory `CancelRegistry` finally gives a request a way to reach the `RunHandle` a detached drain task owns). A card-detail panel (`AgentSessions.tsx`) makes it clickable — Run, Cancel, and a polling session-history list. All backend tested against shell-script/fake-preparer stand-ins — no real subprocess, network call, or API cost in CI (#41, #45–#47). Remaining: resuming across a restart, WebSocket-driven live streaming, the Atlas MCP server, on-completion actions, and per-project permission-mode configuration |
+| 13 Claude agent | `feat/13-claude-agent` | 🚧 the runner core, workspaces, session + transcript persistence, the wiring endpoint (start/list/get/cancel/transcript), and a frontend: `stream-json` event parsing + outcome interpretation, `AgentRunner`/`LocalRunner` spawning the CLI as its own killable process group, `agent::workspace::WorkspacePreparer`/`GitWorkspacePreparer` cloning/refreshing a project's linked repo (credential never touches argv or the stored git config), `domain::agent_session` recording a run's status/outcome, `domain::agent_session_transcript` recording every raw line, `agent::orchestrator` wiring it all behind `POST /cards/{key}/agent-sessions` ("Run with Claude"), `GET .../agent-sessions`, `GET /agent-sessions/{id}`, `GET .../transcript`, and `POST .../cancel` (a new in-memory `CancelRegistry` finally gives a request a way to reach the `RunHandle` a detached drain task owns). A card-detail panel (`AgentSessions.tsx`) makes it clickable — Run, Cancel, and a polling session-history list. All backend tested against shell-script/fake-preparer stand-ins — no real subprocess, network call, or API cost in CI (#41, #45–#47). Remaining: automatic resume, WebSocket transport, the full MCP create/tag tool set, cost/token dashboards, and per-project permission-mode configuration |
 | 14 Gemini | `feat/14-gemini` | ⬜ |
 | 15 Automation | `feat/15-automation` | ⬜ |
 | 16 Reports | `feat/16-reports` | ⬜ |
