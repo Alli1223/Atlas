@@ -175,8 +175,35 @@ async fn remove_dependency(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(get, path = "/projects/{key}/auto/activity", tag = "automation", params(("key" = String, Path)), responses((status = 200, body = Vec<board_auto::Activity>)))]
+async fn get_activity(
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+) -> AppResult<Json<Vec<board_auto::Activity>>> {
+    let project = project::find_by_key(&state.db, &key)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let events = if let Some(run) = board_auto::latest(&state.db, &project.id).await? {
+        board_auto::activities(&state.db, &run.id).await?
+    } else {
+        Vec::new()
+    };
+    Ok(Json(events))
+}
+#[utoipa::path(get, path = "/agent-usage", tag = "automation", responses((status = 200, body = Vec<crate::agent::usage::ProviderUsage>)))]
+async fn get_usage(
+    State(state): State<AppState>,
+    current: CurrentUser,
+) -> AppResult<Json<Vec<crate::agent::usage::ProviderUsage>>> {
+    Ok(Json(
+        crate::agent::usage::summary(&state.db, &current.user.id).await?,
+    ))
+}
+
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
+        .routes(routes!(get_activity))
+        .routes(routes!(get_usage))
         .routes(routes!(get_auto, start_auto))
         .routes(routes!(stop_auto))
         .routes(routes!(get_card_automation))

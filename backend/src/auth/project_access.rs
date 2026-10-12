@@ -246,6 +246,12 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
     // --- auth: instance-level, and login must work with no session at all ---
     (Method::POST, "/api/v1/auth/login", Scope::Unscoped),
     (Method::POST, "/api/v1/auth/logout", Scope::Unscoped),
+    (Method::GET, "/api/v1/agent-usage", Scope::SelfFiltered),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/auto/activity",
+        Scope::Project(ProjectRole::Viewer),
+    ),
     (Method::GET, "/api/v1/auth/me", Scope::Unscoped),
     (
         Method::POST,

@@ -97,6 +97,37 @@ async fn update(db: &Db, id: &str, status: &str, message: &str) -> AppResult<()>
         .bind(status)
         .execute(db.writer())
         .await?;
+    activity(db, id, message, None).await?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Activity {
+    pub id: String,
+    pub provider: String,
+    pub message: String,
+    pub card_key: Option<String>,
+    pub session_id: Option<String>,
+    pub created_at: String,
+}
+pub async fn activities(db: &Db, run: &str) -> AppResult<Vec<Activity>> {
+    Ok(sqlx::query_as("SELECT id, provider, message, card_key, session_id, created_at FROM board_auto_activity WHERE run_id = ? ORDER BY id DESC LIMIT 200")
+        .bind(run).fetch_all(db.reader()).await?)
+}
+async fn activity(
+    db: &Db,
+    run: &str,
+    message: &str,
+    worker: Option<(&str, &str, &str)>,
+) -> AppResult<()> {
+    let job = by_id(db, run).await?;
+    let (provider, card, session) = worker.map_or(
+        (job.provider.as_str(), None, None),
+        |(provider, card, session)| (provider, Some(card), Some(session)),
+    );
+    sqlx::query("INSERT INTO board_auto_activity(id, run_id, provider, message, card_key, session_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind(Uuid::now_v7().to_string()).bind(run).bind(provider).bind(message).bind(card).bind(session).bind(to_sql_timestamp(now())).execute(db.writer()).await?;
     Ok(())
 }
 
@@ -336,6 +367,13 @@ async fn dispatch_worker(
     sqlx::query("UPDATE board_auto_runs SET current_card_key = ?, current_session_id = ?, message = ?, updated_at = ? WHERE id = ?")
             .bind(&card.key).bind(&session.id).bind(format!("{} is working on {}: {}", chosen.as_str(), card.key, reason))
             .bind(to_sql_timestamp(now())).bind(id).execute(ctx.db.writer()).await?;
+    activity(
+        &ctx.db,
+        id,
+        reason,
+        Some((chosen.as_str(), &card.key, &session.id)),
+    )
+    .await?;
     let wait_started = std::time::Instant::now();
     loop {
         if wait_started.elapsed() > std::time::Duration::from_mins(35) {
@@ -363,6 +401,17 @@ async fn dispatch_worker(
         )));
     }
     let completed = i64::from(validate_worker_lane(&ctx.db, card).await?);
+    activity(
+        &ctx.db,
+        id,
+        if completed == 1 {
+            "Work ready for review"
+        } else {
+            "Waiting on a blocking ticket"
+        },
+        Some((chosen.as_str(), &card.key, &session.id)),
+    )
+    .await?;
     sqlx::query("UPDATE board_auto_runs SET completed_tasks = completed_tasks + ?, current_card_key = NULL, current_session_id = NULL, updated_at = ? WHERE id = ?")
             .bind(completed).bind(to_sql_timestamp(now())).bind(id).execute(ctx.db.writer()).await?;
     Ok(())
@@ -484,6 +533,11 @@ async fn plan(
             },
         })
         .await?;
+    let usage_id = Uuid::now_v7().to_string();
+    let actor: String = sqlx::query_scalar("SELECT started_by FROM board_auto_runs WHERE id = ?")
+        .bind(id)
+        .fetch_one(ctx.db.reader())
+        .await?;
     let mut result = None;
     let mut console = String::new();
     let mut poll = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -495,6 +549,7 @@ async fn plan(
             event = handle.events.recv() => {
                 let Some(event) = event else { break; };
                 let line = match &event { RunEvent::Parsed(line, _) | RunEvent::Unparseable(line) => line };
+                super::usage::record(&ctx.db, &usage_id, &actor, provider.as_str(), line).await?;
                 // Bound the UI console; the latest planning call replaces the previous one.
                 if console.len() < 128_000 { console.push_str(line); console.push('\n'); }
                 sqlx::query("UPDATE board_auto_runs SET console = ?, updated_at = ? WHERE id = ?")

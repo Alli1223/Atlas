@@ -43,3 +43,5 @@ pub mod workspace;
 pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub mod board_auto;
+
+pub mod usage;

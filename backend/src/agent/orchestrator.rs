@@ -466,6 +466,9 @@ async fn persist_line(db: &Db, session: &AgentSession, seq: usize, line: &str) -
         crate::domain::comment::insert(&mut tx, &session.card_id, actor, &body, now()).await?;
     }
     tx.commit().await?;
+    if let Some(actor) = &session.started_by {
+        super::usage::record(db, &session.id, actor, &session.provider, line).await?;
+    }
     Ok(())
 }
 

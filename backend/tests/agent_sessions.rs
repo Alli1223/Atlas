@@ -820,11 +820,12 @@ async fn auto_fixture() -> (App, TempDir, Router, String) {
         r#"
         case "$*" in
           *"You manage this project board"*)
-            echo '{"type":"result","subtype":"success","is_error":false,"result":"{\"cardKey\":\"ATLAS-1\",\"provider\":\"claude\",\"reason\":\"Build the foundation first\",\"blocked\":[{\"cardKey\":\"ATLAS-2\",\"blockedBy\":\"ATLAS-1\",\"reason\":\"Requires the foundation\"}]}","num_turns":1,"session_id":"plan","total_cost_usd":0,"terminal_reason":"completed"}'
+            echo '{"type":"result","subtype":"success","is_error":false,"result":"{\"cardKey\":\"ATLAS-1\",\"provider\":\"codex\",\"reason\":\"Build the foundation first\",\"blocked\":[{\"cardKey\":\"ATLAS-2\",\"blockedBy\":\"ATLAS-1\",\"reason\":\"Requires the foundation\"}]}","num_turns":1,"session_id":"plan","total_cost_usd":0,"terminal_reason":"completed"}'
             ;;
           *)
             sleep 3
-            echo '{"type":"result","subtype":"success","is_error":false,"result":"Implemented and checked","num_turns":1,"session_id":"worker","total_cost_usd":0,"terminal_reason":"completed"}'
+            echo '{"type":"item.completed","item":{"type":"agent_message","text":"Implemented and checked"}}'
+            echo '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":80}}'
             ;;
         esac
     "#,
@@ -933,6 +934,34 @@ async fn auto_assigns_a_worker_and_tracks_blockers_and_review() {
     let job = wait_for_auto_field(&app, &router, &admin, "status", "stopped").await;
     assert_eq!(job["completedTasks"], 1);
     assert_auto_ticket_effects(&app, &router, &admin).await;
+    let activity = app
+        .send(
+            &router,
+            get("/api/v1/projects/ATLAS/auto/activity", Some(&admin)),
+        )
+        .await;
+    assert_eq!(activity.status, StatusCode::OK);
+    assert!(
+        activity
+            .json()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["provider"] == "codex" && event["sessionId"].is_string())
+    );
+    let usage = app
+        .send(&router, get("/api/v1/agent-usage", Some(&admin)))
+        .await;
+    assert_eq!(usage.status, StatusCode::OK);
+    assert!(
+        usage
+            .json()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|usage| usage["provider"] == "codex" && usage["inputTokens"] == 100)
+    );
+
     app.db.close().await;
 }
 
@@ -941,7 +970,7 @@ async fn assert_auto_ticket_effects(app: &App, router: &Router, admin: &str) {
         .send(router, get("/api/v1/cards/ATLAS-1/automation", Some(admin)))
         .await
         .json();
-    assert_eq!(first["assignment"]["provider"], "claude");
+    assert_eq!(first["assignment"]["provider"], "codex");
     let second = app
         .send(router, get("/api/v1/cards/ATLAS-2/automation", Some(admin)))
         .await
