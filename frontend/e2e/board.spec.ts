@@ -193,6 +193,7 @@ test('Auto activity and provider usage are readable in the browser', async ({ pa
   }]}))
   await page.goto(`/projects/${projectKey}/board`)
   await page.getByText(/Auto · running/, {exact:false}).click()
+  await expect(page.getByRole('combobox', {name:'Coordinator'})).toHaveValue('claude')
   await expect(page.getByRole('region', {name:'Agent activity'})).toBeVisible()
   await expect(page.getByText('Codex is best for this implementation and its regression tests.')).toBeVisible()
   await page.getByText('Worker console', {exact:true}).click()
