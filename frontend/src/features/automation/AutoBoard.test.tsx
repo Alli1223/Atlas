@@ -42,3 +42,20 @@ it('shows agent assignments and links to unfinished blocking tickets', async () 
   expect(screen.getByRole('link', {name:'ATLAS-1'})).toHaveAttribute('href','/cards/ATLAS-1')
   expect(screen.getByText('Needs schema')).toBeInTheDocument()
 })
+it('shows independent provider assignments and loads a worker console on demand', async () => {
+  const user = userEvent.setup()
+  const { calls } = stubFetch({
+    'GET /api/v1/projects/ATLAS/auto': () => jsonResponse({id:'job',status:'running',provider:'claude',maxTasks:3,completedTasks:0,message:'Choosing',console:''}),
+    'GET /api/v1/projects/ATLAS/auto/activity': () => jsonResponse([{id:'event',provider:'codex',cardKey:'ATLAS-4',sessionId:'worker',message:'Best for backend tests',createdAt:'2026-10-12T12:00:00Z'}]),
+    'GET /api/v1/cards/ATLAS-4/agent-sessions': () => jsonResponse([{id:'worker',status:'running'}]),
+    'GET /api/v1/agent-sessions/worker/transcript': () => jsonResponse([{id:'line',line:'{"type":"item.completed","item":{"type":"command_execution","command":"cargo test","aggregated_output":"Tests passed","status":"completed","exit_code":0}}'}]),
+  })
+  renderWithClient(<AutoBoard projectKey="ATLAS" />)
+  await user.click(await screen.findByText(/Auto · running/, {selector:'summary'}))
+  expect(await screen.findByText('Best for backend tests')).toBeInTheDocument()
+  expect(screen.getByText('codex')).toBeInTheDocument()
+  expect(calls).not.toContain('GET /api/v1/agent-sessions/worker/transcript')
+  await user.click(screen.getByText('Worker console'))
+  expect(await screen.findByText(/Tests passed/)).toBeInTheDocument()
+  expect(screen.getByText('running', {selector:'strong'})).toBeInTheDocument()
+})

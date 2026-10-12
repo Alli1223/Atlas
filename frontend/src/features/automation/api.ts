@@ -29,3 +29,14 @@ export const stopAuto = (key: string) => request<void>(`/projects/${encodeURICom
 export const fetchCardAutomation = (key: string) => request<CardAutomation>(`/cards/${encodeURIComponent(key)}/automation`)
 export const addDependency = (key: string, blockedBy: string, reason: string) => request<CardAutomation>(`/cards/${encodeURIComponent(key)}/dependencies`, 'POST', { blockedBy, reason })
 export const removeDependency = (key: string, blockerKey: string) => request<void>(`/cards/${encodeURIComponent(key)}/dependencies/${encodeURIComponent(blockerKey)}`, 'DELETE')
+
+export interface AgentActivity {
+  id: string; provider: string; message: string; cardKey: string | null;
+  sessionId: string | null; createdAt: string;
+}
+export interface ProviderUsage {
+  provider: string; runs: number; activeRuns: number; measuredRuns: number; inputTokens: number | null;
+  outputTokens: number | null; cachedTokens: number | null; costUsd: number | null;
+}
+export const fetchAutoActivity = (key: string) => request<AgentActivity[]>(`/projects/${encodeURIComponent(key)}/auto/activity`)
+export const fetchProviderUsage = () => request<ProviderUsage[]>('/agent-usage')

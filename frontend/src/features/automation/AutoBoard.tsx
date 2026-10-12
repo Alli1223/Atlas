@@ -8,6 +8,7 @@ import { consoleEntry } from '@/features/card-detail/agent-console'
 import type { AgentProvider } from '@/features/card-detail/api'
 import { fetchAuto, startAuto, stopAuto } from './api'
 import styles from './Automation.module.css'
+import { AgentActivity } from './AgentActivity'
 
 export function AutoBoard({ projectKey }: { projectKey: string }) {
   const client = useQueryClient()
@@ -36,7 +37,7 @@ export function AutoBoard({ projectKey }: { projectKey: string }) {
   }, [run?.status, run?.completedTasks, client, run?.id])
   return <details className={styles.panel}>
     <summary>Auto{run ? ` · ${run.status} · ${run.completedTasks}/${run.maxTasks || '∞'}` : ''}</summary>
-    <p>Let a coordinator choose ready tickets and assign Codex, Claude, or Antigravity. Workers run one at a time and leave changes for review.</p>
+    <p>Let a coordinator choose ready tickets and assign Codex, Claude, or Antigravity. The coordinator selects the best worker provider independently for every ticket. Workers run one at a time and leave changes for review.</p>
     <div className={styles.controls}>
       <Select label="Coordinator" value={provider} disabled={active} onChange={event => setProvider(event.target.value as AgentProvider)}
         options={[{value:'codex',label:'Codex'},{value:'claude',label:'Claude'},{value:'antigravity',label:'Antigravity'}]} />
@@ -50,6 +51,7 @@ export function AutoBoard({ projectKey }: { projectKey: string }) {
     {run && <>
       <p role="status">{run.message}</p>
       {run.currentCardKey && <a href={cardHref(run.currentCardKey)}>Open {run.currentCardKey}</a>}
+      <AgentActivity projectKey={projectKey} active={active} />
       {run.console && <details><summary>Coordinator console</summary><pre className={styles.console}>
         {run.console.split('\n').filter(Boolean).map(line => consoleEntry(line).text).join('\n\n')}
       </pre></details>}
