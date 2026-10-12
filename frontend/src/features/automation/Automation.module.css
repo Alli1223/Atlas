@@ -1,0 +1,7 @@
+.panel { width: 100%; min-width: 0; padding: var(--ds-space-150); border: 1px solid var(--ds-border); border-radius: var(--ds-radius-medium); font: var(--ds-font-body-small); }
+.panel summary { cursor: pointer; font-weight: var(--ds-font-weight-semibold); }
+.controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--ds-space-100); }
+.console { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: monospace; }
+.form { display: flex; flex-direction: column; gap: var(--ds-space-100); }
+.form label { display: flex; flex-direction: column; gap: var(--ds-space-050); }
+.form input, .form textarea { padding: var(--ds-space-100); background: var(--ds-background-input); color: var(--ds-text); border: 1px solid var(--ds-border-input); border-radius: var(--ds-radius-small); font: inherit; }

@@ -1,6 +1,6 @@
 import { Bot, X } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Banner, Button, Lozenge, type LozengeAppearance, Select, Spinner } from '@/components/ui'
 import { ICON, ICON_SMALL } from '@/lib/icon'
@@ -8,6 +8,7 @@ import { ICON, ICON_SMALL } from '@/lib/icon'
 import type { AgentProvider, AgentSession, AgentSessionStatus, Card } from './api'
 import { fetchAgentTranscript } from './api'
 import styles from './AgentSessions.module.css'
+import { CardAutomation } from '@/features/automation/CardAutomation'
 import { formatDateTime } from './format'
 import { consoleEntry } from './agent-console'
 import { cardKeys, useCancelAgentSession, useCardAgentSessions, useStartAgentSession } from './queries'
@@ -59,6 +60,7 @@ export function AgentSessions({ card }: { card: Card }) {
         Coding agent
       </span>
 
+      <CardAutomation cardKey={card.key} />
       <div className={styles.body}>
         <Select label="Agent" value={provider} disabled={isRunning || start.isPending}
           options={Object.entries(PROVIDER_LABEL).map(([value, label]) => ({value, label}))}
@@ -162,6 +164,8 @@ function SessionTranscript({ session, cardKey }: { session: AgentSession; cardKe
   const running = session.status === 'running'
   const [expanded, setExpanded] = useState(false)
   const [raw, setRaw] = useState(false)
+  const [follow, setFollow] = useState(true)
+  const consoleRef = useRef<HTMLPreElement>(null)
   const open = running || expanded
   const transcript = useQuery({
     queryKey: ['agent-transcript', session.id],
@@ -173,6 +177,10 @@ function SessionTranscript({ session, cardKey }: { session: AgentSession; cardKe
   useEffect(() => {
     if (!running) void queryClient.invalidateQueries({ queryKey: ['agent-transcript', session.id] })
   }, [running, session.id, queryClient])
+  useEffect(() => {
+    const console = consoleRef.current
+    if (running && follow && console) console.scrollTop = console.scrollHeight
+  }, [running, follow, open, raw, transcript.dataUpdatedAt])
   const entries = transcript.data?.map(entry => consoleEntry(entry.line)) ?? []
   const requests = entries.filter(entry => entry.attention)
   const requestCount = requests.length
@@ -190,10 +198,12 @@ function SessionTranscript({ session, cardKey }: { session: AgentSession; cardKe
       </Banner>}
       {open && <>
         <p className={styles.meta}>{running ? 'Updates every 1.5 seconds while this ticket is open.' : 'Recorded console output.'}</p>
+        {running && <label className={styles.meta}><input type="checkbox" checked={follow} onChange={event => setFollow(event.target.checked)} /> Follow output</label>}
         <label className={styles.meta}><input type="checkbox" checked={raw} onChange={event => setRaw(event.target.checked)} /> Show raw events</label>
         {transcript.isError ? <Banner appearance="error">Could not load the transcript. Retrying while the run is active.</Banner>
           : transcript.isPending ? <Spinner label="Loading transcript" />
-          : <pre className={styles.transcript} aria-label="Agent console" tabIndex={0}>{
+          : <pre className={styles.transcript} aria-label="Agent console" tabIndex={0} ref={consoleRef}
+            onScroll={event => { if (running) setFollow(event.currentTarget.scrollHeight - event.currentTarget.scrollTop - event.currentTarget.clientHeight < 32) }}>{
             (raw ? transcript.data.map(entry => entry.line) : entries.map(entry => entry.text).filter(Boolean)).join('\n\n')
             || (running ? 'Waiting for agent output…' : 'No transcript recorded.')
           }</pre>}

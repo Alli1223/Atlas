@@ -18,6 +18,7 @@ import {
   useSavedBoards,
 } from '@/features/board'
 import { CardDetailModal } from '@/features/card-detail'
+import { AutoBoard } from '@/features/automation/AutoBoard'
 import { useProject } from '@/features/projects'
 
 import styles from './projects.$projectKey.board.module.css'
@@ -185,6 +186,7 @@ function BoardRoute() {
         </div>
       </header>
 
+      {search.parent === undefined && <AutoBoard projectKey={projectKey} />}
       {board.isError ? (
         <div className={styles.state}>
           <Banner appearance="error">
