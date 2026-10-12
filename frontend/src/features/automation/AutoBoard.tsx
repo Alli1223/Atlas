@@ -39,7 +39,7 @@ export function AutoBoard({ projectKey }: { projectKey: string }) {
     <summary>Auto{run ? ` · ${run.status} · ${run.completedTasks}/${run.maxTasks || '∞'}` : ''}</summary>
     <p>Let a coordinator choose ready tickets and assign Codex, Claude, or Antigravity. The coordinator selects the best worker provider independently for every ticket. Workers run one at a time and leave changes for review.</p>
     <div className={styles.controls}>
-      <Select label="Coordinator" value={provider} disabled={active} onChange={event => setProvider(event.target.value as AgentProvider)}
+      <Select label="Coordinator" value={active && run?.provider ? run.provider : provider} disabled={active} onChange={event => setProvider(event.target.value as AgentProvider)}
         options={[{value:'codex',label:'Codex'},{value:'claude',label:'Claude'},{value:'antigravity',label:'Antigravity'}]} />
       <Select label="Tasks per batch" value={maxTasks} disabled={active} onChange={event => setMaxTasks(event.target.value)}
         options={[...['1','3','10','25','50'].map(value => ({value,label:value})), {value:'0',label:'Until no ready tickets'}]} />

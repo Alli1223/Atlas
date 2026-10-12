@@ -53,6 +53,7 @@ it('shows independent provider assignments and loads a worker console on demand'
   renderWithClient(<AutoBoard projectKey="ATLAS" />)
   await user.click(await screen.findByText(/Auto · running/, {selector:'summary'}))
   expect(await screen.findByText('Best for backend tests')).toBeInTheDocument()
+  expect(screen.getByRole('combobox', {name:'Coordinator'})).toHaveValue('claude')
   expect(screen.getByText('codex')).toBeInTheDocument()
   expect(calls).not.toContain('GET /api/v1/agent-sessions/worker/transcript')
   await user.click(screen.getByText('Worker console'))

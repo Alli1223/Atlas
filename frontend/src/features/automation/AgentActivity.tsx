@@ -18,7 +18,7 @@ function WorkerConsole({ event }: { event: ActivityItem }) {
     <p>Run status: <strong>{session?.status ?? 'Loading…'}</strong></p>
     {session?.errorMessage && <p role="alert">{session.errorMessage}</p>}
     {transcript.isError && <p role="alert">Could not load worker output.</p>}
-    <div className={styles.output} role="log" aria-label={`${event.provider} output for ${event.cardKey}`}>
+    <div className={styles.output} tabIndex={0} role="log" aria-label={`${event.provider} output for ${event.cardKey}`}>
       {transcript.data?.map(entry => {
         const formatted = consoleEntry(entry.line)
         return <pre key={entry.id} className={formatted.attention ? styles.attention : undefined}>{formatted.text}</pre>
