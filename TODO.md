@@ -327,9 +327,10 @@ Every flag below is verified against the local CLI (v2.1.211) — see `docs/rese
 - [ ] ⭐ **Atlas MCP server** via `--mcp-config` (verified end-to-end): expose `atlas_move_card`, `atlas_comment_card`, `atlas_create_card`, `atlas_get_card`, `atlas_set_status`, `atlas_add_tag` — this is how the agent **moves its own card when the task completes** (requested)
 - [x] Card → task binding: "Run with Claude" on a card sends summary + description + acceptance criteria as the prompt — _`POST /cards/{key}/agent-sessions` (`api::agent_sessions`) builds the prompt from the card's summary + description (no acceptance-criteria field exists in the domain model to send), calls `agent::orchestrator::start` — the new glue wiring `workspace::WorkspacePreparer` (a trait now, mirroring `AgentRunner`, precisely so this is testable without a real GitHub clone) → `AgentRunner::spawn` → `domain::agent_session::insert`, then drains the run to its terminal event in a detached task and calls `agent_session::finish`. `GET /cards/{key}/agent-sessions` and `GET /agent-sessions/{id}` read it back. Fixed allowed-tools/turn/budget defaults for now — the permission-mode bullet below is what makes them configurable. **Now has a frontend too**: a "Claude Code" panel on card-detail (`AgentSessions.tsx`, sidebar, next to the GitHub Development panel) with a "Run with Claude" button, a Cancel button on a running session, and the session list (status, cost, turns, result/error text), polling every 3s while the newest run is still `running` — see the session-history bullet below for what this basic list does not yet cover. Cancelling: `POST /agent-sessions/{id}/cancel`, backed by a new in-memory `agent::orchestrator::CancelRegistry` (keyed by session id, held on `AppState`) that finally gives an API request a way to reach the `RunHandle` a detached drain task owns — `RunHandle::cancel` itself has existed since the runner core landed, this is what was missing. A deliberate cancel always wins the race against a natural finish; the registry does not survive a restart (nothing does yet, see the transcript-persistence bullet)_
 - [ ] On completion: post transcript summary as a comment, move card to the configured destination column, attach the branch/PR
+  - MVP implemented on `feat/18-mvp-backlog`: summary comments, per-project completion category, GitHub branch/PR publication, and local branch preservation for the self-development checkout. Already-committed agent changes are published too; reruns use distinct branches. The checkout is reserved until publication finishes, and transitions reload the current card under the write lock. Project settings exposes the category; the frontend refreshes card/board/comment caches when a run finishes. Full workflow-editor destination selection and broader agent orchestration remain later work.
   - > **Flagged for confirmation:** the request says "move the card to the backlog" on completion. Backlog is an unusual destination for *finished* work — In Review or Done is the conventional target. Built as a **per-project configurable destination**, defaulting to In Review, with backlog selectable.
 - [ ] Permission mode per project (`default` / `acceptEdits` / `plan` / `bypassPermissions`), `--allowedTools`/`--disallowedTools` 🔒 — default to the *least* permissive that works, and make `bypassPermissions` a deliberate opt-in with a warning
-- [ ] Concurrency cap; queue when saturated
+- [ ] Concurrency cap; queue when saturated — _MVP guards the shared checkout per project: a second run gets 409 until execution and publication finish. A global cap and durable queue are still pending._
 - [ ] Session history per card; re-run; diff review before PR — _a basic history list now exists on card-detail (see the card → task binding bullet above: status, cost, turns, result/error text, most recent first). Re-run and diff-review-before-PR are not started_
 
 ---
@@ -448,6 +449,20 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 **Permission schemes** (40+ permissions × ~8 grantee types × N schemes → 3 roles) · **Notification schemes** (→ per-user prefs) · **Screens / Screen Schemes / Issue Type Screen Schemes** (→ field layout per type) · **Field Configuration Schemes** · **Workflow Schemes** · **Issue Type Schemes** · **Issue security levels** · **Project roles as distinct from groups** (two parallel systems) · **All of JSM** (SLAs, approvals, request types, portals, Assets/AQL) · **DevOps/Compass/Loom/Figma automation triggers** (~60% of Jira's trigger surface, zero loss here) · **Advanced Roadmaps / cross-project plans** · **Capacity planning** · **User/version workload reports** · **Comment visibility (internal vs public)** · **Board admins distinct from project admins**
 
 ---
+
+## MVP — host self-development
+
+As of 2026-10-12, the native host service runs Atlas at
+`https://atlas.alastairrayner.co.uk`. The `ATLAS` development board contains all 131
+unchecked phase checklist items, with phase tags and source notes. The import is repeatable
+and preserves manual edits and status. The existing account and Test project are retained.
+
+Card-detail supports Codex, Claude, and Antigravity selection, cancellation, finished-run
+transcripts, and result/error history. All three installed CLIs passed isolated real file-writing
+smoke tests. The host setup and sequential backlog worker are documented in
+[`docs/mvp-host-setup.md`](docs/mvp-host-setup.md). Review/merge and application deployment
+remain explicit steps. Restarted runs become Failed rather than remaining Running forever;
+automatic resume and in-flight transcript durability are still pending.
 
 ## Progress
 
