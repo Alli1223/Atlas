@@ -819,6 +819,33 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/agent-sessions/{id}/cancel",
         Scope::AgentSession(ProjectRole::Member),
     ),
+    (
+        Method::POST,
+        "/api/v1/agent-sessions/{id}/rerun",
+        Scope::AgentSession(ProjectRole::Member),
+    ),
+    (
+        Method::POST,
+        "/api/v1/agent-sessions/{id}/continue",
+        Scope::AgentSession(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/agent-sessions/{id}/diff",
+        Scope::AgentSession(ProjectRole::Viewer),
+    ),
+    // How runs behave in a project — permissions, tools, budget, billing — is configuration
+    // with a security edge: Owner.
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/agent-settings",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::PUT,
+        "/api/v1/projects/{key}/agent-settings",
+        Scope::Project(ProjectRole::Owner),
+    ),
     // --- watchers: anyone who can see a card may watch it, so even adding is Viewer; the
     // handler only ever adds the caller, and only lets the caller (or an admin) remove ---
     (

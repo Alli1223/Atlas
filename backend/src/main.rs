@@ -101,6 +101,11 @@ async fn serve(config: Config) -> anyhow::Result<()> {
     // The snapshot job is built here rather than inside `domain::cycle_snapshot` itself: that
     // module knows nothing of `scheduler`, keeping the same "domain does not reach up to the
     // layer that drives it" direction `domain::agent_session` keeps with `agent`.
+    // A run left executing by the previous process lost its drain task with it: fail it now,
+    // before the dispatcher counts it against the concurrency cap forever.
+    if let Err(err) = atlas::agent::dispatch::sweep_stale(&state).await {
+        tracing::warn!(error = %err, "failed to sweep stale agent runs");
+    }
     let mut jobs = atlas::jobs::all(&state);
     jobs.push(atlas::integrations::github::poll::job(state));
     jobs.push(cycle_snapshot_job(db.clone()));

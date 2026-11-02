@@ -151,6 +151,16 @@ pub struct AgentSession {
     pub ended_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Waiting for a free run slot (still `running`, not yet spawned).
+    pub queued: bool,
+    /// The terminal result's `usage` and `modelUsage`, as JSON text.
+    pub usage: Option<String>,
+    /// Wall-clock duration of the run.
+    pub duration_ms: Option<i64>,
+    /// The workspace branch the run left its work on.
+    pub branch: Option<String>,
+    /// The session this one re-ran or continued.
+    pub rerun_of: Option<String>,
 }
 
 /// A new session, ready to insert. Always starts `running`, with no outcome fields set.
@@ -175,7 +185,8 @@ pub struct SessionOutcome<'a> {
 macro_rules! agent_session_columns {
     () => {
         "id, card_id, claude_session_id, status, prompt, result_text, total_cost_usd, \
-         num_turns, error_message, started_by, started_at, ended_at, created_at, updated_at"
+         num_turns, error_message, started_by, started_at, ended_at, created_at, updated_at, \
+         queued, usage, duration_ms, branch, rerun_of"
     };
 }
 
@@ -209,6 +220,104 @@ pub async fn insert(
     find_by_id_tx(&mut *tx, &id)
         .await?
         .ok_or_else(|| AppError::internal(anyhow::anyhow!("the session just inserted is missing")))
+}
+
+/// Marks a just-inserted session as queued, with the parameters to launch it with later.
+pub async fn mark_queued(tx: &mut SqliteConnection, id: &str, launch: &str) -> AppResult<()> {
+    sqlx::query("UPDATE agent_sessions SET queued = 1, launch = ? WHERE id = ?")
+        .bind(launch)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    Ok(())
+}
+
+/// Records which session this one re-ran or continued.
+pub async fn set_rerun_of(tx: &mut SqliteConnection, id: &str, rerun_of: &str) -> AppResult<()> {
+    sqlx::query("UPDATE agent_sessions SET rerun_of = ? WHERE id = ?")
+        .bind(rerun_of)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    Ok(())
+}
+
+/// Takes the oldest queued session off the queue, returning it and its launch parameters.
+/// Atomic under the single writer, so two dispatchers can never launch the same run.
+pub async fn claim_queued(db: &Db) -> AppResult<Option<(AgentSession, String)>> {
+    let mut tx = db.begin_write().await?;
+    let claimed: Option<(String, Option<String>)> = sqlx::query_as(
+        "UPDATE agent_sessions SET queued = 0 WHERE id = \
+           (SELECT id FROM agent_sessions WHERE queued = 1 AND status = 'running' \
+             ORDER BY created_at, id LIMIT 1) \
+         RETURNING id, launch",
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((id, launch)) = claimed else {
+        tx.commit().await?;
+        return Ok(None);
+    };
+    let session = find_by_id_tx(&mut tx, &id).await?;
+    tx.commit().await?;
+    Ok(session.map(|s| (s, launch.unwrap_or_default())))
+}
+
+/// How many runs are actually executing (running and not queued).
+pub async fn executing_count(db: &Db) -> AppResult<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_sessions WHERE status = 'running' AND queued = 0",
+    )
+    .fetch_one(db.reader())
+    .await?)
+}
+
+/// Records a finished run's usage, duration and branch.
+pub async fn record_details(
+    db: &Db,
+    id: &str,
+    usage: Option<&str>,
+    duration_ms: Option<i64>,
+    branch: Option<&str>,
+) -> AppResult<()> {
+    let mut tx = db.begin_write().await?;
+    sqlx::query(
+        "UPDATE agent_sessions SET usage = COALESCE(?, usage), \
+         duration_ms = COALESCE(?, duration_ms), branch = COALESCE(?, branch) WHERE id = ?",
+    )
+    .bind(usage)
+    .bind(duration_ms)
+    .bind(branch)
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Fails every session left executing by a previous process: its drain task died with that
+/// process, so nothing will ever record its outcome. Queued sessions are left to be launched.
+/// Returns the ids swept.
+pub async fn sweep_stale(db: &Db, now: DateTime<Utc>) -> AppResult<Vec<String>> {
+    let mut tx = db.begin_write().await?;
+    let ids: Vec<String> = sqlx::query_scalar(
+        "UPDATE agent_sessions SET status = 'failed', \
+            error_message = 'Atlas restarted while this run was in progress.', \
+            ended_at = ?, updated_at = ? \
+          WHERE status = 'running' AND queued = 0 RETURNING id",
+    )
+    .bind(to_sql_timestamp(now))
+    .bind(to_sql_timestamp(now))
+    .fetch_all(&mut *tx)
+    .await?;
+    sqlx::query(
+        "DELETE FROM agent_capabilities WHERE session_id IN \
+           (SELECT id FROM agent_sessions WHERE status != 'running')",
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(ids)
 }
 
 /// Finds a session by id.

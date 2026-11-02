@@ -120,6 +120,39 @@ pub fn catalogue() -> Value {
                 "required": ["body"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "atlas_set_status",
+            "description": "Set the card's status by name — shorthand for atlas_move_card with to_status. Only a legal workflow move is taken.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "status": { "type": "string", "description": "The target status name, e.g. \"In Review\"." } },
+                "required": ["status"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "atlas_create_card",
+            "description": "Create a follow-up card as a child of this card (for work you found but did not do). Returns the new card's key.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string", "description": "A one-line title." },
+                    "description": { "type": "string", "description": "Markdown detail." }
+                },
+                "required": ["summary"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "atlas_add_tag",
+            "description": "Put a tag (a label with no spaces) on the card, creating it in the project if it does not exist yet.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "name": { "type": "string", "description": "The tag, e.g. needs-review." } },
+                "required": ["name"],
+                "additionalProperties": false
+            }
         }
     ])
 }
@@ -137,13 +170,114 @@ fn agent_prefix(session: &AgentSession) -> String {
 ///
 /// [`AppError`] mapped by the server into a JSON-RPC tool error.
 pub async fn call(ctx: &ToolContext, name: &str, args: &Value) -> AppResult<Value> {
-    match name {
-        "atlas_get_card" => get_card(ctx).await,
-        "atlas_list_transitions" => list_transitions(ctx).await,
-        "atlas_move_card" => move_card(ctx, args).await,
-        "atlas_comment_card" => comment_card(ctx, args).await,
-        other => Err(AppError::BadRequest(format!("unknown tool {other:?}"))),
-    }
+    // Every write a tool makes is tagged `agent:<session>`, so history, the activity feed and
+    // automation can all tell an agent's change from its starter's own.
+    let actor = format!("agent:{}", ctx.session.id);
+    crate::activity::with_actor(actor, async {
+        match name {
+            "atlas_get_card" => get_card(ctx).await,
+            "atlas_list_transitions" => list_transitions(ctx).await,
+            "atlas_move_card" => move_card(ctx, args).await,
+            "atlas_set_status" => {
+                let status = args.get("status").and_then(Value::as_str).ok_or_else(|| {
+                    AppError::BadRequest("atlas_set_status needs a status".to_owned())
+                })?;
+                move_card(ctx, &json!({ "to_status": status })).await
+            }
+            "atlas_comment_card" => comment_card(ctx, args).await,
+            "atlas_create_card" => create_card(ctx, args).await,
+            "atlas_add_tag" => add_tag(ctx, args).await,
+            other => Err(AppError::BadRequest(format!("unknown tool {other:?}"))),
+        }
+    })
+    .await
+}
+
+async fn create_card(ctx: &ToolContext, args: &Value) -> AppResult<Value> {
+    ctx.require(ProjectRole::Member).await?;
+    let summary = args
+        .get("summary")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::BadRequest("atlas_create_card needs a summary".to_owned()))?;
+    let summary = card::validate_summary(summary)?;
+    let description = args
+        .get("description")
+        .and_then(Value::as_str)
+        .filter(|d| !d.trim().is_empty())
+        .map(|d| card::validate_description(&format!("{}{d}", agent_prefix(&ctx.session))))
+        .transpose()?;
+    let parent = reload(ctx).await?;
+    let project = project::find_by_id(&ctx.db, &parent.project_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    // The highest level below the parent: a follow-up to a Story is a Task/Sub-task, not an
+    // Epic. A card at the bottom of the hierarchy gets a sibling instead of a child.
+    let types = config::card_types(&ctx.db, &project.id).await?;
+    let parent_level = types
+        .iter()
+        .find(|t| t.id == parent.type_id)
+        .map_or(0, |t| t.level);
+    let (type_id, parent_id) = match types
+        .iter()
+        .filter(|t| t.level < parent_level)
+        .max_by_key(|t| t.level)
+    {
+        Some(child) => (child.id.clone(), Some(parent.id.clone())),
+        None => (parent.type_id.clone(), parent.parent_id.clone()),
+    };
+    let mut tx = ctx.db.begin_write().await?;
+    let created = card::create(
+        &mut tx,
+        &project,
+        &card::NewCard {
+            type_id,
+            parent_id,
+            summary,
+            description,
+            status_id: None,
+            priority_id: None,
+            assignee_id: None,
+            reporter_id: Some(ctx.actor.id.clone()),
+            due_date: None,
+            start_date: None,
+            estimate: None,
+            placement: card::Placement::Bottom,
+        },
+        &ctx.actor.id,
+        now(),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(text(format!("Created {}.", created.key)))
+}
+
+async fn add_tag(ctx: &ToolContext, args: &Value) -> AppResult<Value> {
+    ctx.require(ProjectRole::Member).await?;
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::BadRequest("atlas_add_tag needs a name".to_owned()))?;
+    let name = crate::domain::tag::validate_name(name)?;
+    let mut tx = ctx.db.begin_write().await?;
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM tags WHERE (project_id = ? OR project_id IS NULL) AND name = ? \
+         ORDER BY project_id IS NULL LIMIT 1",
+    )
+    .bind(&ctx.card.project_id)
+    .bind(&name)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let tag_id = match existing {
+        Some(id) => id,
+        None => {
+            crate::domain::tag::insert(&mut tx, Some(&ctx.card.project_id), &name, None, now())
+                .await?
+                .id
+        }
+    };
+    crate::domain::tag::attach(&mut tx, &ctx.card.id, &tag_id, now()).await?;
+    tx.commit().await?;
+    Ok(text(format!("Tagged {} with {name}.", ctx.card.key)))
 }
 
 async fn get_card(ctx: &ToolContext) -> AppResult<Value> {

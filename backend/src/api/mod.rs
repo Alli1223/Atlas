@@ -90,6 +90,8 @@ pub struct AppState {
     pub cancel_registry: CancelRegistry,
     /// The live hub every WebSocket subscribes to — see [`crate::activity::Hub`].
     pub hub: crate::activity::Hub,
+    /// Each executing run's recent output, for a viewer who opens it mid-run.
+    pub agent_live: crate::agent::orchestrator::LiveBuffers,
 }
 
 impl fmt::Debug for AppState {
@@ -105,6 +107,7 @@ impl fmt::Debug for AppState {
             .field("workspace_preparer", &"Arc<dyn WorkspacePreparer>")
             .field("cancel_registry", &"CancelRegistry")
             .field("hub", &self.hub)
+            .field("agent_live", &"LiveBuffers")
             .finish()
     }
 }
@@ -136,6 +139,7 @@ impl AppState {
             workspace_preparer,
             cancel_registry: CancelRegistry::default(),
             hub: crate::activity::Hub::default(),
+            agent_live: crate::agent::orchestrator::LiveBuffers::default(),
         }
     }
 }

@@ -138,6 +138,16 @@ pub fn all(state: &AppState) -> Vec<Job> {
             },
         ),
         job(
+            "agent-dispatcher",
+            Duration::from_secs(5),
+            state,
+            |state| async move {
+                if let Err(err) = crate::agent::dispatch::dispatch_queued(&state).await {
+                    tracing::warn!(error = %err, "agent queue dispatch failed");
+                }
+            },
+        ),
+        job(
             "session-purge",
             Duration::from_hours(6),
             state,

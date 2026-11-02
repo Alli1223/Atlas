@@ -58,6 +58,7 @@
 
 pub mod agent_session;
 pub mod agent_session_transcript;
+pub mod agent_settings;
 pub mod attachment;
 pub mod board;
 pub mod card;
