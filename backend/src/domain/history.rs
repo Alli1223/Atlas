@@ -78,6 +78,8 @@ pub enum Field {
     StartDate,
     /// The estimate.
     Estimate,
+    /// The milestone the card is scheduled for.
+    Milestone,
     /// The board sort key.
     Rank,
     /// Archival.
@@ -105,6 +107,7 @@ impl Field {
             Self::DueDate => "due_date",
             Self::StartDate => "start_date",
             Self::Estimate => "estimate",
+            Self::Milestone => "milestone",
             Self::Rank => "rank",
             Self::Archived => "archived",
             Self::Deleted => "deleted",
@@ -276,6 +279,7 @@ mod tests {
             Field::DueDate,
             Field::StartDate,
             Field::Estimate,
+            Field::Milestone,
             Field::Rank,
             Field::Archived,
             Field::Deleted,

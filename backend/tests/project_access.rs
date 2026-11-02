@@ -1391,6 +1391,10 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     // Instance administration: system telemetry and self-update, admin-only and
     // not project-scoped. Guarded by RequireAdmin in the handler — an outsider is
     // refused 403 by that guard, not 404 by the project gate.
+    // Avatars: the caller's own (auth), and any user's image to any signed-in user.
+    "PUT /api/v1/auth/me/avatar",
+    "DELETE /api/v1/auth/me/avatar",
+    "GET /api/v1/users/{id}/avatar",
     "GET /api/v1/admin/system",
     "GET /api/v1/admin/updates",
     "POST /api/v1/admin/updates/apply",
@@ -1418,6 +1422,11 @@ struct Targets {
     board_id: String,
     cycle_id: String,
     agent_session_id: String,
+    /// Everything added after the fields above: `(segment before, parameter, value)`.
+    ///
+    /// A list rather than one field per id, so each new aggregate's routes are taught here in
+    /// one line by [`furnish_extras`] rather than by growing every `Targets { .. }` literal.
+    extra: Vec<(&'static str, &'static str, String)>,
 }
 
 impl Targets {
@@ -1445,7 +1454,8 @@ impl Targets {
                     ("statuses", "{id}") => &self.status_id,
                     ("priorities", "{id}") => &self.priority_id,
                     ("resolutions", "{id}") => &self.resolution_id,
-                    ("members", "{userId}") => &self.member_user_id,
+                    // A member and a watcher are both a real user on the project.
+                    ("members" | "watchers", "{userId}") => &self.member_user_id,
                     ("workflows", "{id}") => &self.workflow_id,
                     // `/transitions/{id}` and `/cards/{key}/transitions/{id}`
                     // both name a transition.
@@ -1453,12 +1463,20 @@ impl Targets {
                     ("boards", "{id}") => &self.board_id,
                     ("cycles", "{id}") => &self.cycle_id,
                     ("agent-sessions", "{id}") => &self.agent_session_id,
-                    _ => {
-                        return Err(format!(
-                            "no value known for {segment} after /{previous} in {path}. Teach \
+                    (before, param) => {
+                        if let Some((_, _, value)) = self
+                            .extra
+                            .iter()
+                            .find(|(b, p, _)| *b == before && *p == param)
+                        {
+                            value
+                        } else {
+                            return Err(format!(
+                                "no value known for {segment} after /{previous} in {path}. Teach \
                              `Targets` what it points at, so this route is attacked rather than \
                              skipped."
-                        ));
+                            ));
+                        }
                     }
                 }
             } else {
@@ -1558,6 +1576,7 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
     let cycle_id = furnish_cycle(app, admin, key).await;
     let agent_session_id = furnish_agent_session(app, &their_card).await;
 
+    let extra = furnish_extras(app, admin, key, &their_card).await;
     Targets {
         project_key: theirs.key.clone(),
         card_key: their_card,
@@ -1574,7 +1593,115 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
         board_id,
         cycle_id,
         agent_session_id,
+        extra,
     }
+}
+
+/// One of each aggregate added after the original `Targets` fields, in project `key` on card
+/// `card_key`, so every `{id}` route over them resolves to a real row.
+async fn furnish_extras(
+    app: &App,
+    admin: &str,
+    key: &str,
+    card_key: &str,
+) -> Vec<(&'static str, &'static str, String)> {
+    let created = |reply: Reply| {
+        assert!(reply.status.is_success(), "{}", reply.raw_body);
+        reply
+    };
+    let worklog = created(
+        app.send(post(
+            &format!("/api/v1/cards/{card_key}/worklogs"),
+            Some(admin),
+            json!({ "duration": "1h" }),
+        ))
+        .await,
+    )
+    .id();
+    let component = created(
+        app.send(post(
+            &format!("/api/v1/projects/{key}/components"),
+            Some(admin),
+            json!({ "name": "Area" }),
+        ))
+        .await,
+    )
+    .id();
+    let milestone = created(
+        app.send(post(
+            &format!("/api/v1/projects/{key}/milestones"),
+            Some(admin),
+            json!({ "name": "M1" }),
+        ))
+        .await,
+    )
+    .id();
+    let remote = created(
+        app.send(post(
+            &format!("/api/v1/cards/{card_key}/remote-links"),
+            Some(admin),
+            json!({ "url": "https://example.com" }),
+        ))
+        .await,
+    )
+    .id();
+    // A second card to link to, so `/links/{linkId}` names a real link on this card.
+    let types = app
+        .send(get(
+            &format!("/api/v1/projects/{key}/card-types"),
+            Some(admin),
+        ))
+        .await
+        .json();
+    let type_id = types
+        .as_array()
+        .and_then(|t| t.iter().find(|t| t["isDefault"] == true))
+        .and_then(|t| t["id"].as_str())
+        .expect("a default card type")
+        .to_owned();
+    let other = created(
+        app.send(post(
+            &format!("/api/v1/projects/{key}/cards"),
+            Some(admin),
+            json!({ "typeId": type_id, "summary": "Other" }),
+        ))
+        .await,
+    )
+    .json()["key"]
+        .as_str()
+        .expect("a card key")
+        .to_owned();
+    let links = created(
+        app.send(post(
+            &format!("/api/v1/cards/{card_key}/links"),
+            Some(admin),
+            json!({ "targetKey": other, "linkType": "relates_to" }),
+        ))
+        .await,
+    )
+    .json();
+    let link = links[0]["id"].as_str().expect("a link id").to_owned();
+    let attachment = {
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(format!(
+                "/api/v1/cards/{card_key}/attachments?filename=a.txt"
+            ))
+            .header(header::COOKIE, format!("{}={admin}", session::COOKIE_NAME))
+            .header(header::CONTENT_TYPE, "text/plain")
+            .body(Body::from("private"))
+            .expect("failed to build the request");
+        created(app.send(request).await).id()
+    };
+
+    vec![
+        ("worklogs", "{id}", worklog),
+        ("components", "{id}", component),
+        ("milestones", "{id}", milestone),
+        ("remote-links", "{linkId}", remote),
+        ("links", "{linkId}", link),
+        ("attachments", "{id}", attachment),
+    ]
 }
 
 /// Records an agent session directly against the database rather than through the API —
@@ -2328,6 +2455,7 @@ async fn effective_owner_count(app: &App, project_key: &str) -> i64 {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)] // one fixture per aggregate, then one probe loop
 async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
     // The ceiling, proved the way `every_project_scoped_route_refuses_an_outsider`
     // proves default-deny: against **every** route the table actually classifies,
@@ -2393,6 +2521,7 @@ async fn an_instance_viewer_cannot_write_through_any_project_scoped_route() {
         board_id,
         cycle_id,
         agent_session_id,
+        extra: furnish_extras(&app, &admin, &p.key, &card_key).await,
     };
 
     let mut probed = 0;

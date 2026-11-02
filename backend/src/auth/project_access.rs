@@ -129,6 +129,42 @@ impl ConfigTable {
     }
 }
 
+/// A table whose `{id}` rows each belong to exactly one project, found by one static query.
+///
+/// The general form of [`ConfigTable`], for the aggregates that arrived after it: each
+/// variant is one `&'static str` taking the row's id to its project's id, so adding an
+/// `{id}`-keyed route for a new table is one variant and one query — and the query is
+/// reviewed right here, next to every other one, rather than inside a handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OwnedTable {
+    /// `card_worklogs`, via its card.
+    Worklogs,
+    /// `components`.
+    Components,
+    /// `milestones`.
+    Milestones,
+    /// `attachments`, via its card.
+    Attachments,
+}
+
+impl OwnedTable {
+    /// The query taking one of this table's ids to its project's id.
+    fn project_query(self) -> &'static str {
+        match self {
+            Self::Worklogs => {
+                "SELECT c.project_id FROM cards c JOIN card_worklogs w ON w.card_id = c.id \
+                 WHERE w.id = ?"
+            }
+            Self::Components => "SELECT project_id FROM components WHERE id = ?",
+            Self::Milestones => "SELECT project_id FROM milestones WHERE id = ?",
+            Self::Attachments => {
+                "SELECT c.project_id FROM cards c JOIN attachments a ON a.card_id = c.id \
+                 WHERE a.id = ?"
+            }
+        }
+    }
+}
+
 /// What a route is scoped to, and the least project role that may call it.
 ///
 /// Every route under `/api/v1` has one of these, stated in [`SCOPES`]. There is
@@ -183,6 +219,9 @@ pub(crate) enum Scope {
 
     /// `{id}` is an agent session id; the project is the one that owns its card.
     AgentSession(ProjectRole),
+
+    /// `{id}` is a row of one of the [`OwnedTable`]s.
+    Owned(OwnedTable, ProjectRole),
 }
 
 impl Scope {
@@ -207,7 +246,8 @@ impl Scope {
             | Self::Transition(_)
             | Self::Board(_)
             | Self::Cycle(_)
-            | Self::AgentSession(_) => Some("id"),
+            | Self::AgentSession(_)
+            | Self::Owned(..) => Some("id"),
         }
     }
 
@@ -224,7 +264,8 @@ impl Scope {
             | Self::Transition(role)
             | Self::Board(role)
             | Self::Cycle(role)
-            | Self::AgentSession(role) => Some(role),
+            | Self::AgentSession(role)
+            | Self::Owned(_, role) => Some(role),
         }
     }
 }
@@ -775,6 +816,161 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/agent-sessions/{id}/cancel",
         Scope::AgentSession(ProjectRole::Member),
     ),
+    // --- watchers: anyone who can see a card may watch it, so even adding is Viewer; the
+    // handler only ever adds the caller, and only lets the caller (or an admin) remove ---
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/watchers",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/watchers",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/cards/{key}/watchers/{userId}",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    // --- worklogs: logging time is card work (Member); the handler limits edits to the
+    // author or an instance admin ---
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/worklogs",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/worklogs",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::PATCH,
+        "/api/v1/worklogs/{id}",
+        Scope::Owned(OwnedTable::Worklogs, ProjectRole::Member),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/worklogs/{id}",
+        Scope::Owned(OwnedTable::Worklogs, ProjectRole::Member),
+    ),
+    // --- card links: the gate checks the source card; the handler checks the target named
+    // in the body (Member there too, since the inverse row is written on it) and filters the
+    // list to linked cards the caller can see ---
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/links",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/links",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/cards/{key}/links/{linkId}",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/remote-links",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/remote-links",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/cards/{key}/remote-links/{linkId}",
+        Scope::Card(ProjectRole::Member),
+    ),
+    // --- components and milestones: defining them is project configuration (Owner);
+    // putting a card in one is card work (Member) ---
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/components",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/components",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::PATCH,
+        "/api/v1/components/{id}",
+        Scope::Owned(OwnedTable::Components, ProjectRole::Owner),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/components/{id}",
+        Scope::Owned(OwnedTable::Components, ProjectRole::Owner),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/components",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::PUT,
+        "/api/v1/cards/{key}/components",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/milestones",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/milestones",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::PATCH,
+        "/api/v1/milestones/{id}",
+        Scope::Owned(OwnedTable::Milestones, ProjectRole::Owner),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/milestones/{id}",
+        Scope::Owned(OwnedTable::Milestones, ProjectRole::Owner),
+    ),
+    // --- attachments: uploading is card work (Member); deleting is Member at the gate and
+    // uploader-or-admin in the handler ---
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/attachments",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/attachments",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/attachments/{id}/versions",
+        Scope::Owned(OwnedTable::Attachments, ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/attachments/{id}/content",
+        Scope::Owned(OwnedTable::Attachments, ProjectRole::Viewer),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/attachments/{id}",
+        Scope::Owned(OwnedTable::Attachments, ProjectRole::Member),
+    ),
+    // --- avatars: the caller's own (auth), and anyone's image (any signed-in user) ---
+    (Method::PUT, "/api/v1/auth/me/avatar", Scope::Unscoped),
+    (Method::DELETE, "/api/v1/auth/me/avatar", Scope::Unscoped),
+    (Method::GET, "/api/v1/users/{id}/avatar", Scope::Unscoped),
     // --- admin: instance-level, guarded by RequireAdmin in each handler ---
     (Method::GET, "/api/v1/admin/system", Scope::Unscoped),
     (Method::GET, "/api/v1/admin/updates", Scope::Unscoped),
@@ -1055,6 +1251,9 @@ enum Target {
 }
 
 /// Resolves a route's path parameter to the project access is decided on.
+// One arm per scope, each a single lookup; splitting it would scatter the queries this
+// module's docs promise are reviewed together in one place.
+#[allow(clippy::too_many_lines)]
 async fn resolve_target(db: &Db, scope: Scope, value: &str) -> AppResult<Target> {
     let project_id: Option<String> = match scope {
         // Nothing to resolve; handled before this is ever called.
@@ -1170,6 +1369,13 @@ async fn resolve_target(db: &Db, scope: Scope, value: &str) -> AppResult<Target>
             .bind(value)
             .fetch_optional(db.reader())
             .await?
+        }
+
+        Scope::Owned(table, _) => {
+            sqlx::query_scalar(table.project_query())
+                .bind(value)
+                .fetch_optional(db.reader())
+                .await?
         }
     };
 

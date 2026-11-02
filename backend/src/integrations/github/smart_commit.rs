@@ -220,21 +220,10 @@ fn parse_time_arg(arg: &str) -> Option<(i64, Option<String>)> {
 }
 
 /// A single `2w` / `3d` / `4h` / `30m` token → minutes, on a 5-day / 8-hour working
-/// calendar. `None` if the token is not a duration.
+/// calendar. `None` if the token is not a duration. Delegates to the worklog grammar so a
+/// commit message and the worklog form cannot disagree about what `1d` means.
 fn duration_token_minutes(token: &str) -> Option<i64> {
-    let unit = token.chars().next_back()?;
-    let value: i64 = token[..token.len() - unit.len_utf8()].parse().ok()?;
-    if value < 0 {
-        return None;
-    }
-    let per_unit = match unit.to_ascii_lowercase() {
-        'w' => 5 * 8 * 60,
-        'd' => 8 * 60,
-        'h' => 60,
-        'm' => 1,
-        _ => return None,
-    };
-    value.checked_mul(per_unit)
+    crate::domain::worklog::token_minutes(token)
 }
 
 // ---------------------------------------------------------------------------

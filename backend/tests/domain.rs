@@ -3097,6 +3097,7 @@ async fn every_mutable_column_of_cards_has_a_changelog_field() {
         ("reporter_id", Field::Reporter),
         ("resolution_id", Field::Resolution),
         ("estimate", Field::Estimate),
+        ("milestone_id", Field::Milestone),
         ("resolved_at", Field::ResolvedAt),
         ("due_date", Field::DueDate),
         ("start_date", Field::StartDate),

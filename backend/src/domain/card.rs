@@ -58,6 +58,7 @@ const PRIORITY_NAME_SQL: &str = "SELECT name FROM priorities WHERE id = ?";
 const RESOLUTION_NAME_SQL: &str = "SELECT name FROM resolutions WHERE id = ?";
 const USER_NAME_SQL: &str = "SELECT display_name FROM users WHERE id = ?";
 const CARD_KEY_SQL: &str = "SELECT key FROM cards WHERE id = ?";
+const MILESTONE_NAME_SQL: &str = "SELECT name FROM milestones WHERE id = ?";
 
 /// A row of `cards`, exactly as stored.
 #[derive(Debug, Clone, FromRow)]
@@ -98,6 +99,8 @@ pub struct Card {
     pub start_date: Option<NaiveDate>,
     /// The estimate, interpreted through the project's `estimation_unit`.
     pub estimate: Option<f64>,
+    /// The milestone the card is scheduled for.
+    pub milestone_id: Option<String>,
     /// The lexicographic board sort key.
     pub rank: Rank,
     /// When it was archived. `None` = live.
@@ -168,6 +171,8 @@ pub struct CardDto {
     pub start_date: Option<NaiveDate>,
     /// The estimate.
     pub estimate: Option<f64>,
+    /// The milestone the card is scheduled for.
+    pub milestone_id: Option<String>,
     /// The board sort key.
     ///
     /// `value_type = String` because [`Rank`] is `#[serde(transparent)]` over a
@@ -205,6 +210,7 @@ impl From<&Card> for CardDto {
             due_date: card.due_date,
             start_date: card.start_date,
             estimate: card.estimate,
+            milestone_id: card.milestone_id.clone(),
             rank: card.rank.clone(),
             archived_at: card.archived_at,
             created_at: card.created_at,
@@ -224,7 +230,8 @@ macro_rules! card_columns {
     () => {
         "id, key, project_id, type_id, parent_id, summary, description, status_id, \
          priority_id, assignee_id, reporter_id, creator_id, resolution_id, resolved_at, \
-         due_date, start_date, estimate, rank, archived_at, deleted_at, created_at, updated_at"
+         due_date, start_date, estimate, milestone_id, rank, archived_at, deleted_at, created_at, \
+         updated_at"
     };
 }
 
@@ -399,6 +406,8 @@ pub struct CardPatch {
     pub start_date: Option<Option<NaiveDate>>,
     /// Absent leaves it, `null` clears it, a value sets it.
     pub estimate: Option<Option<f64>>,
+    /// Absent leaves it, `null` clears it, a value sets it. Must be this project's.
+    pub milestone_id: Option<Option<String>>,
     /// The board sort key. Set by [`move_card`], not by hand.
     pub rank: Option<Rank>,
     /// Archive or unarchive.
@@ -422,6 +431,7 @@ impl CardPatch {
             && self.due_date.is_none()
             && self.start_date.is_none()
             && self.estimate.is_none()
+            && self.milestone_id.is_none()
             && self.rank.is_none()
             && self.archived.is_none()
     }
@@ -1000,6 +1010,22 @@ async fn update_inner(
     if let Some(estimate) = patch.estimate {
         next.estimate = estimate;
     }
+    if let Some(milestone_id) = &patch.milestone_id {
+        if let Some(id) = milestone_id {
+            let owner: Option<String> =
+                sqlx::query_scalar("SELECT project_id FROM milestones WHERE id = ?")
+                    .bind(id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if owner.as_deref() != Some(project.id.as_str()) {
+                return Err(AppError::Validation(format!(
+                    "{id:?} is not a milestone of project {}.",
+                    project.key
+                )));
+            }
+        }
+        next.milestone_id = milestone_id.clone();
+    }
     if let Some(rank) = &patch.rank {
         next.rank = rank.clone();
     }
@@ -1393,6 +1419,19 @@ async fn diff(
         ));
     }
 
+    if current.milestone_id != next.milestone_id {
+        changes.push(Change::reference(
+            Field::Milestone,
+            reference(
+                &mut *tx,
+                MILESTONE_NAME_SQL,
+                current.milestone_id.as_deref(),
+            )
+            .await?,
+            reference(&mut *tx, MILESTONE_NAME_SQL, next.milestone_id.as_deref()).await?,
+        ));
+    }
+
     if current.rank != next.rank {
         // A rank is machine noise, so the display side says what a human cares
         // about — the direction — rather than a hex string. `to_value` keeps the
@@ -1477,6 +1516,7 @@ async fn write(tx: &mut sqlx::SqliteConnection, card: &Card, now: DateTime<Utc>)
            due_date      = ?, \
            start_date    = ?, \
            estimate      = ?, \
+           milestone_id  = ?, \
            rank          = ?, \
            archived_at   = ?, \
            deleted_at    = ?, \
@@ -1495,6 +1535,7 @@ async fn write(tx: &mut sqlx::SqliteConnection, card: &Card, now: DateTime<Utc>)
     .bind(card.due_date)
     .bind(card.start_date)
     .bind(card.estimate)
+    .bind(&card.milestone_id)
     .bind(&card.rank)
     .bind(card.archived_at.map(to_sql_timestamp))
     .bind(card.deleted_at.map(to_sql_timestamp))

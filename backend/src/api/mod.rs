@@ -2,9 +2,11 @@
 
 pub mod admin;
 pub mod agent_sessions;
+pub mod attachments;
 pub mod auth;
 pub mod board;
 pub mod cards;
+pub mod collab;
 pub mod comments;
 pub mod credentials;
 pub mod cycles;
@@ -148,6 +150,8 @@ impl AppState {
         (name = "cards", description = "Cards, the board, the hierarchy, and the changelog"),
         (name = "boards", description = "Board data (columns, mini-map rollups, swimlanes) and saved board config"),
         (name = "comments", description = "Comments on cards"),
+        (name = "collaboration", description = "Watchers, worklogs, card and web links, components and milestones"),
+        (name = "attachments", description = "Files on cards, versioned by name, and user avatars"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
         (name = "cycles", description = "Cycles (sprints/iterations): their lifecycle, and which cards belong to them"),
@@ -240,6 +244,8 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(cards::routes())
         .merge(board::routes())
         .merge(comments::routes())
+        .merge(collab::routes())
+        .merge(attachments::routes())
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())

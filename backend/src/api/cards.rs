@@ -171,6 +171,9 @@ pub struct UpdateCardRequest {
     /// Absent leaves it, `null` clears it, a value sets it.
     #[serde(default, deserialize_with = "double_option")]
     pub estimate: Option<Option<f64>>,
+    /// The milestone. Absent leaves it, `null` clears it, a value sets it.
+    #[serde(default, deserialize_with = "double_option")]
+    pub milestone_id: Option<Option<String>>,
     /// Archive or unarchive.
     #[serde(default)]
     pub archived: Option<bool>,
@@ -422,6 +425,7 @@ async fn update_card(
         due_date: body.due_date,
         start_date: body.start_date,
         estimate: body.estimate,
+        milestone_id: body.milestone_id,
         rank: None,
         archived: body.archived,
     };

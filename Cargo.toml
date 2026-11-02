@@ -30,6 +30,9 @@ tokio = { version = "1.52.4", features = ["full"] }
 # direct name for one already there.
 futures-util = "0.3.32"
 tower = "0.5.3"
+# `ReaderStream`, to stream an attachment off disk rather than reading it into memory. Already
+# in the tree at this version via tower-http's `fs` feature — no new crate to compile.
+tokio-util = { version = "0.7.18", features = ["io"] }
 tower-http = { version = "0.7.0", features = [
   "trace",
   "cors",

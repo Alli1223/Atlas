@@ -26,11 +26,21 @@ use crate::telemetry::{self, REQUEST_ID_HEADER};
 /// How long a request may run before it is abandoned.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Maximum accepted request body, in bytes.
+/// The floor of the outermost request-body limit, in bytes.
 ///
-/// Attachment uploads (Phase 9) will need a larger, route-specific limit layered
-/// over this one; 10 MiB is the right default for everything else.
+/// The layer itself is set to the larger of this and `ATLAS_MAX_UPLOAD_MB` (see
+/// [`body_limit`]), because an attachment upload is the one body that may legitimately be
+/// large. That does not loosen anything else: every `Json`/`Bytes` extractor carries axum's
+/// own 2 MB `DefaultBodyLimit`, and the upload handlers count the bytes they stream to disk
+/// against the configured limit themselves.
 const BODY_LIMIT_BYTES: usize = 10 * 1024 * 1024;
+
+/// The outermost body limit for a configuration.
+fn body_limit(config: &Config) -> usize {
+    usize::try_from(config.max_upload_bytes())
+        .unwrap_or(usize::MAX)
+        .max(BODY_LIMIT_BYTES)
+}
 
 /// How long a browser may cache a CORS preflight.
 const CORS_MAX_AGE: Duration = Duration::from_mins(10);
@@ -85,7 +95,7 @@ where
             StatusCode::REQUEST_TIMEOUT,
             REQUEST_TIMEOUT,
         ))
-        .layer(RequestBodyLimitLayer::new(BODY_LIMIT_BYTES))
+        .layer(RequestBodyLimitLayer::new(body_limit(config)))
         .layer(CompressionLayer::new());
 
     router
@@ -376,14 +386,16 @@ mod tests {
             &Config::default(),
         );
 
-        let oversized = BODY_LIMIT_BYTES + 1;
+        let oversized = body_limit(&Config::default()) + 1;
         let response = router
             .oneshot(
                 HttpRequest::builder()
                     .method(Method::POST)
                     .uri("/echo")
                     .header(header::CONTENT_LENGTH, oversized)
-                    .body(Body::from(vec![b'x'; oversized]))
+                    // The header alone must trigger the refusal, so there is no need to
+                    // allocate the oversized body itself.
+                    .body(Body::empty())
                     .unwrap(),
             )
             .await

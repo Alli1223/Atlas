@@ -19,6 +19,8 @@
 //! - [`telemetry`] — tracing setup and the HTTP request span.
 //! - [`api`] — router, middleware, OpenAPI.
 //! - [`agent`] — running Claude Code against a card (`TODO.md` Phase 13).
+//! - [`storage`] — uploaded bytes on disk (attachments, avatars, generated images), at paths
+//!   built only from server-generated ids.
 
 pub mod agent;
 pub mod api;
@@ -32,6 +34,7 @@ pub mod integrations;
 pub mod rank;
 pub mod scheduler;
 pub mod secrets;
+pub mod storage;
 pub mod telemetry;
 pub mod test_support;
 
