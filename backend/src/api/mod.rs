@@ -12,6 +12,7 @@ pub mod comments;
 pub mod credentials;
 pub mod custom_fields;
 pub mod cycles;
+pub mod generate;
 pub mod github;
 pub mod live;
 pub mod members;
@@ -169,6 +170,7 @@ impl AppState {
         (name = "notifications", description = "The caller's bell and notification preferences"),
         (name = "live", description = "The WebSocket channel: board sync, notifications, agent output"),
         (name = "reports", description = "Reports (cumulative flow, burndown, velocity, …), gadget aggregates, and dashboards"),
+        (name = "generate", description = "Gemini: cover art, avatars, card covers, reference images, drafts and natural-language queries"),
         (name = "automation", description = "Rules (one trigger, conditions, actions), their audit log, dry runs and webhooks"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
@@ -269,6 +271,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(live::routes())
         .merge(automation::routes())
         .merge(reports::routes())
+        .merge(generate::routes())
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())

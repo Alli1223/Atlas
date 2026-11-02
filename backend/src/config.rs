@@ -185,6 +185,19 @@ pub struct Config {
     /// How many automatic backups to keep. `ATLAS_BACKUP_KEEP`.
     #[serde(default = "default_backup_keep")]
     pub backup_keep: usize,
+
+    /// The Gemini image model. `ATLAS_GEMINI_IMAGE_MODEL`. Ids churn quickly in this family,
+    /// so this is configuration, not code (docs/research/gemini-api.md).
+    #[serde(default = "default_gemini_image_model")]
+    pub gemini_image_model: String,
+
+    /// The Gemini text model. `ATLAS_GEMINI_TEXT_MODEL`.
+    #[serde(default = "default_gemini_text_model")]
+    pub gemini_text_model: String,
+
+    /// Override for Gemini's API host — for tests and proxies. `ATLAS_GEMINI_BASE_URL`.
+    #[serde(default)]
+    pub gemini_base_url: Option<String>,
 }
 
 fn default_bind_addr() -> SocketAddr {
@@ -239,6 +252,15 @@ fn default_backup_keep() -> usize {
     7
 }
 
+fn default_gemini_image_model() -> String {
+    // Nano Banana 2. Not gemini-2.5-flash-image: shut down 2026-10-02 (corrections.md #2).
+    "gemini-3.1-flash-image-preview".to_owned()
+}
+
+fn default_gemini_text_model() -> String {
+    "gemini-3.1-flash-lite".to_owned()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -260,6 +282,9 @@ impl Default for Config {
             agent_max_concurrent: default_agent_max_concurrent(),
             backup_interval_hours: default_backup_interval_hours(),
             backup_keep: default_backup_keep(),
+            gemini_image_model: default_gemini_image_model(),
+            gemini_text_model: default_gemini_text_model(),
+            gemini_base_url: None,
         }
     }
 }

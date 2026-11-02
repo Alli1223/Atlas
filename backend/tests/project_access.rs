@@ -1408,6 +1408,8 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "DELETE /api/v1/admin/smtp",
     "POST /api/v1/admin/smtp/test",
     "GET /api/v1/ws",
+    // Text generation names its card (if any) in the body and checks it in the handler.
+    "POST /api/v1/generate/text",
     // AQL-driven reports scope themselves in the compiled query, like /search; the cost
     // report filters to the caller's projects; dashboards are personal, like filters.
     "POST /api/v1/reports/aggregate",
@@ -1738,7 +1740,36 @@ async fn furnish_extras(
     )
     .id();
 
+    // A generated image, recorded directly: producing a real one needs Gemini, and the probe
+    // only needs `/generated-images/{id}` to resolve to a row in this project.
+    let project_id: String = sqlx::query_scalar("SELECT id FROM projects WHERE key = ?")
+        .bind(key)
+        .fetch_one(app.db.reader())
+        .await
+        .expect("project id");
+    let generation = uuid::Uuid::now_v7().to_string();
+    let image = uuid::Uuid::now_v7().to_string();
+    sqlx::query(
+        "INSERT INTO generations (id, model, project_id, purpose, prompt, status, created_at) \
+         VALUES (?, 'm', ?, 'project_cover', 'p', 'succeeded', '2026-01-01T00:00:00.000000+00:00')",
+    )
+    .bind(&generation)
+    .bind(&project_id)
+    .execute(app.db.writer())
+    .await
+    .expect("generation");
+    sqlx::query(
+        "INSERT INTO generated_images (id, generation_id, mime_type, size_bytes, created_at) \
+         VALUES (?, ?, 'image/png', 1, '2026-01-01T00:00:00.000000+00:00')",
+    )
+    .bind(&image)
+    .bind(&generation)
+    .execute(app.db.writer())
+    .await
+    .expect("image");
+
     vec![
+        ("generated-images", "{id}", image),
         ("rules", "{id}", rule),
         ("worklogs", "{id}", worklog),
         ("components", "{id}", component),

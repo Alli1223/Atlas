@@ -147,6 +147,8 @@ pub(crate) enum OwnedTable {
     Attachments,
     /// `automation_rules`.
     Rules,
+    /// `generated_images`, via its generation's project.
+    GeneratedImages,
 }
 
 impl OwnedTable {
@@ -164,6 +166,10 @@ impl OwnedTable {
                  WHERE a.id = ?"
             }
             Self::Rules => "SELECT project_id FROM automation_rules WHERE id = ?",
+            Self::GeneratedImages => {
+                "SELECT g.project_id FROM generations g \
+                 JOIN generated_images i ON i.generation_id = g.id WHERE i.id = ?"
+            }
         }
     }
 }
@@ -1152,6 +1158,45 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
     (Method::GET, "/api/v1/dashboards/{id}", Scope::Unscoped),
     (Method::PUT, "/api/v1/dashboards/{id}", Scope::Unscoped),
     (Method::DELETE, "/api/v1/dashboards/{id}", Scope::Unscoped),
+    // --- generation (Gemini): spending money on a project is card work (Member); choosing
+    // the project's own cover/avatar is project settings (Owner); a card's cover is card work.
+    // /generate/text names its card in the body, so the handler checks that access itself ---
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/generate/images",
+        Scope::Project(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/generations",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/generated-images/{id}",
+        Scope::Owned(OwnedTable::GeneratedImages, ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/cover",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/avatar",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/cover",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/cards/{key}/cover",
+        Scope::Card(ProjectRole::Member),
+    ),
+    (Method::POST, "/api/v1/generate/text", Scope::Unscoped),
     // --- the live channel: the socket filters every frame by the caller's own access ---
     (Method::GET, "/api/v1/ws", Scope::Unscoped),
     // --- avatars: the caller's own (auth), and anyone's image (any signed-in user) ---

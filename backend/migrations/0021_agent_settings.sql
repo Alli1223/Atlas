@@ -43,3 +43,12 @@ ALTER TABLE agent_sessions ADD COLUMN duration_ms INTEGER;
 -- The workspace branch the run left its work on, and the session this one re-ran.
 ALTER TABLE agent_sessions ADD COLUMN branch TEXT;
 ALTER TABLE agent_sessions ADD COLUMN rerun_of TEXT REFERENCES agent_sessions (id) ON DELETE SET NULL;
+
+-- A card's cover image: a generated (or uploaded-and-generated-from) image chosen for it.
+-- Its own table rather than a `cards` column: a cover is presentation, not a field with a
+-- changelog, and `cards` is the one table every query in Atlas touches.
+CREATE TABLE card_covers (
+    card_id   TEXT NOT NULL PRIMARY KEY REFERENCES cards (id) ON DELETE CASCADE,
+    image_id  TEXT NOT NULL REFERENCES generated_images (id) ON DELETE CASCADE,
+    set_at    TEXT NOT NULL
+) STRICT;

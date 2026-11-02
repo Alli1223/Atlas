@@ -248,7 +248,7 @@ async fn download_attachment(
 }
 
 /// Streams a stored file with the hardening headers described in the module doc.
-async fn serve_file(
+pub(crate) async fn serve_file(
     path: &std::path::Path,
     filename: &str,
     content_type: &str,
