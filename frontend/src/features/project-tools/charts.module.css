@@ -1,0 +1,68 @@
+/* Chart palette: the dataviz reference categorical order, validated against Atlas's own
+   surfaces (#FFFFFF light, #1F1F21 dark). Light mode has three slots under 3:1 contrast,
+   so every chart ships a legend and a table view (the relief rule). */
+.viz {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+  position: relative;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) .viz {
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+  }
+}
+
+:root[data-theme='dark'] .viz {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+}
+
+.axis {
+  font: var(--ds-font-body-small);
+  font-size: 10px;
+  fill: var(--ds-text-subtlest);
+}
+
+.grid {
+  stroke: var(--ds-border);
+  stroke-width: 1;
+}
+
+.crosshair {
+  stroke: var(--ds-border-bold);
+  stroke-width: 1;
+}
+
+.tooltip {
+  position: absolute;
+  inset-block-start: 0;
+  pointer-events: none;
+  background: var(--ds-surface-overlay);
+  box-shadow: var(--ds-shadow-overlay);
+  border-radius: var(--ds-radius-small);
+  padding: var(--ds-space-075) var(--ds-space-100);
+  font: var(--ds-font-body-small);
+  color: var(--ds-text);
+  white-space: nowrap;
+  z-index: 2;
+}

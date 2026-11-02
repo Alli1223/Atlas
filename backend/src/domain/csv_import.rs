@@ -167,7 +167,7 @@ pub fn suggest(header: &str, fields: &[CustomField]) -> Target {
 /// One problem, located.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct Problem {
+pub struct ImportProblem {
     /// 1-based data row (the header is row 0).
     pub row: usize,
     /// The column's header, if the problem is in one.
@@ -207,7 +207,7 @@ pub struct Plan {
     /// How many cards in total.
     pub total: usize,
     /// Every problem. An import with any is refused.
-    pub problems: Vec<Problem>,
+    pub problems: Vec<ImportProblem>,
 }
 
 /// A fully resolved row, ready to insert.
@@ -279,7 +279,7 @@ fn resolve_rows(
     mapping: &[Target],
     lookups: &Lookups,
     existing_keys: &[String],
-) -> (Vec<Resolved>, Vec<Problem>) {
+) -> (Vec<Resolved>, Vec<ImportProblem>) {
     let mut problems = Vec::new();
     let mut resolved = Vec::new();
     let default_type = lookups
@@ -321,7 +321,7 @@ fn resolve_rows(
             let value = row.get(column).map_or("", |v| v.trim());
             let header = headers.get(column).cloned();
             let mut problem = |message: String| {
-                problems.push(Problem {
+                problems.push(ImportProblem {
                     row: number,
                     column: header.clone(),
                     message,
@@ -447,14 +447,14 @@ fn resolve_rows(
         }
         match summary {
             Some(s) => new.summary = s,
-            None => problems.push(Problem {
+            None => problems.push(ImportProblem {
                 row: number,
                 column: None,
                 message: "Summary is required.".to_owned(),
             }),
         }
         if new.type_id.is_empty() {
-            problems.push(Problem {
+            problems.push(ImportProblem {
                 row: number,
                 column: None,
                 message: "The project has no card types.".to_owned(),

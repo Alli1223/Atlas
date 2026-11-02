@@ -103,6 +103,11 @@ export function Development({ card, projectKey }: { card: Card; projectKey: stri
             <GitBranch {...ICON_SMALL} aria-hidden="true" />
             <span className={styles.repoName}>{repo.data.fullName}</span>
           </a>
+          {!['ok', 'unchecked'].includes(repo.data.syncStatus) && (
+            <Banner appearance="warning">
+              {repo.data.syncDetail ?? 'This repository link is broken.'}
+            </Banner>
+          )}
 
           <div className={styles.actions}>
             <Button

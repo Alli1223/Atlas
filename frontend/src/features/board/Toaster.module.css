@@ -80,3 +80,13 @@
     transform: translateX(0);
   }
 }
+
+.action {
+  border: 0;
+  background: none;
+  color: var(--ds-link);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 var(--ds-space-050);
+}

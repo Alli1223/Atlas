@@ -2,15 +2,22 @@ import { create } from 'zustand'
 
 export type ToastAppearance = 'error' | 'success' | 'info'
 
+/** A button on a toast — "Undo" after a destructive or bulk change. */
+export interface ToastAction {
+  label: string
+  run: () => void
+}
+
 export interface Toast {
   id: number
   appearance: ToastAppearance
   message: string
+  action?: ToastAction | undefined
 }
 
 interface ToastState {
   toasts: Toast[]
-  push: (appearance: ToastAppearance, message: string) => void
+  push: (appearance: ToastAppearance, message: string, action?: ToastAction) => void
   dismiss: (id: number) => void
 }
 
@@ -26,14 +33,14 @@ let nextId = 1
  */
 export const useToasts = create<ToastState>((set) => ({
   toasts: [],
-  push: (appearance, message) => {
+  push: (appearance, message, action) => {
     const id = nextId++
-    set((state) => ({ toasts: [...state.toasts, { id, appearance, message }] }))
+    set((state) => ({ toasts: [...state.toasts, { id, appearance, message, action }] }))
   },
   dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
 }))
 
 /** Raises a toast from anywhere, including outside React. */
-export function toast(appearance: ToastAppearance, message: string): void {
-  useToasts.getState().push(appearance, message)
+export function toast(appearance: ToastAppearance, message: string, action?: ToastAction): void {
+  useToasts.getState().push(appearance, message, action)
 }

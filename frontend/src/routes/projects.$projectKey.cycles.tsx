@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 
 import { CycleList, projectCyclesQueryOptions } from '@/features/cycles'
+import { ProjectTabs } from '@/features/project-tools'
 import { useProject } from '@/features/projects'
 
 import styles from './projects.$projectKey.cycles.module.css'
@@ -17,6 +18,7 @@ function CyclesRoute() {
 
   return (
     <div className={styles.page}>
+      <ProjectTabs projectKey={projectKey} />
       <Link
         to="/projects/$projectKey/board"
         params={{ projectKey }}
