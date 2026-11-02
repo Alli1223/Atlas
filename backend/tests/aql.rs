@@ -885,7 +885,12 @@ async fn validate_reports_ok_and_returns_spans_for_errors() {
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
     assert_eq!(reply.json()["ok"], json!(true));
     assert!(reply.json()["query"].is_string());
-    assert!(!reply.json()["fields"].as_array().unwrap().is_empty());
+    assert_ne!(
+        reply.json()["fields"].as_array().unwrap().len(),
+        0,
+        "{}",
+        reply.raw_body
+    );
 
     // A bad one comes back with the column of the offending token. The `=` in
     // `summary = x` is at column 9 (1-based).
@@ -942,7 +947,10 @@ async fn filters_are_personal_and_a_bad_body_is_refused_at_save() {
     assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.raw_body);
 
     // Bob's own filter list is empty; the admin's has one.
-    assert!(rows(&app.send(get("/api/v1/filters", Some(&bob))).await).is_empty());
+    assert_eq!(
+        rows(&app.send(get("/api/v1/filters", Some(&bob))).await),
+        Vec::<Value>::new()
+    );
     assert_eq!(
         rows(&app.send(get("/api/v1/filters", Some(&admin))).await).len(),
         1

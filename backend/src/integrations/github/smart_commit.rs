@@ -521,7 +521,10 @@ mod tests {
     #[test]
     fn keys_must_lead_the_line() {
         // A key in the middle of prose does not start a smart commit.
-        assert!(parse("Fix the thing for ATLAS-42 #done").is_empty());
+        assert_eq!(
+            parse("Fix the thing for ATLAS-42 #done"),
+            Vec::<SmartCommit>::new()
+        );
     }
 
     #[test]
@@ -549,7 +552,7 @@ mod tests {
         assert_eq!(commit.keys, vec!["SHA-256".to_owned()]);
         assert!(commit.is_link_only());
         // A word starting with a digit is not a project key, so this is not a smart commit.
-        assert!(parse("8-bit rendering fixed").is_empty());
+        assert_eq!(parse("8-bit rendering fixed"), Vec::<SmartCommit>::new());
     }
 
     #[test]
@@ -574,9 +577,9 @@ mod tests {
     fn an_unparseable_or_zero_time_is_dropped_rather_than_logged() {
         // `card_worklogs.minutes` is CHECK(> 0), so a zero or junk duration must not become
         // a command at all.
-        assert!(one("ATLAS-1 #time 0m").commands.is_empty());
-        assert!(one("ATLAS-1 #time soon").commands.is_empty());
-        assert!(one("ATLAS-1 #time").commands.is_empty());
+        assert_eq!(one("ATLAS-1 #time 0m").commands, Vec::<Command>::new());
+        assert_eq!(one("ATLAS-1 #time soon").commands, Vec::<Command>::new());
+        assert_eq!(one("ATLAS-1 #time").commands, Vec::<Command>::new());
     }
 
     #[test]

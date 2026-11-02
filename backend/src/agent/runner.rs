@@ -396,7 +396,7 @@ mod tests {
             .await
             .expect("spawn should succeed");
 
-        assert!(!handle.session_id.is_empty());
+        assert_ne!(handle.session_id, "", "a session id must be generated");
         assert_eq!(handle.session_id.len(), 36, "a UUID v4, hyphenated");
 
         let first = timeout(Duration::from_secs(5), handle.events.recv())

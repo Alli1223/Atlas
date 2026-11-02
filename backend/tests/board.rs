@@ -396,7 +396,7 @@ async fn columns_come_back_in_status_order_and_cards_in_rank_order() {
     assert_eq!(column_cards(&board, "To Do"), vec![c, b, a]);
 
     // The other columns are present but empty — a board shows every status.
-    assert!(column_cards(&board, "Done").is_empty());
+    assert_eq!(column_cards(&board, "Done"), Vec::<String>::new());
 }
 
 // ---------------------------------------------------------------------------
