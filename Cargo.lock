@@ -148,6 +148,7 @@ dependencies = [
  "lettre",
  "process-wrap",
  "proptest",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

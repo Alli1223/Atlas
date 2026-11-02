@@ -4,6 +4,7 @@ pub mod admin;
 pub mod agent_sessions;
 pub mod attachments;
 pub mod auth;
+pub mod automation;
 pub mod board;
 pub mod cards;
 pub mod collab;
@@ -162,6 +163,7 @@ impl AppState {
         (name = "custom-fields", description = "The global custom field registry, per-project layouts, and card values"),
         (name = "notifications", description = "The caller's bell and notification preferences"),
         (name = "live", description = "The WebSocket channel: board sync, notifications, agent output"),
+        (name = "automation", description = "Rules (one trigger, conditions, actions), their audit log, dry runs and webhooks"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
         (name = "cycles", description = "Cycles (sprints/iterations): their lifecycle, and which cards belong to them"),
@@ -259,6 +261,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(custom_fields::routes())
         .merge(notifications::routes())
         .merge(live::routes())
+        .merge(automation::routes())
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())
@@ -301,6 +304,9 @@ pub fn router(state: AppState) -> Router {
         // The GitHub webhook receiver: top-level and unauthenticated (HMAC is its gate), so
         // it lives outside the `/api/v1` nest and is allowlisted in `UNGATED_PATHS`.
         .merge(webhooks::routes())
+        // Automation's incoming webhooks: public like GitHub's, gated by a secret token in the
+        // path rather than a session. Allowlisted in `UNGATED_PATHS`.
+        .merge(automation::hook_routes())
         .nest(API_V1_PREFIX, api_v1(&state))
         .split_for_parts();
 

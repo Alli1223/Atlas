@@ -200,6 +200,9 @@ pub struct HistoryEntry {
     pub to_value: Option<String>,
     /// The new value as a human saw it, at the time.
     pub to_display: Option<String>,
+    /// What made the change when it was not the author by hand: `automation:<rule>:<depth>`
+    /// or `agent:<session>`. `None` = a person, directly.
+    pub actor: Option<String>,
 }
 
 /// Appends changes to a card's history, inside the caller's transaction.
@@ -283,7 +286,7 @@ pub async fn record_custom(
 pub async fn list(db: &Db, card_id: &str) -> AppResult<Vec<HistoryEntry>> {
     Ok(sqlx::query_as::<_, HistoryEntry>(
         "SELECT id, card_id, author_id, created_at, field, from_value, from_display, \
-         to_value, to_display FROM card_history \
+         to_value, to_display, actor FROM card_history \
          WHERE card_id = ? ORDER BY created_at, id",
     )
     .bind(card_id)

@@ -270,6 +270,10 @@ async fn create_project(
         now,
     )
     .await?;
+
+    // The template's starter automation rules, owned by the creator (a rule acts with its
+    // owner's authority). Same transaction: a template is its config *and* its rules.
+    crate::automation::seed::seed(&mut tx, body.template, &created.id, member.0.id(), now).await?;
     member::insert_or_ignore(
         &mut tx,
         &created.id,

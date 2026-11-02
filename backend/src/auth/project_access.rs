@@ -145,6 +145,8 @@ pub(crate) enum OwnedTable {
     Milestones,
     /// `attachments`, via its card.
     Attachments,
+    /// `automation_rules`.
+    Rules,
 }
 
 impl OwnedTable {
@@ -161,6 +163,7 @@ impl OwnedTable {
                 "SELECT c.project_id FROM cards c JOIN attachments a ON a.card_id = c.id \
                  WHERE a.id = ?"
             }
+            Self::Rules => "SELECT project_id FROM automation_rules WHERE id = ?",
         }
     }
 }
@@ -1024,6 +1027,54 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
     (Method::PUT, "/api/v1/admin/smtp", Scope::Unscoped),
     (Method::DELETE, "/api/v1/admin/smtp", Scope::Unscoped),
     (Method::POST, "/api/v1/admin/smtp/test", Scope::Unscoped),
+    // --- automation: a rule acts unattended with its owner's authority on every card in the
+    // project, so defining one is project configuration (Owner); running one by hand against
+    // a card is card work (Member); reading rules and the audit log is Viewer ---
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/automation/rules",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/automation/rules",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/automation/dry-run",
+        Scope::Project(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/automation/rules/{id}",
+        Scope::Owned(OwnedTable::Rules, ProjectRole::Viewer),
+    ),
+    (
+        Method::PUT,
+        "/api/v1/automation/rules/{id}",
+        Scope::Owned(OwnedTable::Rules, ProjectRole::Owner),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/automation/rules/{id}",
+        Scope::Owned(OwnedTable::Rules, ProjectRole::Owner),
+    ),
+    (
+        Method::GET,
+        "/api/v1/automation/rules/{id}/runs",
+        Scope::Owned(OwnedTable::Rules, ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/automation/rules/{id}/run",
+        Scope::Owned(OwnedTable::Rules, ProjectRole::Member),
+    ),
+    (
+        Method::POST,
+        "/api/v1/automation/rules/{id}/webhook-token",
+        Scope::Owned(OwnedTable::Rules, ProjectRole::Owner),
+    ),
     // --- the live channel: the socket filters every frame by the caller's own access ---
     (Method::GET, "/api/v1/ws", Scope::Unscoped),
     // --- avatars: the caller's own (auth), and anyone's image (any signed-in user) ---
@@ -1243,6 +1294,9 @@ const UNGATED_PATHS: &[&str] = &[
     // so an HMAC-SHA256 signature over the raw body (verified in `api::webhooks`) is its whole
     // gate. It mounts at the top level, outside every `/api/v1` layer, on purpose.
     "/webhooks/github",
+    // Automation's incoming webhooks: the 256-bit token in the path is the whole gate (stored
+    // only as a SHA-256), for the same reason — the caller is a script, not a session.
+    "/hooks/automation/{token}",
 ];
 
 /// Panics if any route is served outside the three `/api/v1` layers.

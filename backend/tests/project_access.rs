@@ -1616,6 +1616,7 @@ async fn furnished_target_project(app: &App, admin: &str, key: &str) -> Targets 
 
 /// One of each aggregate added after the original `Targets` fields, in project `key` on card
 /// `card_key`, so every `{id}` route over them resolves to a real row.
+#[allow(clippy::too_many_lines)] // one fixture per aggregate; grows by one block per feature
 async fn furnish_extras(
     app: &App,
     admin: &str,
@@ -1711,7 +1712,24 @@ async fn furnish_extras(
         created(app.send(request).await).id()
     };
 
+    let rule = created(
+        app.send(post(
+            &format!("/api/v1/projects/{key}/automation/rules"),
+            Some(admin),
+            json!({
+                "name": "Probe rule",
+                "spec": {
+                    "trigger": { "type": "manual" },
+                    "actions": [{ "type": "comment", "body": "probe" }],
+                },
+            }),
+        ))
+        .await,
+    )
+    .id();
+
     vec![
+        ("rules", "{id}", rule),
         ("worklogs", "{id}", worklog),
         ("components", "{id}", component),
         ("milestones", "{id}", milestone),

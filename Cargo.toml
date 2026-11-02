@@ -103,6 +103,9 @@ reqwest = { version = "0.13", default-features = false, features = [
   "http2",
   "charset",
 ] }
+# Automation's regex condition (Phase 15). Already in the tree at this version (via
+# tracing-subscriber's env-filter); linear-time matching, so a user's pattern cannot be a ReDoS.
+regex = "1.13.1"
 # Outbound email for notifications (Phase 17). rustls with aws-lc-rs and the platform
 # verifier — the same TLS stack reqwest already pulls in, so no OpenSSL and no second crypto
 # provider. Only the SMTP transport and message builder are enabled.

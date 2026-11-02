@@ -30,10 +30,10 @@ pub async fn pump_once(state: &AppState) -> AppResult<usize> {
             user_id: None,
             payload: event.to_live_json(),
         });
-        if let Err(err) = notify::on_event(&state.db, &state.hub, event).await {
+        if let Err(err) = Box::pin(notify::on_event(&state.db, &state.hub, event)).await {
             tracing::warn!(error = %err, card = %event.card.key, "notification fan-out failed");
         }
-        if let Err(err) = crate::automation::on_event(state, event).await {
+        if let Err(err) = Box::pin(crate::automation::on_event(state, event)).await {
             tracing::warn!(error = %err, card = %event.card.key, "automation failed on an event");
         }
     }
@@ -109,6 +109,18 @@ pub fn all(state: &AppState) -> Vec<Job> {
                 .await
                 {
                     tracing::warn!(error = %err, "daily digest failed");
+                }
+            },
+        ),
+        job(
+            "automation-scheduler",
+            Duration::from_secs(60),
+            state,
+            |state| async move {
+                if let Err(err) =
+                    crate::automation::engine::run_due(&state, crate::auth::now()).await
+                {
+                    tracing::warn!(error = %err, "scheduled automation failed");
                 }
             },
         ),
