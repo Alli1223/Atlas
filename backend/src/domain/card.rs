@@ -336,7 +336,7 @@ pub enum Placement {
 }
 
 /// A new card, ready to insert.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NewCard {
     /// The card type. Must belong to the project, and fixes the card's level.
     pub type_id: String,
@@ -509,6 +509,18 @@ pub async fn find_by_id_tx(tx: &mut sqlx::SqliteConnection, id: &str) -> AppResu
     ))
     .bind(id)
     .fetch_optional(&mut *tx)
+    .await?)
+}
+
+/// A project's trash: every soft-deleted card, most recently deleted first.
+pub async fn trash(db: &Db, project_id: &str) -> AppResult<Vec<Card>> {
+    Ok(sqlx::query_as::<_, Card>(concat!(
+        "SELECT ",
+        card_columns!(),
+        " FROM cards WHERE project_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC"
+    ))
+    .bind(project_id)
+    .fetch_all(db.reader())
     .await?)
 }
 

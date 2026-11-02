@@ -149,6 +149,8 @@ pub(crate) enum OwnedTable {
     Rules,
     /// `generated_images`, via its generation's project.
     GeneratedImages,
+    /// `card_templates`.
+    CardTemplates,
 }
 
 impl OwnedTable {
@@ -166,6 +168,7 @@ impl OwnedTable {
                  WHERE a.id = ?"
             }
             Self::Rules => "SELECT project_id FROM automation_rules WHERE id = ?",
+            Self::CardTemplates => "SELECT project_id FROM card_templates WHERE id = ?",
             Self::GeneratedImages => {
                 "SELECT g.project_id FROM generations g \
                  JOIN generated_images i ON i.generation_id = g.id WHERE i.id = ?"
@@ -1197,6 +1200,59 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         Scope::Card(ProjectRole::Member),
     ),
     (Method::POST, "/api/v1/generate/text", Scope::Unscoped),
+    // --- bulk, import/export, card templates, trash: bulk names its cards in the body and
+    // checks each (Member), like /search; CSV export runs AQL under the caller's own access.
+    // Importing into a project is card work (Member); exporting is a read (Viewer); copying a
+    // project needs only to read it (the new one is the caller's own); templates are project
+    // configuration (Owner) ---
+    (Method::POST, "/api/v1/bulk", Scope::Unscoped),
+    (Method::GET, "/api/v1/export/csv", Scope::Unscoped),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/import/csv/preview",
+        Scope::Project(ProjectRole::Member),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/import/csv",
+        Scope::Project(ProjectRole::Member),
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/export",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (Method::POST, "/api/v1/projects/import", Scope::Unscoped),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/duplicate",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/card-templates",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::POST,
+        "/api/v1/projects/{key}/card-templates",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::PUT,
+        "/api/v1/card-templates/{id}",
+        Scope::Owned(OwnedTable::CardTemplates, ProjectRole::Owner),
+    ),
+    (
+        Method::DELETE,
+        "/api/v1/card-templates/{id}",
+        Scope::Owned(OwnedTable::CardTemplates, ProjectRole::Owner),
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/trash",
+        Scope::Project(ProjectRole::Viewer),
+    ),
     // --- the live channel: the socket filters every frame by the caller's own access ---
     (Method::GET, "/api/v1/ws", Scope::Unscoped),
     // --- avatars: the caller's own (auth), and anyone's image (any signed-in user) ---

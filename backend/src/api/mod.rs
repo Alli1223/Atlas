@@ -24,6 +24,7 @@ pub mod reports;
 pub mod search;
 pub mod serde_ext;
 pub mod tags;
+pub mod transfer;
 pub mod users;
 pub mod webhooks;
 pub mod workflow;
@@ -272,6 +273,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(automation::routes())
         .merge(reports::routes())
         .merge(generate::routes())
+        .merge(transfer::routes())
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())

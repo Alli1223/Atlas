@@ -1427,6 +1427,11 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "GET /api/v1/admin/system",
     "GET /api/v1/admin/updates",
     "POST /api/v1/admin/updates/apply",
+    // Bulk names its cards in the body and checks each; CSV export runs AQL under the
+    // caller's access, like /search; importing a bundle creates the caller's own project.
+    "POST /api/v1/bulk",
+    "GET /api/v1/export/csv",
+    "POST /api/v1/projects/import",
 ];
 
 /// Every path parameter in the API, and a real value from a project the outsider
@@ -1768,7 +1773,18 @@ async fn furnish_extras(
     .await
     .expect("image");
 
+    let template = created(
+        app.send(post(
+            &format!("/api/v1/projects/{key}/card-templates"),
+            Some(admin),
+            json!({ "name": "Probe template", "summary": "From a template" }),
+        ))
+        .await,
+    )
+    .id();
+
     vec![
+        ("card-templates", "{id}", template),
         ("generated-images", "{id}", image),
         ("rules", "{id}", rule),
         ("worklogs", "{id}", worklog),
