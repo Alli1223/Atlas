@@ -755,8 +755,8 @@ pub async fn create(
         "INSERT INTO cards (id, key, project_id, type_id, parent_id, summary, description, \
          status_id, priority_id, assignee_id, reporter_id, creator_id, resolution_id, \
          resolved_at, due_date, start_date, estimate, rank, archived_at, deleted_at, \
-         created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
+         created_at, updated_at, actor) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&key)
@@ -778,6 +778,7 @@ pub async fn create(
     .bind(&rank)
     .bind(&timestamp)
     .bind(&timestamp)
+    .bind(crate::activity::current_actor())
     .execute(&mut *tx)
     .await?;
 

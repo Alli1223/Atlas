@@ -215,7 +215,7 @@ pub async fn verify_origin(
 }
 
 /// Whether `origin` may make a state-changing request.
-fn origin_allowed(origin: &str, host: Option<&str>, config: &Config) -> bool {
+pub(crate) fn origin_allowed(origin: &str, host: Option<&str>, config: &Config) -> bool {
     // `*` means the operator has already accepted any origin. Cookie auth does
     // not work cross-origin under a wildcard anyway — the CORS spec forbids
     // credentials with `*` — so there is nothing left here to defend.

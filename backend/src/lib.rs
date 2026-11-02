@@ -19,18 +19,26 @@
 //! - [`telemetry`] — tracing setup and the HTTP request span.
 //! - [`api`] — router, middleware, OpenAPI.
 //! - [`agent`] — running Claude Code against a card (`TODO.md` Phase 13).
+//! - [`activity`] — the activity feed: every card change, from every writer, as events.
+//! - [`notify`] — the bell, preferences, email and the daily digest.
+//! - [`automation`] — rules: one trigger, conditions, actions (`TODO.md` Phase 15).
+//! - [`jobs`] — the background jobs [`scheduler`] runs.
 //! - [`storage`] — uploaded bytes on disk (attachments, avatars, generated images), at paths
 //!   built only from server-generated ids.
 
+pub mod activity;
 pub mod agent;
 pub mod api;
 pub mod aql;
 pub mod auth;
+pub mod automation;
 pub mod config;
 pub mod db;
 pub mod domain;
 pub mod error;
 pub mod integrations;
+pub mod jobs;
+pub mod notify;
 pub mod rank;
 pub mod scheduler;
 pub mod secrets;

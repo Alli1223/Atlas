@@ -1396,6 +1396,18 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "POST /api/v1/custom-fields",
     "PATCH /api/v1/custom-fields/{id}",
     "DELETE /api/v1/custom-fields/{id}",
+    // Notifications act on the caller's own rows; SMTP is instance admin; the live socket
+    // filters each frame by the caller's access rather than being scoped to one project.
+    "GET /api/v1/notifications",
+    "POST /api/v1/notifications/{id}/read",
+    "POST /api/v1/notifications/read-all",
+    "GET /api/v1/notifications/preferences",
+    "PUT /api/v1/notifications/preferences",
+    "GET /api/v1/admin/smtp",
+    "PUT /api/v1/admin/smtp",
+    "DELETE /api/v1/admin/smtp",
+    "POST /api/v1/admin/smtp/test",
+    "GET /api/v1/ws",
     // Avatars: the caller's own (auth), and any user's image to any signed-in user.
     "PUT /api/v1/auth/me/avatar",
     "DELETE /api/v1/auth/me/avatar",

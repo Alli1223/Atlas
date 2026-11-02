@@ -31,6 +31,7 @@ futures-util.workspace = true
 garde.workspace = true
 hex.workspace = true
 hmac.workspace = true
+lettre.workspace = true
 process-wrap.workspace = true
 reqwest.workspace = true
 serde.workspace = true

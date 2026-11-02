@@ -109,8 +109,8 @@ pub async fn insert(
     let timestamp = to_sql_timestamp(now);
 
     sqlx::query(
-        "INSERT INTO comments (id, card_id, author_id, body, created_at, updated_at, edited_at) \
-         VALUES (?, ?, ?, ?, ?, ?, NULL)",
+        "INSERT INTO comments (id, card_id, author_id, body, created_at, updated_at, edited_at, \
+         actor) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
     )
     .bind(&id)
     .bind(card_id)
@@ -118,6 +118,7 @@ pub async fn insert(
     .bind(body)
     .bind(&timestamp)
     .bind(&timestamp)
+    .bind(crate::activity::current_actor())
     .execute(&mut *tx)
     .await?;
 

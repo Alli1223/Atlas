@@ -103,6 +103,17 @@ reqwest = { version = "0.13", default-features = false, features = [
   "http2",
   "charset",
 ] }
+# Outbound email for notifications (Phase 17). rustls with aws-lc-rs and the platform
+# verifier — the same TLS stack reqwest already pulls in, so no OpenSSL and no second crypto
+# provider. Only the SMTP transport and message builder are enabled.
+lettre = { version = "0.11.23", default-features = false, features = [
+  "builder",
+  "smtp-transport",
+  "tokio1-rustls",
+  "aws-lc-rs",
+  "rustls-platform-verifier",
+  "hostname",
+] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }

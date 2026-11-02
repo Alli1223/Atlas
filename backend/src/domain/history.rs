@@ -224,8 +224,8 @@ pub async fn record(
     for change in changes {
         sqlx::query(
             "INSERT INTO card_history (id, card_id, author_id, created_at, field, \
-             from_value, from_display, to_value, to_display) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             from_value, from_display, to_value, to_display, actor) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(Uuid::now_v7().to_string())
         .bind(card_id)
@@ -236,6 +236,7 @@ pub async fn record(
         .bind(&change.from_display)
         .bind(&change.to_value)
         .bind(&change.to_display)
+        .bind(crate::activity::current_actor())
         .execute(&mut *tx)
         .await?;
     }
@@ -260,8 +261,8 @@ pub async fn record_custom(
 ) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO card_history (id, card_id, author_id, created_at, field, \
-         from_value, from_display, to_value, to_display) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         from_value, from_display, to_value, to_display, actor) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(Uuid::now_v7().to_string())
     .bind(card_id)
@@ -272,6 +273,7 @@ pub async fn record_custom(
     .bind(from.1)
     .bind(to.0)
     .bind(to.1)
+    .bind(crate::activity::current_actor())
     .execute(&mut *tx)
     .await?;
     Ok(())

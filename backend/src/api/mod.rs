@@ -12,8 +12,10 @@ pub mod credentials;
 pub mod custom_fields;
 pub mod cycles;
 pub mod github;
+pub mod live;
 pub mod members;
 pub mod middleware;
+pub mod notifications;
 pub mod project_config;
 pub mod projects;
 pub mod search;
@@ -84,6 +86,8 @@ pub struct AppState {
     /// `agent::orchestrator::CancelRegistry`'s own doc for why this lives here rather than
     /// inside the orchestrator module itself.
     pub cancel_registry: CancelRegistry,
+    /// The live hub every WebSocket subscribes to — see [`crate::activity::Hub`].
+    pub hub: crate::activity::Hub,
 }
 
 impl fmt::Debug for AppState {
@@ -98,6 +102,7 @@ impl fmt::Debug for AppState {
             .field("agent_runner", &"Arc<dyn AgentRunner>")
             .field("workspace_preparer", &"Arc<dyn WorkspacePreparer>")
             .field("cancel_registry", &"CancelRegistry")
+            .field("hub", &self.hub)
             .finish()
     }
 }
@@ -128,6 +133,7 @@ impl AppState {
             agent_runner,
             workspace_preparer,
             cancel_registry: CancelRegistry::default(),
+            hub: crate::activity::Hub::default(),
         }
     }
 }
@@ -154,6 +160,8 @@ impl AppState {
         (name = "collaboration", description = "Watchers, worklogs, card and web links, components and milestones"),
         (name = "attachments", description = "Files on cards, versioned by name, and user avatars"),
         (name = "custom-fields", description = "The global custom field registry, per-project layouts, and card values"),
+        (name = "notifications", description = "The caller's bell and notification preferences"),
+        (name = "live", description = "The WebSocket channel: board sync, notifications, agent output"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
         (name = "cycles", description = "Cycles (sprints/iterations): their lifecycle, and which cards belong to them"),
@@ -249,6 +257,8 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(collab::routes())
         .merge(attachments::routes())
         .merge(custom_fields::routes())
+        .merge(notifications::routes())
+        .merge(live::routes())
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())

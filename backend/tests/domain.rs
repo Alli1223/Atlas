@@ -3079,6 +3079,7 @@ async fn every_mutable_column_of_cards_has_a_changelog_field() {
         "creator_id", // a fact about the past
         "created_at", // ditto
         "updated_at", // derived from the change, not a change
+        "actor",      // what created the card (rule/agent) — a fact about the past
     ]);
 
     // Column -> the logical field name the changelog uses for it. The spellings

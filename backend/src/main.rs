@@ -101,10 +101,10 @@ async fn serve(config: Config) -> anyhow::Result<()> {
     // The snapshot job is built here rather than inside `domain::cycle_snapshot` itself: that
     // module knows nothing of `scheduler`, keeping the same "domain does not reach up to the
     // layer that drives it" direction `domain::agent_session` keeps with `agent`.
-    let scheduler = scheduler::spawn(vec![
-        atlas::integrations::github::poll::job(state),
-        cycle_snapshot_job(db.clone()),
-    ]);
+    let mut jobs = atlas::jobs::all(&state);
+    jobs.push(atlas::integrations::github::poll::job(state));
+    jobs.push(cycle_snapshot_job(db.clone()));
+    let scheduler = scheduler::spawn(jobs);
 
     // `into_make_service_with_connect_info` rather than the bare service: it is
     // what puts the peer address in the request extensions, and without it the

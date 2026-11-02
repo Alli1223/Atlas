@@ -998,6 +998,34 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/cards/{key}/fields",
         Scope::Card(ProjectRole::Member),
     ),
+    // --- notifications: the caller's own rows only (no {userId} to forge); SMTP is admin ---
+    (Method::GET, "/api/v1/notifications", Scope::Unscoped),
+    (
+        Method::POST,
+        "/api/v1/notifications/{id}/read",
+        Scope::Unscoped,
+    ),
+    (
+        Method::POST,
+        "/api/v1/notifications/read-all",
+        Scope::Unscoped,
+    ),
+    (
+        Method::GET,
+        "/api/v1/notifications/preferences",
+        Scope::Unscoped,
+    ),
+    (
+        Method::PUT,
+        "/api/v1/notifications/preferences",
+        Scope::Unscoped,
+    ),
+    (Method::GET, "/api/v1/admin/smtp", Scope::Unscoped),
+    (Method::PUT, "/api/v1/admin/smtp", Scope::Unscoped),
+    (Method::DELETE, "/api/v1/admin/smtp", Scope::Unscoped),
+    (Method::POST, "/api/v1/admin/smtp/test", Scope::Unscoped),
+    // --- the live channel: the socket filters every frame by the caller's own access ---
+    (Method::GET, "/api/v1/ws", Scope::Unscoped),
     // --- avatars: the caller's own (auth), and anyone's image (any signed-in user) ---
     (Method::PUT, "/api/v1/auth/me/avatar", Scope::Unscoped),
     (Method::DELETE, "/api/v1/auth/me/avatar", Scope::Unscoped),
