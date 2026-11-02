@@ -153,6 +153,10 @@ pub enum Field {
     Key,
     /// The numeric estimate.
     Estimate,
+    /// The milestone (Jira's fixVersion), by name.
+    Milestone,
+    /// The card's components, by name. Multi-valued, like labels.
+    Component,
 }
 
 impl Field {
@@ -181,6 +185,8 @@ impl Field {
             "labels" | "label" | "tag" | "tags" => Self::Labels,
             "key" | "id" | "card" => Self::Key,
             "estimate" | "estimation" => Self::Estimate,
+            "milestone" | "fixversion" | "version" => Self::Milestone,
+            "component" | "components" => Self::Component,
             _ => return None,
         };
         Some(field)
@@ -211,6 +217,8 @@ impl Field {
             Self::Labels => "labels",
             Self::Key => "key",
             Self::Estimate => "estimate",
+            Self::Milestone => "milestone",
+            Self::Component => "component",
         }
     }
 
@@ -252,6 +260,7 @@ impl Field {
                 | Self::Reporter
                 | Self::Resolution
                 | Self::Type
+                | Self::Milestone
         )
     }
 }
@@ -539,6 +548,8 @@ mod tests {
             Field::Labels,
             Field::Key,
             Field::Estimate,
+            Field::Milestone,
+            Field::Component,
         ] {
             assert_eq!(
                 Field::parse(field.as_str()),
@@ -550,7 +561,11 @@ mod tests {
     }
 
     #[test]
-    fn the_history_fields_are_exactly_the_six() {
+    fn the_history_fields_are_exactly_the_seven() {
+        // TODO.md Phase 6 named six: assignee, milestone, priority, reporter, resolution,
+        // status. Milestones did not exist when AQL landed, so `type` stood in; when they
+        // arrived (Phase 3's leftovers) milestone joined rather than replacing type, because
+        // `type WAS Bug` queries were already in saved filters.
         let historyable: Vec<&str> = [
             Field::Project,
             Field::Type,
@@ -573,6 +588,8 @@ mod tests {
             Field::Labels,
             Field::Key,
             Field::Estimate,
+            Field::Milestone,
+            Field::Component,
         ]
         .into_iter()
         .filter(|f| f.is_historyable())
@@ -580,7 +597,7 @@ mod tests {
         .collect();
         assert_eq!(
             historyable.len(),
-            6,
+            7,
             "history scope drifted: {historyable:?}"
         );
     }

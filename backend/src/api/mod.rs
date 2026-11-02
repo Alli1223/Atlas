@@ -9,6 +9,7 @@ pub mod cards;
 pub mod collab;
 pub mod comments;
 pub mod credentials;
+pub mod custom_fields;
 pub mod cycles;
 pub mod github;
 pub mod members;
@@ -152,6 +153,7 @@ impl AppState {
         (name = "comments", description = "Comments on cards"),
         (name = "collaboration", description = "Watchers, worklogs, card and web links, components and milestones"),
         (name = "attachments", description = "Files on cards, versioned by name, and user avatars"),
+        (name = "custom-fields", description = "The global custom field registry, per-project layouts, and card values"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
         (name = "cycles", description = "Cycles (sprints/iterations): their lifecycle, and which cards belong to them"),
@@ -246,6 +248,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(comments::routes())
         .merge(collab::routes())
         .merge(attachments::routes())
+        .merge(custom_fields::routes())
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())

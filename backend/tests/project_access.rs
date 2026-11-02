@@ -1391,6 +1391,11 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     // Instance administration: system telemetry and self-update, admin-only and
     // not project-scoped. Guarded by RequireAdmin in the handler — an outsider is
     // refused 403 by that guard, not 404 by the project gate.
+    // The custom field registry: instance-level, admin-only to change.
+    "GET /api/v1/custom-fields",
+    "POST /api/v1/custom-fields",
+    "PATCH /api/v1/custom-fields/{id}",
+    "DELETE /api/v1/custom-fields/{id}",
     // Avatars: the caller's own (auth), and any user's image to any signed-in user.
     "PUT /api/v1/auth/me/avatar",
     "DELETE /api/v1/auth/me/avatar",

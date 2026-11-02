@@ -28,6 +28,7 @@
 //! - [`planning`] — components (a project's areas) and milestones (Jira's versions,
 //!   generalised).
 //! - [`attachment`] — files on a card, versioned by name. Bytes live in [`crate::storage`].
+//! - [`custom_field`] — the global field registry, per-project layouts, and typed values.
 //! - [`tag`] — free-text labels, and the presets each template seeds.
 //! - [`template`] — the four project templates' seed data.
 //! - [`workflow`] — the workflow engine: transitions and their conditions,
@@ -61,6 +62,7 @@ pub mod board;
 pub mod card;
 pub mod comment;
 pub mod config;
+pub mod custom_field;
 pub mod cycle;
 pub mod cycle_snapshot;
 pub mod filter;

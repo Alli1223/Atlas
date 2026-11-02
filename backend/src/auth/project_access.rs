@@ -967,6 +967,37 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/attachments/{id}",
         Scope::Owned(OwnedTable::Attachments, ProjectRole::Member),
     ),
+    // --- custom fields: the registry is instance-level (RequireAdmin to change it, any
+    // signed-in user to read it); a project's layout is project config (Owner); a card's
+    // values are card work (Member) ---
+    (Method::GET, "/api/v1/custom-fields", Scope::Unscoped),
+    (Method::POST, "/api/v1/custom-fields", Scope::Unscoped),
+    (Method::PATCH, "/api/v1/custom-fields/{id}", Scope::Unscoped),
+    (
+        Method::DELETE,
+        "/api/v1/custom-fields/{id}",
+        Scope::Unscoped,
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/field-layout",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::PUT,
+        "/api/v1/projects/{key}/field-layout",
+        Scope::Project(ProjectRole::Owner),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cards/{key}/fields",
+        Scope::Card(ProjectRole::Viewer),
+    ),
+    (
+        Method::PATCH,
+        "/api/v1/cards/{key}/fields",
+        Scope::Card(ProjectRole::Member),
+    ),
     // --- avatars: the caller's own (auth), and anyone's image (any signed-in user) ---
     (Method::PUT, "/api/v1/auth/me/avatar", Scope::Unscoped),
     (Method::DELETE, "/api/v1/auth/me/avatar", Scope::Unscoped),

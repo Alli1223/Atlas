@@ -781,6 +781,26 @@ pub async fn create(
     .execute(&mut *tx)
     .await?;
 
+    // Custom field defaults from the project's layout. A type-specific layout row wins over
+    // the all-types row for the same field — including when it has *no* default. Part of the
+    // card's initial state, so (like every other initial value) no history is written.
+    sqlx::query(
+        "INSERT INTO card_field_values (card_id, field_id, value) \
+         SELECT ?, l.field_id, l.default_value FROM project_field_layout l \
+          WHERE l.project_id = ? AND l.default_value IS NOT NULL \
+            AND (l.card_type_id = ? \
+                 OR (l.card_type_id IS NULL AND NOT EXISTS ( \
+                       SELECT 1 FROM project_field_layout s \
+                        WHERE s.project_id = l.project_id AND s.field_id = l.field_id \
+                          AND s.card_type_id = ?)))",
+    )
+    .bind(&id)
+    .bind(&project.id)
+    .bind(&new.type_id)
+    .bind(&new.type_id)
+    .execute(&mut *tx)
+    .await?;
+
     find_by_id_tx(&mut *tx, &id)
         .await?
         .ok_or_else(|| AppError::internal(anyhow::anyhow!("the card just inserted is missing")))

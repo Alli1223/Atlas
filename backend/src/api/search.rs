@@ -307,6 +307,8 @@ fn field_hints() -> Vec<String> {
         "labels",
         "key",
         "estimate",
+        "milestone",
+        "component",
     ]
     .into_iter()
     .map(ToOwned::to_owned)
@@ -329,6 +331,7 @@ fn function_hints() -> Vec<String> {
         "watchedCards()",
         "linkedCards()",
         "cardHistory()",
+        "customField()",
     ]
     .into_iter()
     .map(ToOwned::to_owned)

@@ -35,7 +35,7 @@ pub struct FnCtx {
 pub fn is_set_function(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "membersof" | "watchedcards" | "linkedcards" | "cardhistory"
+        "membersof" | "watchedcards" | "linkedcards" | "cardhistory" | "customfield"
     )
 }
 
