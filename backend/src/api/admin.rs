@@ -259,11 +259,97 @@ async fn apply_update(
 
 // ── router ────────────────────────────────────────────────────────────────────
 
+// ── backups ──────────────────────────────────────────────────────────────────
+
+/// Every backup on disk, newest first. Admin only.
+#[utoipa::path(
+    get,
+    path = "/admin/backups",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Backups, newest first", body = Vec<crate::backup::BackupInfo>),
+        (status = 403, description = "Forbidden — admins only", body = Problem),
+    )
+)]
+async fn list_backups(
+    _: RequireAdmin,
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<crate::backup::BackupInfo>>> {
+    Ok(Json(crate::backup::list(&state.config)?))
+}
+
+/// Takes a backup now: the database by `VACUUM INTO`, the uploads as a `.tar.gz`. Old ones
+/// beyond `ATLAS_BACKUP_KEEP` are pruned. Admin only.
+#[utoipa::path(
+    post,
+    path = "/admin/backups",
+    tag = "admin",
+    responses(
+        (status = 201, description = "Written", body = crate::backup::BackupInfo),
+        (status = 403, description = "Forbidden — admins only", body = Problem),
+    )
+)]
+async fn create_backup(
+    _: RequireAdmin,
+    State(state): State<AppState>,
+) -> AppResult<(StatusCode, Json<crate::backup::BackupInfo>)> {
+    let info = crate::backup::run(&state.db, &state.config, crate::auth::now()).await?;
+    Ok((StatusCode::CREATED, Json(info)))
+}
+
+/// Downloads one part of a backup — `database` or `uploads`. Admin only.
+#[utoipa::path(
+    get,
+    path = "/admin/backups/{name}/{part}",
+    tag = "admin",
+    params(
+        ("name" = String, Path, description = "The backup, e.g. atlas-20261101T020000Z"),
+        ("part" = String, Path, description = "`database` or `uploads`"),
+    ),
+    responses(
+        (status = 200, description = "The file", content_type = "application/octet-stream"),
+        (status = 404, description = "No such backup or part", body = Problem),
+    )
+)]
+async fn download_backup(
+    _: RequireAdmin,
+    State(state): State<AppState>,
+    axum::extract::Path((name, part)): axum::extract::Path<(String, String)>,
+) -> AppResult<axum::response::Response> {
+    use axum::response::IntoResponse;
+    let (database, uploads) = crate::backup::files(&state.config, &name)?;
+    let (path, filename) = match part.as_str() {
+        "database" => (database, format!("{name}.db")),
+        "uploads" => (uploads, format!("{name}-uploads.tar.gz")),
+        _ => return Err(AppError::NotFound),
+    };
+    let file = tokio::fs::File::open(&path)
+        .await
+        .map_err(|_| AppError::NotFound)?;
+    let length = file.metadata().await.map_err(AppError::internal)?.len();
+    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file));
+    let mut response = body.into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/octet-stream"),
+    );
+    headers.insert(axum::http::header::CONTENT_LENGTH, length.into());
+    if let Ok(value) =
+        axum::http::HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+    {
+        headers.insert(axum::http::header::CONTENT_DISPOSITION, value);
+    }
+    Ok(response)
+}
+
 pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(get_system))
         .routes(routes!(check_updates))
         .routes(routes!(apply_update))
+        .routes(routes!(list_backups, create_backup))
+        .routes(routes!(download_backup))
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────

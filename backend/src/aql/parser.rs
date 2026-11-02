@@ -717,7 +717,7 @@ mod tests {
         match &c.rhs {
             Rhs::Single(Value::Func(call)) => {
                 assert_eq!(call.name, "currentUser");
-                assert!(call.args.is_empty());
+                assert_eq!(call.args, Vec::<Value>::new());
             }
             other => panic!("expected a function, got {other:?}"),
         }
@@ -754,7 +754,7 @@ mod tests {
     fn an_empty_query_matches_everything() {
         let query = parse_str("   ").unwrap();
         assert!(query.predicate.is_none());
-        assert!(query.order_by.is_empty());
+        assert_eq!(query.order_by, Vec::<OrderField>::new());
     }
 
     #[test]

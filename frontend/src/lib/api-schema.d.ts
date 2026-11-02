@@ -4,6 +4,80 @@
  */
 
 export interface paths {
+    "/api/v1/admin/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every backup on disk, newest first. Admin only. */
+        get: operations["list_backups"];
+        put?: never;
+        /**
+         * Takes a backup now: the database by `VACUUM INTO`, the uploads as a `.tar.gz`. Old ones
+         *     beyond `ATLAS_BACKUP_KEEP` are pruned. Admin only.
+         */
+        post: operations["create_backup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/backups/{name}/{part}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Downloads one part of a backup — `database` or `uploads`. Admin only. */
+        get: operations["download_backup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/smtp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The SMTP settings. Admin only. The password is a vault credential and never appears here. */
+        get: operations["get_smtp"];
+        /** Saves the SMTP settings. */
+        put: operations["put_smtp"];
+        post?: never;
+        /** Turns email off. */
+        delete: operations["delete_smtp"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/smtp/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sends a test email with the saved settings. */
+        post: operations["test_smtp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/system": {
         parameters: {
             query?: never;
@@ -98,6 +172,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-sessions/{id}/continue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Continues a finished session's conversation with a follow-up prompt (`--resume`). */
+        post: operations["continue_agent_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-sessions/{id}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The diff a run left in its project's workspace, against the remote default branch. */
+        get: operations["get_agent_session_diff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-sessions/{id}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs a finished session's prompt again, from scratch. */
+        post: operations["rerun_agent_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-sessions/{id}/transcript": {
         parameters: {
             query?: never;
@@ -107,6 +232,57 @@ export interface paths {
         };
         /** A session's full `stream-json` transcript, in arrival order. */
         get: operations["get_agent_session_transcript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attachments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes an attachment and every version of it. The uploader, or an instance admin. */
+        delete: operations["delete_attachment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attachments/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Downloads (or previews) an attachment's bytes. */
+        get: operations["download_attachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attachments/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every version of an attachment, newest first. */
+        get: operations["list_versions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -226,6 +402,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Sets the caller's avatar. The body is a PNG, JPEG, GIF or WebP image of at most 2 MB.
+         * @description The type is sniffed from the bytes, not taken from `Content-Type`, so an avatar can only
+         *     ever be an image — it is served inline to every other user.
+         */
+        put: operations["set_avatar"];
+        post?: never;
+        /** Removes the caller's avatar. */
+        delete: operations["clear_avatar"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/sessions": {
         parameters: {
             query?: never;
@@ -265,6 +463,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/automation/rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One rule. */
+        get: operations["get_rule"];
+        /** Replaces a rule's definition. Its owner is unchanged. */
+        put: operations["replace_rule"];
+        post?: never;
+        /** Deletes a rule and its audit log. */
+        delete: operations["delete_rule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/automation/rules/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Runs a rule now, against a card. Any rule may be run by hand; a `manual` rule *only* runs
+         *     this way.
+         */
+        post: operations["run_rule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/automation/rules/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A rule's audit log: every run, newest first, with its smart-value resolution trace. */
+        get: operations["list_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/automation/rules/{id}/webhook-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issues (or reissues) the rule's incoming-webhook token. The old one stops working. */
+        post: operations["issue_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/boards/{id}": {
         parameters: {
             query?: never;
@@ -282,6 +553,47 @@ export interface paths {
         head?: never;
         /** Edits a saved board. */
         patch: operations["update_board"];
+        trace?: never;
+    };
+    "/api/v1/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk-edits, transitions, deletes, restores, archives, moves, tags or untags cards.
+         * @description Preview first (the default): every card goes through the real code inside a transaction
+         *     that is then rolled back, so the report is the domain's own answer. Apply runs each card
+         *     in its own transaction. Progress frames (`{"type":"bulkProgress"}`) go to the caller's
+         *     live channel every 50 cards.
+         */
+        post: operations["run_bulk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/card-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces a card template. */
+        put: operations["replace_template"];
+        post?: never;
+        /** Deletes a card template. */
+        delete: operations["delete_template"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/card-types/{id}": {
@@ -379,6 +691,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{key}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A card's attachments, newest activity first. */
+        get: operations["list_attachments"];
+        put?: never;
+        /**
+         * Uploads a file to a card. The body is the file; `Content-Type` is its type.
+         * @description Uploading a name the card already has adds a version rather than a second attachment.
+         */
+        post: operations["upload_attachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{key}/branch": {
         parameters: {
             query?: never;
@@ -436,6 +769,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{key}/components": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The components a card is in. */
+        get: operations["list_card_components"];
+        /** Replaces the set of components a card is in. */
+        put: operations["set_card_components"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A card's cover, if it has one. */
+        get: operations["get_card_cover"];
+        put?: never;
+        /** Sets (or clears) a card's cover from one of its project's generated images. */
+        post: operations["set_card_cover"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{key}/cycle": {
         parameters: {
             query?: never;
@@ -453,6 +822,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A card's custom fields: every field laid out for its type, with its value. */
+        get: operations["get_card_fields"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Sets custom field values on a card. Each change is written to the card's history. */
+        patch: operations["set_card_fields"];
         trace?: never;
     };
     "/api/v1/cards/{key}/git-links": {
@@ -484,6 +871,41 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A card's links to other cards. */
+        get: operations["list_links"];
+        put?: never;
+        /** Links this card to another. You must be able to edit both. */
+        post: operations["link_card"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/links/{linkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Removes a link (and its inverse). */
+        delete: operations["unlink_card"];
         options?: never;
         head?: never;
         patch?: never;
@@ -531,6 +953,41 @@ export interface paths {
          */
         post: operations["create_pr_from_card"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/remote-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A card's remote (web) links. */
+        get: operations["list_remote_links"];
+        put?: never;
+        /** Adds a web link to a card. Only `http`/`https` URLs are accepted. */
+        post: operations["add_remote_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/remote-links/{linkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Removes a web link from a card. */
+        delete: operations["remove_remote_link"];
         options?: never;
         head?: never;
         patch?: never;
@@ -665,6 +1122,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{key}/watchers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A card's watchers. */
+        get: operations["list_watchers"];
+        put?: never;
+        /** Starts watching a card — always as the caller. Anyone who can see a card may watch it. */
+        post: operations["watch_card"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/watchers/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Stops someone watching a card: yourself, or anyone if you are an instance admin. */
+        delete: operations["unwatch_card"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/worklogs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A card's logged time, with the total. */
+        get: operations["list_worklogs"];
+        put?: never;
+        /** Logs time against a card. */
+        post: operations["log_work"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/comments/{id}": {
         parameters: {
             query?: never;
@@ -694,6 +1204,24 @@ export interface paths {
          *     elsewhere would suggest.
          */
         patch: operations["update_comment"];
+        trace?: never;
+    };
+    "/api/v1/components/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a component. Its cards lose the membership, nothing else. */
+        delete: operations["delete_component"];
+        options?: never;
+        head?: never;
+        /** Edits a component. */
+        patch: operations["update_component"];
         trace?: never;
     };
     "/api/v1/credentials": {
@@ -775,6 +1303,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/custom-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every custom field definition. */
+        get: operations["list_fields"];
+        put?: never;
+        /** Defines a field. Instance admins only — the registry is shared by every project. */
+        post: operations["create_field"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/custom-fields/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a field, its layout rows, and every card's value for it. */
+        delete: operations["delete_field"];
+        options?: never;
+        head?: never;
+        /** Renames a field, edits its description, or replaces its options. */
+        patch: operations["update_field"];
+        trace?: never;
+    };
     "/api/v1/cycles/{id}": {
         parameters: {
             query?: never;
@@ -790,6 +1354,23 @@ export interface paths {
         head?: never;
         /** Renames a cycle and/or edits its goal. Legal in any state. */
         patch: operations["update_cycle"];
+        trace?: never;
+    };
+    "/api/v1/cycles/{id}/burndown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A cycle's burndown and burnup. Count-based when the project's estimation is `none`. */
+        get: operations["burndown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/cycles/{id}/complete": {
@@ -826,6 +1407,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cycles/{id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A cycle's report: committed vs added vs removed vs completed. */
+        get: operations["cycle_report"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cycles/{id}/start": {
         parameters: {
             query?: never;
@@ -837,6 +1435,63 @@ export interface paths {
         put?: never;
         /** Starts a cycle: `future -> active`. */
         post: operations["start_cycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dashboards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your dashboards, and everyone's shared ones. */
+        get: operations["list_dashboards"];
+        put?: never;
+        /** Creates a dashboard. */
+        post: operations["create_dashboard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dashboards/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One dashboard (yours, or a shared one). */
+        get: operations["get_dashboard"];
+        /** Replaces a dashboard. Yours only. */
+        put: operations["replace_dashboard"];
+        post?: never;
+        /** Deletes a dashboard. Yours only. */
+        delete: operations["delete_dashboard"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/export/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Exports an AQL query's results as CSV, in the shape the importer reads.
+         * @description Only cards the caller can see match, exactly as in `/search`.
+         */
+        get: operations["export_csv"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -906,6 +1561,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/generate/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drafts a card description, or turns a question into AQL. */
+        post: operations["generate_text"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/generated-images/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One generated image. */
+        get: operations["get_image"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hierarchy-levels/{id}": {
         parameters: {
             query?: never;
@@ -921,6 +1610,93 @@ export interface paths {
         head?: never;
         /** Renames a hierarchy level. */
         patch: operations["update_hierarchy_level"];
+        trace?: never;
+    };
+    "/api/v1/milestones/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a milestone. Its cards are un-scheduled, not deleted. */
+        delete: operations["delete_milestone"];
+        options?: never;
+        head?: never;
+        /** Edits a milestone, including releasing or archiving it. */
+        patch: operations["update_milestone"];
+        trace?: never;
+    };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's notifications. */
+        get: operations["inbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's notification preferences. */
+        get: operations["get_preferences"];
+        /** Replaces the caller's notification preferences. */
+        put: operations["put_preferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Marks every notification read. */
+        post: operations["read_all"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Marks one notification read. */
+        post: operations["read_one"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/priorities/{id}": {
@@ -992,6 +1768,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Creates a project from a bundle. The caller owns it. */
+        post: operations["import_bundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{key}": {
         parameters: {
             query?: never;
@@ -1025,6 +1818,24 @@ export interface paths {
         patch: operations["update_project"];
         trace?: never;
     };
+    "/api/v1/projects/{key}/agent-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's Claude Code settings. */
+        get: operations["get_agent_settings"];
+        /** Replaces a project's Claude Code settings. */
+        put: operations["put_agent_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{key}/archive": {
         parameters: {
             query?: never;
@@ -1041,6 +1852,58 @@ export interface paths {
          *     still resolves.
          */
         post: operations["archive_project"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/automation/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Evaluates an (unsaved) rule against a card without changing anything. */
+        post: operations["dry_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/automation/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's rules. */
+        get: operations["list_rules"];
+        put?: never;
+        /** Creates a rule. It acts with the creator's authority. */
+        post: operations["create_rule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sets (or clears) the project's avatar from one of its generated images. */
+        post: operations["set_project_avatar"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1076,6 +1939,24 @@ export interface paths {
         put?: never;
         /** Saves a new board. */
         post: operations["create_board"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/card-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's card templates. */
+        get: operations["list_templates"];
+        put?: never;
+        /** Creates a card template. */
+        post: operations["create_template"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1118,6 +1999,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{key}/components": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's components. */
+        get: operations["list_components"];
+        put?: never;
+        /** Creates a component. */
+        post: operations["create_component"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sets (or clears) the project's cover from one of its generated images. */
+        post: operations["set_project_cover"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{key}/cycles": {
         parameters: {
             query?: never;
@@ -1136,6 +2052,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{key}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Creates a new project from this one: its configuration (the default — "copy config from
+         *     project"), or a full copy with its cards.
+         */
+        post: operations["duplicate_project"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Exports a project as one JSON bundle — configuration, and (by default) its cards. */
+        get: operations["export_bundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/field-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's field layout. */
+        get: operations["get_layout"];
+        /** Replaces a project's field layout. */
+        put: operations["replace_layout"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/generate/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generates 1–4 image options. Each option is its own Gemini request. */
+        post: operations["generate_images"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/generations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's generation history, newest first. */
+        get: operations["list_generations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{key}/hierarchy-levels": {
         parameters: {
             query?: never;
@@ -1148,6 +2153,40 @@ export interface paths {
         put?: never;
         /** Adds a hierarchy level. */
         post: operations["create_hierarchy_level"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/import/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Imports a CSV: every card or none. A plan with any problem is returned with a 422. */
+        post: operations["import_csv"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/import/csv/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Parses a CSV and reports the mapping, the cards it would create, and every problem. */
+        post: operations["preview_csv"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1199,6 +2238,24 @@ export interface paths {
         patch: operations["update_member"];
         trace?: never;
     };
+    "/api/v1/projects/{key}/milestones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's milestones, with progress. */
+        get: operations["list_milestones"];
+        put?: never;
+        /** Creates a milestone. */
+        post: operations["create_milestone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{key}/priorities": {
         parameters: {
             query?: never;
@@ -1231,6 +2288,91 @@ export interface paths {
         post?: never;
         /** Unlinks a project's repo. */
         delete: operations["unlink_project_repo"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/reports/average-age": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The average age of unresolved cards, per day. */
+        get: operations["average_age"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/reports/control-chart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The control chart: cycle time per resolved card. */
+        get: operations["control_chart"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/reports/created-vs-resolved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Created vs resolved per day, with running totals. */
+        get: operations["created_vs_resolved"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/reports/cumulative-flow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cumulative flow: cards per status per day. */
+        get: operations["cumulative_flow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/reports/velocity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Velocity over the last closed cycles. */
+        get: operations["velocity"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1322,6 +2464,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{key}/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A project's trash: soft-deleted cards, most recently deleted first. Restore one with
+         *     `POST /cards/{key}/restore`, or many with a bulk `restore`.
+         */
+        get: operations["list_trash"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{key}/workflows": {
         parameters: {
             query?: never;
@@ -1334,6 +2496,57 @@ export interface paths {
         put?: never;
         /** Creates a workflow. */
         post: operations["create_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/agent-costs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Claude and Gemini spend across the projects the caller can see. */
+        get: operations["agent_costs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/aggregate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Groups the cards an AQL query finds — the pie, bar and stat gadgets. */
+        post: operations["aggregate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/two-dimensional": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Two-dimensional filter statistics. */
+        post: operations["two_dimensional"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1522,6 +2735,23 @@ export interface paths {
         patch: operations["update_user"];
         trace?: never;
     };
+    "/api/v1/users/{id}/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A user's avatar image. Any signed-in user may see any avatar. */
+        get: operations["get_avatar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/{id}/deactivate": {
         parameters: {
             query?: never;
@@ -1582,6 +2812,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/worklogs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a worklog. The author, or an instance admin. */
+        delete: operations["delete_worklog"];
+        options?: never;
+        head?: never;
+        /** Edits a worklog. The author, or an instance admin. */
+        patch: operations["edit_worklog"];
+        trace?: never;
+    };
+    "/api/v1/ws": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Opens the live channel.
+         * @description Frames are JSON objects with a `type`: `card.created`, `card.updated`, `comment.added`
+         *     (carrying `projectKey`/`cardKey`, for cache invalidation), `notification` (for the bell),
+         *     `agent.event` (one line of a running agent's stream), and `resync` (the client fell behind
+         *     and should refetch).
+         */
+        get: operations["live"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -1598,6 +2869,23 @@ export interface paths {
         get: operations["healthz"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hooks/automation/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Receives an incoming webhook for a rule. Public: the token in the path is the secret. */
+        post: operations["receive_hook"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1625,6 +2913,133 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Something a rule does. */
+        Action: {
+            /** @description New description. */
+            description?: string | null;
+            /** @description A due date (`YYYY-MM-DD`, or a smart date). */
+            dueDate?: string | null;
+            /** @description An estimate. */
+            estimate?: string | null;
+            /** @description A priority, by name. */
+            priority?: string | null;
+            /** @description New summary. */
+            summary?: string | null;
+            /** @enum {string} */
+            type: "edit";
+        } | {
+            /** @description The status. */
+            to: string;
+            /** @enum {string} */
+            type: "transition";
+        } | {
+            /** @description Markdown, smart values allowed. */
+            body: string;
+            /** @enum {string} */
+            type: "comment";
+        } | {
+            /** @enum {string} */
+            type: "assign";
+            /** @description Who. */
+            user: string;
+        } | {
+            /** @description Make it a child of the triggering card. */
+            asChild?: boolean;
+            /** @description A card type, by name. Default: the project's default type. */
+            cardType?: string | null;
+            /** @description Description. */
+            description?: string | null;
+            /** @description Summary. */
+            summary: string;
+            /** @enum {string} */
+            type: "createCard";
+        } | {
+            /** @description A card type, by name. Default: the lowest level the hierarchy allows. */
+            cardType?: string | null;
+            /** @description One per child. */
+            summaries: string[];
+            /** @enum {string} */
+            type: "createChildren";
+        } | {
+            /** @description Appended to the clone's summary. */
+            summarySuffix?: string | null;
+            /** @enum {string} */
+            type: "clone";
+        } | {
+            /** @description How, e.g. `relates_to`. */
+            linkType: string;
+            /** @description The other card's key (smart values allowed). */
+            targetKey: string;
+            /** @enum {string} */
+            type: "link";
+        } | {
+            /** @description `2h 30m`. */
+            duration: string;
+            /** @description A note. */
+            note?: string | null;
+            /** @enum {string} */
+            type: "logWork";
+        } | {
+            /** @enum {string} */
+            type: "addWatchers";
+            /** @description Who. */
+            usernames: string[];
+        } | {
+            /** @description The tag. */
+            name: string;
+            /** @enum {string} */
+            type: "addTag";
+        } | {
+            /** @enum {string} */
+            type: "addToActiveCycle";
+        } | {
+            /** @description Plain text body. */
+            body: string;
+            /** @description Subject. */
+            subject: string;
+            /** @description An address, or a smart value such as `{{card.assignee.email}}`. */
+            to: string;
+            /** @enum {string} */
+            type: "sendEmail";
+        } | {
+            /** @description A body, smart values allowed. */
+            body?: string | null;
+            /** @description Headers, values smart. */
+            headers?: [
+                string,
+                string
+            ][];
+            /** @description The verb. */
+            method: components["schemas"]["HttpMethod"];
+            /** @enum {string} */
+            type: "webRequest";
+            /** @description `https://…`, smart values allowed. */
+            url: string;
+        } | {
+            /** @description The name. */
+            name: string;
+            /** @enum {string} */
+            type: "setVariable";
+            /** @description The value. */
+            value: string;
+        } | {
+            /** @description The query. */
+            aql: string;
+            /** @enum {string} */
+            type: "lookupCards";
+        } | {
+            /** @description All must hold for `then`. */
+            conditions: components["schemas"]["Condition"][];
+            /** @description Run otherwise. */
+            else?: Record<string, never>[];
+            /**
+             * @description Run when they hold. (Documented as plain objects: `Action` is recursive here, and a
+             *     recursive inline schema would make the OpenAPI generator recurse forever.)
+             */
+            then: Record<string, never>[];
+            /** @enum {string} */
+            type: "ifElse";
+        };
         /** @description The body of `POST /cards/{key}/cycle`. */
         AddCardToCycleRequest: {
             /** @description The cycle to add this card to. Must belong to the card's project. */
@@ -1640,8 +3055,35 @@ export interface components {
             /** @description Who to grant access to. */
             userId: string;
         };
+        /** @description The body of `POST /cards/{key}/remote-links`. */
+        AddRemoteLinkRequest: {
+            /** @description An optional icon name. */
+            icon?: string | null;
+            /** @description What to show instead of the URL. Defaults to the URL. */
+            title?: string | null;
+            /** @description An `http(s)` URL. */
+            url: string;
+        };
+        /** @description Claude and Gemini spend, for the projects the caller can see. */
+        AgentCosts: {
+            /** @description Per day, oldest first. */
+            byDay: components["schemas"]["CostRow"][];
+            /** @description Per project. */
+            byProject: components["schemas"]["CostRow"][];
+            /** @description Per provider (`claude`, `gemini`). */
+            byProvider: components["schemas"]["CostRow"][];
+            /** @description The most expensive cards. */
+            topCards: components["schemas"]["CostRow"][];
+            /**
+             * Format: double
+             * @description Total, US dollars.
+             */
+            totalUsd: number;
+        };
         /** @description A row of `agent_sessions`. */
         AgentSession: {
+            /** @description The workspace branch the run left its work on. */
+            branch?: string | null;
             cardId: string;
             /**
              * @description The CLI's own session id — present from the moment the run is spawned, since Atlas
@@ -1651,6 +3093,11 @@ export interface components {
             claudeSessionId?: string | null;
             /** Format: date-time */
             createdAt: string;
+            /**
+             * Format: int64
+             * @description Wall-clock duration of the run.
+             */
+            durationMs?: number | null;
             /** Format: date-time */
             endedAt?: string | null;
             /** @description Set on `failed`/`cancelled`. */
@@ -1664,6 +3111,10 @@ export interface components {
              *     get edited and a session's record of what it was asked must not drift with them.
              */
             prompt: string;
+            /** @description Waiting for a free run slot (still `running`, not yet spawned). */
+            queued: boolean;
+            /** @description The session this one re-ran or continued. */
+            rerunOf?: string | null;
             /**
              * @description The terminal `result` event's `result` field. `None` until finished, and may stay
              *     `None` even then — absent on every CLI error subtype.
@@ -1678,6 +3129,8 @@ export interface components {
             totalCostUsd?: number | null;
             /** Format: date-time */
             updatedAt: string;
+            /** @description The terminal result's `usage` and `modelUsage`, as JSON text. */
+            usage?: string | null;
         };
         /**
          * @description An agent session's lifecycle state.
@@ -1688,6 +3141,66 @@ export interface components {
          * @enum {string}
          */
         AgentSessionStatus: "running" | "completed" | "completed_with_denials" | "limit_reached" | "failed" | "cancelled";
+        /** @description A project's agent settings, defaults filled in. */
+        AgentSettings: {
+            /** @description `--allowedTools`. Empty = [`DEFAULT_ALLOWED_TOOLS`]. */
+            allowedTools: string[];
+            /** @description Which Anthropic credential, when `use_api_key`. */
+            apiCredentialId?: string | null;
+            /** @description Where a completed run moves its card; `None` = the default "In Review"-like status. */
+            destinationStatusId?: string | null;
+            /** @description `--disallowedTools`. */
+            disallowedTools: string[];
+            /**
+             * Format: double
+             * @description `--max-budget-usd`.
+             */
+            maxBudgetUsd: number;
+            /**
+             * Format: int32
+             * @description `--max-turns`.
+             */
+            maxTurns: number;
+            /** @description `--permission-mode`. */
+            permissionMode: string;
+            /** @description Post the result as a comment. */
+            postSummary: boolean;
+            /** @description Bill an API key instead of the machine's Claude login. */
+            useApiKey: boolean;
+        };
+        /** @description The body of `PUT /projects/{key}/agent-settings`. */
+        AgentSettingsRequest: {
+            /** @description Required to choose `bypassPermissions` or API-key billing. */
+            acknowledgeRisk?: boolean;
+            /** @description The settings. */
+            settings: components["schemas"]["AgentSettings"];
+        };
+        /** @description The result of an aggregate. */
+        Aggregate: {
+            /** @description Groups, largest first. One group (`all`) when there is no `groupBy`. */
+            buckets: components["schemas"]["Bucket"][];
+            /**
+             * Format: int64
+             * @description How many cards matched.
+             */
+            cards: number;
+            /**
+             * Format: double
+             * @description The measure over every matching card.
+             */
+            total: number;
+            /** @description Whether the card cap cut the result short. */
+            truncated: boolean;
+        };
+        /** @description The body of `POST /reports/aggregate`. */
+        AggregateRequest: {
+            /** @description Which cards. Empty = everything the caller can see. */
+            aql?: string;
+            /** @description Group by one of the groupable fields; absent = one total. */
+            groupBy?: string | null;
+            /** @description Count cards, or sum their estimates. */
+            metric?: components["schemas"]["Metric"];
+        };
         /** @description Confirmation that an update has been queued. */
         ApplyUpdateResponse: {
             /** @description Human-readable message for the admin. */
@@ -1697,6 +3210,67 @@ export interface components {
         AttachTagRequest: {
             /** @description The tag to put on the card. Must be the card's project's, or global. */
             tagId: string;
+        };
+        /** @description An attachment as listed on a card: its newest version's metadata inline. */
+        Attachment: {
+            /** @description The card. */
+            cardId: string;
+            /** @description The newest version's content type. */
+            contentType: string;
+            /**
+             * Format: date-time
+             * @description When it was first attached.
+             */
+            createdAt: string;
+            /** @description Who first attached it. */
+            createdBy?: string | null;
+            /**
+             * Format: int64
+             * @description The newest version number.
+             */
+            currentVersion: number;
+            /** @description The display name. Unique per card. */
+            filename: string;
+            /** @description UUID v7. */
+            id: string;
+            /**
+             * Format: int64
+             * @description The newest version's size.
+             */
+            sizeBytes: number;
+            /**
+             * Format: date-time
+             * @description When the newest version landed.
+             */
+            updatedAt: string;
+        };
+        /** @description One version of an attachment. */
+        AttachmentVersion: {
+            /** @description The attachment. */
+            attachmentId: string;
+            /** @description What the uploader declared (normalised). */
+            contentType: string;
+            /**
+             * Format: date-time
+             * @description When.
+             */
+            createdAt: string;
+            /** @description UUID v7. */
+            id: string;
+            /** @description Hex SHA-256 — lets a client tell an identical re-upload from a real change. */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description Bytes.
+             */
+            sizeBytes: number;
+            /** @description Who uploaded this version. */
+            uploadedBy?: string | null;
+            /**
+             * Format: int64
+             * @description 1, 2, 3…
+             */
+            version: number;
         };
         /** @description A transition a card may currently take. */
         AvailableTransition: {
@@ -1709,6 +3283,26 @@ export interface components {
             name: string;
             /** @description Where the card would land. */
             toStatusId: string;
+        };
+        /** @description One backup. */
+        BackupInfo: {
+            /**
+             * Format: date-time
+             * @description When it was taken.
+             */
+            createdAt: string;
+            /**
+             * Format: int64
+             * @description Size of the database copy.
+             */
+            databaseBytes: number;
+            /** @description `atlas-20261101T020000Z` — what `restore` and the download routes take. */
+            name: string;
+            /**
+             * Format: int64
+             * @description Size of the uploads archive, if one was written.
+             */
+            uploadsBytes?: number | null;
         };
         /**
          * @description A saved board configuration.
@@ -1831,6 +3425,254 @@ export interface components {
             /** @description The browser URL for the branch. */
             url: string;
         };
+        /** @description One group. */
+        Bucket: {
+            /** @description The group's key (an id, a name, or `(none)`). */
+            key: string;
+            /** @description What to label it. */
+            label: string;
+            /**
+             * Format: double
+             * @description The measure.
+             */
+            value: number;
+        };
+        /** @description The body of `POST /bulk`. */
+        BulkRequest: {
+            /** @description Card keys, at most 1000. */
+            keys: string[];
+            /** @description What to do to each. */
+            operation: components["schemas"]["Operation"];
+            /** @description `true` (the default) reports what would happen and saves nothing. */
+            preview?: boolean;
+            /** @description An id the caller chooses; progress frames on the live channel carry it. */
+            requestId?: string | null;
+        };
+        /** @description The whole document. */
+        Bundle: {
+            /** @description Card templates. */
+            cardTemplates: Record<string, never>[];
+            /** @description Card types. */
+            cardTypes: components["schemas"]["BundleCardType"][];
+            /** @description Cards, parents before children. Empty in a config-only bundle. */
+            cards: components["schemas"]["BundleCard"][];
+            /** @description Components. */
+            components: components["schemas"]["BundleNamed"][];
+            /**
+             * Format: date-time
+             * @description When it was exported.
+             */
+            exportedAt: string;
+            /** @description Custom field layout, with each field's definition. */
+            fields: components["schemas"]["BundleField"][];
+            /** @description Always [`FORMAT`]. */
+            format: string;
+            /** @description `(level, name)`. */
+            levels: [
+                number,
+                string
+            ][];
+            /** @description Card links, between bundle cards: `(from, to, link type)`. */
+            links: [
+                string,
+                string,
+                string
+            ][];
+            /** @description Milestones. */
+            milestones: components["schemas"]["BundleMilestone"][];
+            /** @description Priorities, most urgent first. */
+            priorities: components["schemas"]["BundleNamed"][];
+            /** @description The project's own settings. */
+            project: components["schemas"]["BundleProject"];
+            /**
+             * @description Every config id the source project's gate configs may mention, as `kind:name`
+             *     (`resolution:Done`, `priority:High`, `status:Review`, `cardType:Bug`), so import can
+             *     rewrite them to the new project's ids.
+             */
+            refs?: {
+                [key: string]: string;
+            };
+            /** @description Resolutions. */
+            resolutions: components["schemas"]["BundleNamed"][];
+            /** @description Automation rules. */
+            rules: Record<string, never>[];
+            /** @description Statuses, in board order. */
+            statuses: components["schemas"]["BundleNamed"][];
+            /** @description Project tags. */
+            tags: components["schemas"]["BundleNamed"][];
+            /** @description Workflows with their transitions and gates. */
+            workflows: components["schemas"]["BundleWorkflow"][];
+        };
+        /** @description A card. */
+        BundleCard: {
+            /** @description Type name. */
+            cardType: string;
+            /** @description Comments: `(author username, markdown, created)`. */
+            comments: [
+                string | null,
+                string,
+                string
+            ][];
+            /** @description Component names. */
+            components: string[];
+            /** @description Description. */
+            description?: string | null;
+            /**
+             * Format: date
+             * @description Due date.
+             */
+            dueDate?: string | null;
+            /**
+             * Format: double
+             * @description Estimate.
+             */
+            estimate?: number | null;
+            /** @description Custom values by field name. */
+            fields: Record<string, never>;
+            /** @description Tag names. */
+            labels: string[];
+            /** @description Milestone name. */
+            milestone?: string | null;
+            /** @description Its parent's reference. */
+            parent?: string | null;
+            /** @description Priority name. */
+            priority?: string | null;
+            /** @description Its key at export — the bundle-local reference. */
+            reference: string;
+            /**
+             * Format: date
+             * @description Start date.
+             */
+            startDate?: string | null;
+            /** @description Status name. */
+            status: string;
+            /** @description Summary. */
+            summary: string;
+        };
+        /** @description A card type. */
+        BundleCardType: {
+            /** @description Its colour. */
+            colour?: string | null;
+            /** @description Its icon. */
+            icon?: string | null;
+            /** @description The default type. */
+            isDefault: boolean;
+            /**
+             * Format: int64
+             * @description Its hierarchy level.
+             */
+            level: number;
+            /** @description Its name. */
+            name: string;
+        };
+        /** @description A laid-out custom field. */
+        BundleField: {
+            /** @description The card type it applies to, by name; `None` = all. */
+            cardType?: string | null;
+            /** @description Default value. */
+            defaultValue: Record<string, never>;
+            /** @description Its type. */
+            fieldType: string;
+            /** @description Hidden. */
+            hidden: boolean;
+            /** @description The field's name (global). */
+            name: string;
+            /** @description Its options. */
+            options: string[];
+            /** @description Required. */
+            required: boolean;
+        };
+        /** @description A milestone. */
+        BundleMilestone: {
+            /** @description Its description. */
+            description?: string | null;
+            /** @description Its name. */
+            name: string;
+            /**
+             * Format: date
+             * @description Release.
+             */
+            releaseDate?: string | null;
+            /**
+             * Format: date
+             * @description Start.
+             */
+            startDate?: string | null;
+        };
+        /** @description A named config row; `extra` carries what differs per table (category, rank, colour…). */
+        BundleNamed: {
+            /** @description Table-specific fields. */
+            extra?: Record<string, never>;
+            /** @description The name. */
+            name: string;
+        };
+        /** @description The project's settings. */
+        BundleProject: {
+            /** @description Cycles on or off. */
+            cyclesEnabled: boolean;
+            /** @description Its description. */
+            description?: string | null;
+            /** @description The estimation unit. */
+            estimationUnit: string;
+            /** @description Its key at export. */
+            key: string;
+            /** @description Its name. */
+            name: string;
+            /** @description The template it was made from. */
+            template: string;
+        };
+        /** @description A transition and its gates. */
+        BundleTransition: {
+            /** @description `(kind, config)` conditions. */
+            conditions: [
+                string,
+                string
+            ][];
+            /** @description The source status name; `None` = from anywhere. */
+            from?: string | null;
+            /** @description Its button label. */
+            name: string;
+            /** @description `(kind, config)` post-functions, in order. */
+            postFunctions: [
+                string,
+                string
+            ][];
+            /** @description The target status name. */
+            to: string;
+            /** @description `(kind, config)` validators. */
+            validators: [
+                string,
+                string
+            ][];
+        };
+        /** @description A workflow. */
+        BundleWorkflow: {
+            /** @description Card type names it governs. */
+            cardTypes: string[];
+            /** @description The permissive default. */
+            isDefault: boolean;
+            /** @description Its name. */
+            name: string;
+            /** @description Status names in it. */
+            statuses: string[];
+            /** @description Transitions. */
+            transitions: components["schemas"]["BundleTransition"][];
+        };
+        /** @description A burndown (remaining) and burnup (scope and completed) for one cycle. */
+        Burndown: {
+            /** @description Work done, per day. */
+            completed: (number | null)[];
+            /** @description The x axis: the cycle's days. */
+            days: string[];
+            /** @description The straight line from the committed scope to zero. */
+            ideal: number[];
+            /** @description Work left, per day (`null` for days not yet reached). */
+            remaining: (number | null)[];
+            /** @description Total scope, per day — burnup's top line; its rises are scope creep. */
+            scope: (number | null)[];
+            /** @description `count` or the estimation unit. */
+            unit: string;
+        };
         /** @description Live GitHub activity for a card's branch: its commits, and the CI state of the latest one. */
         CardActivityDto: {
             ciStatus?: null | components["schemas"]["CiState"];
@@ -1879,6 +3721,8 @@ export interface components {
              * @example ATLAS-123
              */
             key: string;
+            /** @description The milestone the card is scheduled for. */
+            milestoneId?: string | null;
             /** @description The parent card, if any. */
             parentId?: string | null;
             /** @description The priority. */
@@ -1926,6 +3770,13 @@ export interface components {
              */
             updatedAt: string;
         };
+        /** @description A card's custom field, with its value (or the layout default when unset). */
+        CardFieldValue: {
+            /** @description The layout entry this value is shown through. */
+            entry: components["schemas"]["LayoutEntry"];
+            /** @description The stored value; `None` = unset. */
+            value?: unknown;
+        };
         /** @description A git object linked to a card. */
         CardGitLinkDto: {
             /**
@@ -1941,6 +3792,28 @@ export interface components {
             state?: string | null;
             /** @description The browser URL, if known. */
             url?: string | null;
+        };
+        /** @description One outbound link, joined with the card it points at. */
+        CardLink: {
+            /** @description The other card's id. */
+            cardId: string;
+            /** @description The other card's key. */
+            cardKey: string;
+            /** @description The other card's summary. */
+            cardSummary: string;
+            /**
+             * Format: date-time
+             * @description When the link was made.
+             */
+            createdAt: string;
+            /** @description The row id of this direction. */
+            id: string;
+            /** @description `blocks`, `is_blocked_by`, …. */
+            linkType: string;
+            /** @description The other card's status category. */
+            statusCategory: string;
+            /** @description The other card's status name. */
+            statusName: string;
         };
         /** @description A page of cards. */
         CardPageDto: {
@@ -1961,6 +3834,35 @@ export interface components {
              * @description How many cards match the filter in total, ignoring the page.
              */
             total: number;
+        };
+        /** @description A card template. */
+        CardTemplate: {
+            /** @description The card type to create. */
+            cardTypeId?: string | null;
+            /**
+             * Format: date-time
+             * @description When it was created.
+             */
+            createdAt: string;
+            /** @description Markdown — typically a `- [ ]` checklist. */
+            description?: string | null;
+            /** @description UUID v7. */
+            id: string;
+            /** @description Tags to apply. */
+            labels: string[];
+            /** @description Unique within the project. */
+            name: string;
+            /** @description A priority. */
+            priorityId?: string | null;
+            /** @description The project. */
+            projectId: string;
+            /** @description A summary to start from (may be empty). */
+            summary: string;
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
         };
         /** @description A kind of card, and the hierarchy rung it sits on. */
         CardType: {
@@ -2012,6 +3914,11 @@ export interface components {
             /** @description The replacement. Must satisfy [`crate::auth::password::validate`]. */
             newPassword: string;
         };
+        /**
+         * @description Where a kind of notice goes.
+         * @enum {string}
+         */
+        Channel: "in_app" | "email" | "off";
         /**
          * @description A card's children summarised by status category — the mini-board preview.
          *
@@ -2099,9 +4006,131 @@ export interface components {
             /** @description The full SHA. */
             sha: string;
         };
+        /**
+         * @description How a field condition compares.
+         * @enum {string}
+         */
+        CompareOp: "equals" | "notEquals" | "contains" | "isEmpty" | "isNotEmpty";
         /** @description The body of `POST /cycles/{id}/complete`. */
         CompleteCycleRequest: {
             carryTo: components["schemas"]["CarryToRequest"];
+        };
+        /** @description A named area of a project. */
+        Component: {
+            /**
+             * Format: int64
+             * @description How many live cards are in it.
+             */
+            cardCount: number;
+            /**
+             * Format: date-time
+             * @description When it was created.
+             */
+            createdAt: string;
+            /** @description What the area covers. */
+            description?: string | null;
+            /** @description UUID v7. */
+            id: string;
+            /** @description The area's lead. */
+            leadId?: string | null;
+            /** @description Unique within the project, case-insensitively. */
+            name: string;
+            /** @description The owning project. */
+            projectId: string;
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
+        };
+        /** @description A condition: all of a rule's conditions must hold for its actions to run. */
+        Condition: {
+            /** @description The query, `AND`ed with `key = <the card>`. */
+            query: string;
+            /** @enum {string} */
+            type: "aql";
+        } | {
+            /** @description What to compare against (ignored by `isEmpty`/`isNotEmpty`). Smart values allowed. */
+            expected?: string | null;
+            /** @description How to compare. */
+            op: components["schemas"]["CompareOp"];
+            /** @enum {string} */
+            type: "field";
+            /** @description A smart value, e.g. `{{card.priority.name}}`. */
+            value: string;
+        } | {
+            /** @description Invert: anyone *but* these. */
+            negate?: boolean;
+            /** @enum {string} */
+            type: "user";
+            /** @description The usernames. */
+            usernames: string[];
+        } | {
+            /** @description The pattern. */
+            pattern: string;
+            /** @enum {string} */
+            type: "regex";
+            /** @description A smart value. */
+            value: string;
+        };
+        /** @description The body of `POST /agent-sessions/{id}/continue`. */
+        ContinueRequest: {
+            /** @description What to tell the agent next. */
+            prompt: string;
+        };
+        /** @description The control chart: cycle time per resolved card, with a rolling average. */
+        ControlChart: {
+            /**
+             * Format: double
+             * @description The mean cycle time.
+             */
+            mean: number;
+            /**
+             * Format: double
+             * @description The median cycle time.
+             */
+            median: number;
+            /** @description One point per resolved card, oldest first. */
+            points: components["schemas"]["ControlPoint"][];
+        };
+        /** @description One resolved card on the control chart. */
+        ControlPoint: {
+            /**
+             * Format: double
+             * @description Days from first in progress (or creation) to resolution.
+             */
+            cycleDays: number;
+            /** @description The card. */
+            key: string;
+            /**
+             * Format: date
+             * @description The day it was resolved.
+             */
+            resolved: string;
+            /**
+             * Format: double
+             * @description The rolling average up to and including this point.
+             */
+            rollingAverage: number;
+            /** @description Its summary. */
+            summary: string;
+        };
+        /** @description Spend in one group. */
+        CostRow: {
+            /**
+             * Format: double
+             * @description US dollars.
+             */
+            costUsd: number;
+            /** @description The group (a project key, a card key, a day, a provider). */
+            key: string;
+            /** @description What to label it. */
+            label: string;
+            /**
+             * Format: int64
+             * @description How many runs/generations.
+             */
+            runs: number;
         };
         /** @description The body of `POST /projects/{key}/boards`. */
         CreateBoardRequest: {
@@ -2174,6 +4203,15 @@ export interface components {
             /** @description `Story`, `Asset`, `Application`. */
             name: string;
         };
+        /** @description The body of `POST /projects/{key}/components`. */
+        CreateComponentRequest: {
+            /** @description What the area covers. */
+            description?: string | null;
+            /** @description The area's lead. */
+            leadId?: string | null;
+            /** @description Unique within the project. */
+            name: string;
+        };
         /**
          * @description The body of `POST /credentials`.
          *
@@ -2201,6 +4239,20 @@ export interface components {
             goal?: string | null;
             /** @description The cycle's name, e.g. `"Sprint 14"`. */
             name: string;
+        };
+        /** @description The body of `POST /custom-fields`. */
+        CreateFieldRequest: {
+            /** @description What it is for. */
+            description?: string | null;
+            /**
+             * @description What it holds. Fixed once created — changing a field's type would invalidate every
+             *     stored value at once.
+             */
+            fieldType: components["schemas"]["FieldType"];
+            /** @description Unique across the instance. */
+            name: string;
+            /** @description Choices, for select / multiselect / radio. */
+            options?: string[];
         };
         /** @description The body of `POST /filters`. */
         CreateFilterRequest: {
@@ -2389,6 +4441,36 @@ export interface components {
              */
             updatedAt: string;
         };
+        /** @description The body of the CSV import endpoints. */
+        CsvRequest: {
+            /** @description The file's text. */
+            csv: string;
+            /** @description One target per column, overriding the suggested mapping. Absent = suggested. */
+            mapping?: components["schemas"]["Target"][] | null;
+        };
+        /** @description A global field definition. */
+        CustomField: {
+            /**
+             * Format: date-time
+             * @description When it was defined.
+             */
+            createdAt: string;
+            /** @description What it is for. */
+            description?: string | null;
+            /** @description What it holds. */
+            fieldType: components["schemas"]["FieldType"];
+            /** @description UUID v7. */
+            id: string;
+            /** @description Unique across the instance. */
+            name: string;
+            /** @description The choices, for select / multiselect / radio. */
+            options: string[];
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
+        };
         /** @description A row of `cycles`. */
         Cycle: {
             /** Format: date-time */
@@ -2418,11 +4500,133 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        /** @description One card's part in a cycle. */
+        CycleCard: {
+            /** @description Added after it started. */
+            added: boolean;
+            /** @description In scope when the cycle started. */
+            committed: boolean;
+            /** @description Done at completion (or now, while active). */
+            completed: boolean;
+            /**
+             * Format: double
+             * @description Its estimate.
+             */
+            estimate?: number | null;
+            /** @description The card. */
+            key: string;
+            /** @description Removed before it ended. */
+            removed: boolean;
+            /** @description Its summary. */
+            summary: string;
+        };
+        /** @description Committed vs completed vs added for one cycle. */
+        CycleReport: {
+            /**
+             * Format: double
+             * @description Added after start.
+             */
+            added: number;
+            /** @description Every card that was ever in it. */
+            cards: components["schemas"]["CycleCard"][];
+            /**
+             * Format: double
+             * @description Committed at start.
+             */
+            committed: number;
+            /**
+             * Format: double
+             * @description Completed.
+             */
+            completed: number;
+            /** @description The cycle's name. */
+            name: string;
+            /**
+             * Format: double
+             * @description Removed during.
+             */
+            removed: number;
+            /** @description `future`, `active`, `closed`. */
+            state: string;
+            /** @description `count` or the estimation unit. */
+            unit: string;
+        };
         /**
          * @description A cycle's lifecycle state.
          * @enum {string}
          */
         CycleState: "future" | "active" | "closed";
+        /** @description A day-indexed chart. */
+        DailyChart: {
+            /** @description The x axis. */
+            days: string[];
+            /** @description One series per line/band. */
+            series: components["schemas"]["Series"][];
+            /** @description `count` or the project's estimation unit. */
+            unit: string;
+        };
+        /** @description A dashboard. */
+        Dashboard: {
+            /**
+             * Format: date-time
+             * @description When it was created.
+             */
+            createdAt: string;
+            /** @description Whether the caller may edit it. */
+            editable: boolean;
+            /** @description The gadgets. */
+            gadgets: components["schemas"]["Gadget"][];
+            /** @description UUID v7. */
+            id: string;
+            /** @description Its name. */
+            name: string;
+            /** @description Who owns it. */
+            ownerId: string;
+            /** @description Readable by every signed-in user. */
+            shared: boolean;
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
+        };
+        /** @description The body of a dashboard create or replace. */
+        DashboardRequest: {
+            /** @description The gadgets. */
+            gadgets?: components["schemas"]["Gadget"][];
+            /** @description Its name. */
+            name: string;
+            /** @description Share it. */
+            shared?: boolean;
+        };
+        /** @description The body of `POST /projects/{key}/automation/dry-run`. */
+        DryRunRequest: {
+            /** @description A card to evaluate it against. */
+            cardKey?: string | null;
+            /** @description The (possibly unsaved) rule. */
+            spec: components["schemas"]["RuleSpec"];
+        };
+        /** @description The body of `POST /projects/{key}/duplicate`. */
+        DuplicateRequest: {
+            /** @description `false` (the default) copies configuration only — "copy config from project". */
+            includeCards?: boolean;
+            /** @description The new project's key. */
+            key: string;
+            /** @description The new project's name. */
+            name: string;
+        };
+        /** @description The body of `PATCH /worklogs/{id}`. */
+        EditWorklogRequest: {
+            /** @description A new duration. */
+            duration?: string | null;
+            /** @description Absent leaves it, `null` clears it. */
+            note?: string | null;
+            /**
+             * Format: date-time
+             * @description When the work happened.
+             */
+            startedAt?: string | null;
+        };
         /**
          * @description How a project's single `estimate` field is interpreted.
          *
@@ -2453,6 +4657,11 @@ export interface components {
             resolutionId?: string | null;
         };
         /**
+         * @description What kind of value a field holds.
+         * @enum {string}
+         */
+        FieldType: "text" | "textarea" | "number" | "date" | "datetime" | "select" | "multiselect" | "checkbox" | "radio" | "user" | "multiuser" | "url" | "labels";
+        /**
          * @description A row of `filters`, as stored and as the API describes it.
          *
          *     Serialisable directly: nothing here is secret, and a filter is the caller's
@@ -2480,6 +4689,37 @@ export interface components {
              */
             updatedAt: string;
         };
+        /** @description One gadget on a dashboard. */
+        Gadget: {
+            /** @description Kind-specific: `{ aql, groupBy, metric }`, `{ projectKey, days }`, `{ cycleId }`, …. */
+            config?: Record<string, never>;
+            /**
+             * Format: int64
+             * @description Height in rows (1–12).
+             */
+            h: number;
+            /** @description Stable within the dashboard (the client generates it). */
+            id: string;
+            /** @description One of [`GADGET_KINDS`]. */
+            kind: string;
+            /** @description Its heading. */
+            title: string;
+            /**
+             * Format: int64
+             * @description Width in columns (1–12).
+             */
+            w: number;
+            /**
+             * Format: int64
+             * @description Grid column (0–11).
+             */
+            x: number;
+            /**
+             * Format: int64
+             * @description Grid row.
+             */
+            y: number;
+        };
         /** @description One condition, validator, or post-function. */
         GateDto: {
             /** @description The rule's configuration. */
@@ -2495,6 +4735,86 @@ export interface components {
             config?: Record<string, never>;
             /** @description Which rule. */
             kind: string;
+        };
+        /** @description The body of `POST /projects/{key}/generate/images`. */
+        GenerateImagesRequest: {
+            /** @description Overrides the purpose's default aspect ratio. */
+            aspectRatio?: string | null;
+            /** @description The card, for card covers and reference images. */
+            cardKey?: string | null;
+            /**
+             * Format: int32
+             * @description How many options to generate (1–4). Each is a separate request and costs separately.
+             */
+            count?: number | null;
+            /** @description What to draw. Default: built from the project (and card) name and type. */
+            prompt?: string | null;
+            /** @description What the image is for. */
+            purpose: components["schemas"]["ImagePurpose"];
+            /** @description One of the style presets. */
+            style?: string | null;
+        };
+        /** @description The body of `POST /generate/text`. */
+        GenerateTextRequest: {
+            /** @description The card being drafted for (a draft uses its summary and project). */
+            cardKey?: string | null;
+            /** @description What to draft from, or the question to turn into a query. */
+            input: string;
+            /** @description `draft` (a card description) or `query` (natural language → AQL). */
+            purpose: string;
+        };
+        /** @description One stored image. */
+        GeneratedImage: {
+            /** @description Its id. */
+            id: string;
+            /** @description `image/png` or `image/jpeg`. */
+            mimeType: string;
+            /**
+             * Format: int64
+             * @description Bytes.
+             */
+            sizeBytes: number;
+            /** @description Where to fetch it. */
+            url: string;
+        };
+        /** @description A text generation's result. */
+        GeneratedText: {
+            /**
+             * Format: double
+             * @description What it cost.
+             */
+            costUsd: number;
+            /** @description For a query that does not parse: why. */
+            error?: string | null;
+            /** @description The draft, or the AQL. */
+            text: string;
+            /** @description For a query: whether Atlas's own parser accepts it. */
+            valid?: boolean | null;
+        };
+        /** @description One generation: the request, its outcome, its cost. */
+        Generation: {
+            /**
+             * Format: double
+             * @description What it cost.
+             */
+            costUsd?: number | null;
+            /**
+             * Format: date-time
+             * @description When.
+             */
+            createdAt: string;
+            /** @description Why it was blocked or failed. */
+            error?: string | null;
+            /** @description Its id. */
+            id: string;
+            /** @description The images. */
+            images: components["schemas"]["GeneratedImage"][];
+            /** @description The prompt sent. */
+            prompt: string;
+            /** @description `project_cover`, `card_cover`, `draft`, `query`, …. */
+            purpose: string;
+            /** @description `succeeded`, `blocked`, `failed`. */
+            status: string;
         };
         /** @description Health check response. */
         HealthResponse: {
@@ -2541,6 +4861,11 @@ export interface components {
          *     to avoid onto every consumer.
          */
         HistoryEntry: {
+            /**
+             * @description What made the change when it was not the author by hand: `automation:<rule>:<depth>`
+             *     or `agent:<session>`. `None` = a person, directly.
+             */
+            actor?: string | null;
             /** @description Who did it. `None` for an automation or an agent. */
             authorId?: string | null;
             /** @description Which card. */
@@ -2563,6 +4888,103 @@ export interface components {
             /** @description The new id / raw value. */
             toValue?: string | null;
         };
+        /**
+         * @description An outbound HTTP method.
+         * @enum {string}
+         */
+        HttpMethod: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+        /**
+         * @description What an image is for.
+         * @enum {string}
+         */
+        ImagePurpose: "projectCover" | "projectAvatar" | "cardCover" | "reference";
+        /** @description The body of `POST /projects/import`. */
+        ImportBundleRequest: {
+            /** @description The bundle, as exported. */
+            bundle: components["schemas"]["Bundle"];
+            /** @description `false` imports the configuration only. Default `true`. */
+            includeCards?: boolean;
+            /** @description The new project's key. */
+            key: string;
+            /** @description The new project's name. Absent = the bundle's. */
+            name?: string | null;
+        };
+        /** @description One problem, located. */
+        ImportProblem: {
+            /** @description The column's header, if the problem is in one. */
+            column?: string | null;
+            /** @description What is wrong. */
+            message: string;
+            /** @description 1-based data row (the header is row 0). */
+            row: number;
+        };
+        /** @description What an import created. */
+        Imported: {
+            /** @description The new cards' keys, in file order. */
+            keys: string[];
+        };
+        /** @description The bell: recent notifications and the unread count. */
+        Inbox: {
+            /** @description Newest first. */
+            items: components["schemas"]["Notification"][];
+            /**
+             * Format: int64
+             * @description How many are unread in total.
+             */
+            unread: number;
+        };
+        /**
+         * @description The kinds of notice.
+         * @enum {string}
+         */
+        Kind: "assigned" | "mentioned" | "commented" | "transitioned" | "updated" | "agent" | "system";
+        /** @description One kind's channel. */
+        KindChannel: {
+            /** @description Where it goes. */
+            channel: components["schemas"]["Channel"];
+            /** @description The kind. */
+            kind: components["schemas"]["Kind"];
+        };
+        /** @description One row of a project's field layout, joined with its definition. */
+        LayoutEntry: {
+            /** @description `None` = every card type. */
+            cardTypeId?: string | null;
+            /** @description Pre-filled for new cards. */
+            defaultValue?: unknown;
+            /** @description The field definition. */
+            field: components["schemas"]["CustomField"];
+            /** @description Not shown on the card (but still queryable and settable). */
+            hidden: boolean;
+            /** @description The layout row. */
+            id: string;
+            /**
+             * Format: int64
+             * @description Display order.
+             */
+            position: number;
+            /** @description Must have a value. */
+            required: boolean;
+        };
+        /** @description One entry of a layout replacement. */
+        LayoutInput: {
+            /** @description `None` = every card type. */
+            cardTypeId?: string | null;
+            /** @description Pre-filled for new cards. Validated against the field's type. */
+            defaultValue?: unknown;
+            /** @description The field definition. */
+            fieldId: string;
+            /** @description Not shown on the card. */
+            hidden?: boolean;
+            /** @description Must have a value. */
+            required?: boolean;
+        };
+        /** @description The body of `POST /cards/{key}/links`. */
+        LinkCardRequest: {
+            /** @description How this card relates to it. */
+            linkType: components["schemas"]["LinkType"];
+            /** @description The other card's key. */
+            targetKey: string;
+        };
         /** @description The body of a link request: which credential, and which repo. */
         LinkRepoRequest: {
             /** @description Prefix for generated branch names. Defaults to `feature`. */
@@ -2573,6 +4995,23 @@ export interface components {
             owner: string;
             /** @description The repository name. */
             repo: string;
+        };
+        /**
+         * @description The kinds of link a card can have to another, each with its inverse.
+         * @enum {string}
+         */
+        LinkType: "blocks" | "is_blocked_by" | "relates_to" | "duplicates" | "is_duplicated_by" | "clones" | "is_cloned_by" | "causes" | "is_caused_by";
+        /** @description The body of `POST /cards/{key}/worklogs`. */
+        LogWorkRequest: {
+            /** @description `2w 3d 4h 30m`, or a bare number of minutes. */
+            duration: string;
+            /** @description What the time was spent on. */
+            note?: string | null;
+            /**
+             * Format: date-time
+             * @description When the work happened. Defaults to now.
+             */
+            startedAt?: string | null;
         };
         /** @description Credentials for `POST /auth/login`. */
         LoginRequest: {
@@ -2600,6 +5039,82 @@ export interface components {
             /** @description The surviving tag. */
             tag: components["schemas"]["Tag"];
         };
+        /**
+         * @description What an aggregate measures.
+         * @enum {string}
+         */
+        Metric: "count" | "estimate";
+        /** @description A date a project is working towards. */
+        Milestone: {
+            /**
+             * Format: int64
+             * @description Live cards scheduled for it.
+             */
+            cardCount: number;
+            /**
+             * Format: date-time
+             * @description When it was created.
+             */
+            createdAt: string;
+            /** @description What it is. */
+            description?: string | null;
+            /**
+             * Format: int64
+             * @description …of which resolved.
+             */
+            doneCount: number;
+            /** @description UUID v7. */
+            id: string;
+            /** @description Unique within the project. */
+            name: string;
+            /** @description The owning project. */
+            projectId: string;
+            /**
+             * Format: date
+             * @description When it is due.
+             */
+            releaseDate?: string | null;
+            /**
+             * Format: date-time
+             * @description When it was released.
+             */
+            releasedAt?: string | null;
+            /**
+             * Format: date
+             * @description When work towards it starts.
+             */
+            startDate?: string | null;
+            /** @description `planned`, `released`, `archived`. */
+            status: string;
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
+        };
+        /** @description The body of `POST /projects/{key}/milestones` and `PATCH /milestones/{id}`. */
+        MilestoneRequest: {
+            /** @description Absent leaves it, `null` clears it. */
+            description?: string | null;
+            /** @description Required on create. */
+            name?: string | null;
+            /**
+             * Format: date
+             * @description Absent leaves it, `null` clears it.
+             */
+            releaseDate?: string | null;
+            /**
+             * Format: date
+             * @description Absent leaves it, `null` clears it.
+             */
+            startDate?: string | null;
+            status?: null | components["schemas"]["MilestoneStatus"];
+        };
+        /**
+         * @description Where a milestone is in its life.
+         * @enum {string}
+         */
+        MilestoneStatus: "planned" | "released" | "archived";
         /** @description The body of `POST /cards/{key}/move`. */
         MoveCardRequest: {
             /** @description The card immediately **below** the drop point. Omit for the bottom. */
@@ -2608,6 +5123,101 @@ export interface components {
             previousCardId?: string | null;
             /** @description The target column. Omit to reorder within the current one. */
             statusId?: string | null;
+        };
+        /** @description A notification as the bell shows it. */
+        Notification: {
+            /** @description Who caused it. */
+            actorId?: string | null;
+            /** @description Their display name. */
+            actorName?: string | null;
+            /** @description Detail. */
+            body?: string | null;
+            /** @description The card, if any. */
+            cardId?: string | null;
+            /** @description The card's key, if any. */
+            cardKey?: string | null;
+            /**
+             * Format: int64
+             * @description How many events were coalesced into it.
+             */
+            count: number;
+            /**
+             * Format: date-time
+             * @description When it first arrived.
+             */
+            createdAt: string;
+            /** @description UUID v7. */
+            id: string;
+            /** @description `assigned`, `mentioned`, …. */
+            kind: string;
+            /** @description An in-app path. */
+            link?: string | null;
+            /**
+             * Format: date-time
+             * @description When it was read. `None` = unread.
+             */
+            readAt?: string | null;
+            /** @description One line. */
+            title: string;
+            /**
+             * Format: date-time
+             * @description When it last absorbed an event.
+             */
+            updatedAt: string;
+        };
+        /** @description What to do to every card. */
+        Operation: {
+            /** @description A username. */
+            assignee?: string | null;
+            /** @description `YYYY-MM-DD`. */
+            dueDate?: string | null;
+            /** @enum {string} */
+            kind: "edit";
+            /** @description A milestone name. */
+            milestone?: string | null;
+            /** @description A priority name. */
+            priority?: string | null;
+        } | {
+            /** @enum {string} */
+            kind: "transition";
+            /** @description The status name. */
+            status: string;
+        } | {
+            /** @enum {string} */
+            kind: "delete";
+        } | {
+            /** @enum {string} */
+            kind: "restore";
+        } | {
+            /** @enum {string} */
+            kind: "archive";
+        } | {
+            /** @enum {string} */
+            kind: "unarchive";
+        } | {
+            /** @enum {string} */
+            kind: "move";
+            /** @description The destination project's key. */
+            projectKey: string;
+        } | {
+            /** @enum {string} */
+            kind: "tag";
+            /** @description The tag name. */
+            name: string;
+        } | {
+            /** @enum {string} */
+            kind: "untag";
+            /** @description The tag name. */
+            name: string;
+        };
+        /** @description What happened (or would happen) to one card. */
+        Outcome: {
+            /** @description Why it failed. */
+            error?: string | null;
+            /** @description The key as given. */
+            key: string;
+            /** @description `changed`, `unchanged`, or `failed`. */
+            result: string;
         };
         /**
          * @description The status the frontend renders as a pill, derived from the stored status plus
@@ -2620,6 +5230,43 @@ export interface components {
          * @enum {string}
          */
         PillStatus: "unchecked" | "valid" | "expiring" | "expired" | "invalid";
+        /** @description What an import would do, and everything stopping it. */
+        Plan: {
+            /** @description Cards to create (the first 200, for the preview table). */
+            cards: components["schemas"]["PlannedCard"][];
+            /** @description The header row. */
+            headers: string[];
+            /** @description The mapping used, one per column — the suggestion unless overridden. */
+            mapping: components["schemas"]["Target"][];
+            /** @description Every problem. An import with any is refused. */
+            problems: components["schemas"]["ImportProblem"][];
+            /** @description How many cards in total. */
+            total: number;
+        };
+        /** @description One card the import will create. */
+        PlannedCard: {
+            /** @description Its type's name. */
+            cardType: string;
+            /** @description Its tags. */
+            labels: string[];
+            /** @description Its parent's row (in this file) or key (an existing card). */
+            parent?: string | null;
+            /** @description 1-based data row. */
+            row: number;
+            /** @description Its status's name. */
+            status: string;
+            /** @description Its summary. */
+            summary: string;
+        };
+        /** @description A user's notification settings. */
+        Preferences: {
+            /** @description Per-kind delivery. */
+            channels: components["schemas"]["KindChannel"][];
+            /** @description A daily email of what you have not read. */
+            dailyDigest: boolean;
+            /** @description Hear about your own changes too. Off by default. */
+            notifyOwnChanges: boolean;
+        };
         /** @description How urgent a card is. Ordered. */
         Priority: {
             /** @description A hex colour. */
@@ -2777,6 +5424,18 @@ export interface components {
             repoId: number;
             /**
              * Format: date-time
+             * @description When it last ran.
+             */
+            syncCheckedAt?: string | null;
+            /** @description What the check found, in words. */
+            syncDetail?: string | null;
+            /**
+             * @description The last health check: `unchecked`, `ok`, `no_credential`, `auth_failed`,
+             *     `not_found` or `error`. Anything but `ok`/`unchecked` is a broken link to show.
+             */
+            syncStatus: string;
+            /**
+             * Format: date-time
              * @description When it last changed.
              */
             updatedAt: string;
@@ -2808,6 +5467,26 @@ export interface components {
          * @enum {string}
          */
         Provider: "github" | "anthropic" | "gemini" | "smtp";
+        /** @description A URL attached to a card. */
+        RemoteLink: {
+            /** @description The card. */
+            cardId: string;
+            /**
+             * Format: date-time
+             * @description When it was added.
+             */
+            createdAt: string;
+            /** @description Who added it. */
+            createdBy?: string | null;
+            /** @description An optional icon name or URL. */
+            icon?: string | null;
+            /** @description UUID v7. */
+            id: string;
+            /** @description What to show instead of the URL. */
+            title: string;
+            /** @description An `http(s)` URL. */
+            url: string;
+        };
         /** @description The body of `PATCH /hierarchy-levels/{id}`. */
         RenameRequest: {
             /** @description The new name. */
@@ -2832,6 +5511,11 @@ export interface components {
              */
             parentId?: string | null;
         };
+        /** @description The body of `PUT /projects/{key}/field-layout`. */
+        ReplaceLayoutRequest: {
+            /** @description The complete layout, in display order. */
+            entries: components["schemas"]["LayoutInput"][];
+        };
         /** @description A repository as the repo picker shows it. */
         RepoSummary: {
             /**
@@ -2850,6 +5534,19 @@ export interface components {
             id: number;
             /** @description Whether the repo is private. */
             private?: boolean;
+        };
+        /** @description The whole result. */
+        Report: {
+            /** @description Per card, in the order given. */
+            cards: components["schemas"]["Outcome"][];
+            /** @description How many changed (or would). */
+            changed: number;
+            /** @description How many failed (or would). */
+            failed: number;
+            /** @description Whether this was a preview (nothing was saved). */
+            preview: boolean;
+            /** @description How many were already as asked. */
+            unchanged: number;
         };
         /**
          * @description Why a card stopped.
@@ -2897,6 +5594,108 @@ export interface components {
          * @enum {string}
          */
         Role: "viewer" | "member" | "admin";
+        /** @description A rule, as the API shows it. */
+        Rule: {
+            /**
+             * Format: date-time
+             * @description When it was created.
+             */
+            createdAt: string;
+            /** @description What it is for. */
+            description?: string | null;
+            /** @description Whether it runs. */
+            enabled: boolean;
+            /** @description Whether an incoming-webhook token has been issued. */
+            hasWebhook: boolean;
+            /** @description UUID v7. */
+            id: string;
+            /**
+             * Format: date-time
+             * @description When it last ran.
+             */
+            lastRunAt?: string | null;
+            /** @description A name. */
+            name: string;
+            /**
+             * Format: date-time
+             * @description For a scheduled rule: when it next runs.
+             */
+            nextRunAt?: string | null;
+            /** @description Whose authority it acts with. */
+            ownerId: string;
+            /** @description The project it belongs to. */
+            projectId: string;
+            /** @description Trigger, conditions, actions. */
+            spec: components["schemas"]["RuleSpec"];
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            updatedAt: string;
+        };
+        /** @description The body of a rule create or replace. */
+        RuleRequest: {
+            /** @description What it is for. */
+            description?: string | null;
+            /** @description Whether it runs. Default on. */
+            enabled?: boolean;
+            /** @description A name. */
+            name: string;
+            /** @description Trigger, conditions, actions. */
+            spec: components["schemas"]["RuleSpec"];
+        };
+        /** @description A rule's definition — what the builder edits. */
+        RuleSpec: {
+            /** @description What. */
+            actions: components["schemas"]["Action"][];
+            /** @description Whether (all must hold). */
+            conditions?: components["schemas"]["Condition"][];
+            /** @description When. */
+            trigger: components["schemas"]["Trigger"];
+        };
+        /** @description One execution in the audit log. */
+        Run: {
+            /** @description The card it ran against, if any. */
+            cardId?: string | null;
+            /** @description The card's key, if it still exists. */
+            cardKey?: string | null;
+            /** @description Why it failed. */
+            error?: string | null;
+            /**
+             * Format: date-time
+             * @description When it finished.
+             */
+            finishedAt: string;
+            /** @description UUID v7. */
+            id: string;
+            /** @description The rule. */
+            ruleId: string;
+            /**
+             * Format: date-time
+             * @description When it started.
+             */
+            startedAt: string;
+            /** @description `success`, `no_match`, `failed`, `loop_blocked`, `rate_limited`, `dry_run`. */
+            status: string;
+            /** @description Conditions evaluated, actions taken, and every smart value's resolution. */
+            trace: Record<string, never>;
+            /** @description Which trigger fired. */
+            trigger: string;
+        };
+        /** @description The body of `POST /automation/rules/{id}/run`. */
+        RunRequest: {
+            /** @description The card to run against. */
+            cardKey?: string | null;
+        };
+        /** @description How a run ended. */
+        RunResult: {
+            /** @description Why it failed. */
+            error?: string | null;
+            /** @description `success`, `no_match`, `failed`, `loop_blocked`, `rate_limited`, `dry_run`. */
+            status: string;
+            /** @description What happened, step by step. */
+            trace: Record<string, never>;
+        };
         /** @description The body of `POST /search`. */
         SearchRequest: {
             /**
@@ -2946,6 +5745,17 @@ export interface components {
              */
             total: number;
         };
+        /** @description A status as a report series. */
+        Series: {
+            /** @description `todo`, `in_progress`, `done` — drives the colour. */
+            category?: string | null;
+            /** @description The status id (or a group key). */
+            id: string;
+            /** @description What to label it. */
+            name: string;
+            /** @description One value per day in `days`. */
+            values: number[];
+        };
         /** @description A session as the API describes it. */
         SessionDto: {
             /**
@@ -2974,6 +5784,34 @@ export interface components {
             lastSeenAt: string;
             /** @description The creating client's `User-Agent`, if it sent one. */
             userAgent?: string | null;
+        };
+        /** @description The body of `PUT /cards/{key}/components`. */
+        SetCardComponentsRequest: {
+            /** @description The complete set; replaces whatever was there. */
+            componentIds: string[];
+        };
+        /** @description The body of `PATCH /cards/{key}/fields`. */
+        SetFieldsRequest: {
+            /** @description Field id → new value. `null` clears. */
+            values: Record<string, never>;
+        };
+        /** @description The non-secret SMTP settings. */
+        SmtpSettings: {
+            /** @description `Atlas <atlas@example.com>` or a bare address. */
+            fromAddress: string;
+            /** @description The server. */
+            host: string;
+            /** @description The vault credential (provider `smtp`) holding the password, if any. */
+            passwordCredentialId?: string | null;
+            /**
+             * Format: int32
+             * @description Its port.
+             */
+            port: number;
+            /** @description How to secure the connection. */
+            tls: components["schemas"]["TlsMode"];
+            /** @description The login, if the server wants one. */
+            username?: string | null;
         };
         /** @description The body of `POST /cycles/{id}/start`. */
         StartCycleRequest: {
@@ -3112,6 +5950,11 @@ export interface components {
              */
             usageCount: number;
         };
+        /** @description What a column becomes. */
+        Target: "skip" | "summary" | "description" | "type" | "status" | "priority" | "assignee" | "reporter" | "labels" | "dueDate" | "startDate" | "estimate" | "milestone" | "component" | "issueId" | "parent" | {
+            /** @description A custom field, by id. */
+            customField: string;
+        };
         /**
          * @description Which set of seed rows a new project starts from.
          * @enum {string}
@@ -3128,6 +5971,31 @@ export interface components {
             /** @description The workflow this template seeds, in board order. */
             statuses: string[];
         };
+        /** @description The fields of a template a create or edit sets. */
+        TemplateInput: {
+            /** @description A card type of the project. */
+            cardTypeId?: string | null;
+            /** @description Markdown. */
+            description?: string | null;
+            /** @description Tag names. */
+            labels?: string[];
+            /** @description Unique within the project. */
+            name: string;
+            /** @description A priority of the project. */
+            priorityId?: string | null;
+            /** @description A summary to start from. */
+            summary?: string;
+        };
+        /** @description The body of `POST /admin/smtp/test`. */
+        TestEmailRequest: {
+            /** @description Where to send the test. Defaults to the caller's own address. */
+            to?: string | null;
+        };
+        /**
+         * @description How the connection to the SMTP server is secured.
+         * @enum {string}
+         */
+        TlsMode: "starttls" | "tls" | "none";
         /** @description One line of a session's transcript. */
         TranscriptLine: {
             /** Format: date-time */
@@ -3168,6 +6036,67 @@ export interface components {
             /** @description The owning workflow. */
             workflowId: string;
         };
+        /** @description When a rule runs. */
+        Trigger: {
+            /** @enum {string} */
+            type: "cardCreated";
+        } | {
+            /** @description Only from this status. */
+            from?: string | null;
+            /** @description Only to this status. */
+            to?: string | null;
+            /** @enum {string} */
+            type: "cardTransitioned";
+        } | {
+            /** @description The fields. */
+            fields?: string[];
+            /** @enum {string} */
+            type: "fieldChanged";
+        } | {
+            /** @enum {string} */
+            type: "cardAssigned";
+        } | {
+            /** @enum {string} */
+            type: "commented";
+        } | {
+            /** @description Which cards. Empty = run once with no card. */
+            aql?: string | null;
+            /**
+             * Format: int64
+             * @description Minutes between runs.
+             */
+            intervalMinutes: number;
+            /** @enum {string} */
+            type: "scheduled";
+        } | {
+            /** @enum {string} */
+            type: "manual";
+        } | {
+            /** @description Which cards. */
+            aql?: string | null;
+            /** @enum {string} */
+            type: "incomingWebhook";
+        };
+        /** @description Two-dimensional filter statistics: counts at every (x, y). */
+        TwoDimensional: {
+            /** @description `cells[row][column]` — counts. */
+            cells: number[][];
+            /** @description Whether the card cap cut the result short. */
+            truncated: boolean;
+            /** @description Column headers. */
+            x: components["schemas"]["Bucket"][];
+            /** @description Row headers. */
+            y: components["schemas"]["Bucket"][];
+        };
+        /** @description The body of `POST /reports/two-dimensional`. */
+        TwoDimensionalRequest: {
+            /** @description Which cards. */
+            aql?: string;
+            /** @description The column field. */
+            x: string;
+            /** @description The row field. */
+            y: string;
+        };
         /** @description The body of `PATCH /boards/{id}`. */
         UpdateBoardRequest: {
             /** @description Absent leaves it, `null` clears it, a value sets it. */
@@ -3199,6 +6128,8 @@ export interface components {
              * @description Absent leaves it, `null` clears it, a value sets it.
              */
             estimate?: number | null;
+            /** @description The milestone. Absent leaves it, `null` clears it, a value sets it. */
+            milestoneId?: string | null;
             /** @description Absent leaves it, `null` clears it, a value sets it. */
             priorityId?: string | null;
             /**
@@ -3251,12 +6182,30 @@ export interface components {
             /** @description The name. */
             name?: string | null;
         };
+        /** @description The body of `PATCH /components/{id}`. */
+        UpdateComponentRequest: {
+            /** @description Absent leaves it, `null` clears it. */
+            description?: string | null;
+            /** @description Absent leaves it, `null` clears it. */
+            leadId?: string | null;
+            /** @description A new name. */
+            name?: string | null;
+        };
         /** @description The body of `PATCH /cycles/{id}`. At least one field must be present. */
         UpdateCycleRequest: {
             /** @description Absent leaves the goal alone, `null` clears it, a value sets it. */
             goal?: string | null;
             /** @description A new name. */
             name?: string | null;
+        };
+        /** @description The body of `PATCH /custom-fields/{id}`. */
+        UpdateFieldRequest: {
+            /** @description Absent leaves it, `null` clears it. */
+            description?: string | null;
+            /** @description A new name. */
+            name?: string | null;
+            /** @description The complete new option list. An option still in use cannot be removed. */
+            options?: string[] | null;
         };
         /** @description The body of `PATCH /filters/{id}`. */
         UpdateFilterRequest: {
@@ -3409,6 +6358,11 @@ export interface components {
             /** @description The new name. */
             name?: string | null;
         };
+        /** @description The body of `POST /projects/{key}/cover|avatar` and `POST /cards/{key}/cover`. */
+        UseImageRequest: {
+            /** @description A generated image of this project; `null` clears. */
+            imageId?: string | null;
+        };
         /**
          * @description A user as the API describes it.
          *
@@ -3480,6 +6434,56 @@ export interface components {
             /** @description The byte offset the span starts at, or `null` for a whole-query problem. */
             start?: number | null;
         };
+        /** @description Velocity: committed vs completed over the last closed cycles, oldest first. */
+        Velocity: {
+            /**
+             * Format: double
+             * @description The mean completed.
+             */
+            average: number;
+            /** @description The bars. */
+            cycles: components["schemas"]["VelocityBar"][];
+            /** @description `count` or the estimation unit. */
+            unit: string;
+        };
+        /** @description One cycle's bar on the velocity chart. */
+        VelocityBar: {
+            /**
+             * Format: double
+             * @description Committed at start.
+             */
+            committed: number;
+            /**
+             * Format: double
+             * @description Completed by the end.
+             */
+            completed: number;
+            /** @description The cycle. */
+            cycleId: string;
+            /** @description Its name. */
+            name: string;
+        };
+        /** @description Someone watching a card. */
+        Watcher: {
+            /**
+             * Format: date-time
+             * @description Since when.
+             */
+            createdAt: string;
+            /** @description Their display name. */
+            displayName: string;
+            /** @description The user's id. */
+            userId: string;
+            /** @description Their username. */
+            username: string;
+        };
+        /** @description A freshly issued webhook token — shown exactly once. */
+        WebhookToken: {
+            /** @description The path to POST to (prefix it with this instance's public URL). */
+            path: string;
+            /** @description The secret token. */
+            token: string;
+        };
         /** @description A workflow, with the ids of the statuses it includes. */
         WorkflowDto: {
             /** @description The card types routed through this workflow. */
@@ -3505,6 +6509,64 @@ export interface components {
              */
             updatedAt: string;
         };
+        /** @description One logged stretch of work. */
+        Worklog: {
+            /** @description Who logged it. `None` once the account is gone. */
+            authorId?: string | null;
+            /** @description The card the time is logged against. */
+            cardId: string;
+            /**
+             * Format: date-time
+             * @description When the row was written.
+             */
+            createdAt: string;
+            /** @description UUID v7. */
+            id: string;
+            /**
+             * Format: int64
+             * @description Time spent, in whole minutes.
+             */
+            minutes: number;
+            /** @description An optional note. */
+            note?: string | null;
+            /** @description Where it came from: `manual`, `smart-commit`, `automation`. */
+            source: string;
+            /**
+             * Format: date-time
+             * @description When the work happened. Falls back to `created_at` for rows written before 0016.
+             */
+            startedAt: string;
+            /**
+             * Format: date-time
+             * @description When the row was last edited. `None` = never.
+             */
+            updatedAt?: string | null;
+        };
+        /** @description A card's logged time, totalled. */
+        WorklogSummary: {
+            /** @description Every entry, oldest first. */
+            entries: components["schemas"]["Worklog"][];
+            /** @description `total_minutes` in the `1w 2d 3h 4m` grammar. */
+            totalDisplay: string;
+            /**
+             * Format: int64
+             * @description Total minutes across `entries`.
+             */
+            totalMinutes: number;
+        };
+        /** @description What a run changed in its workspace, for review before opening a PR. */
+        WorkspaceDiff: {
+            /** @description The branch the workspace is on. */
+            branch?: string | null;
+            /** @description Commits on this branch not on the default branch (`git log --oneline`). */
+            commits: string;
+            /** @description The full patch: committed since the default branch, plus anything uncommitted. */
+            diff: string;
+            /** @description `git status --porcelain`. */
+            status: string;
+            /** @description Whether `diff` was cut at the size limit. */
+            truncated: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -3514,6 +6576,209 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_backups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backups, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupInfo"][];
+                };
+            };
+            /** @description Forbidden — admins only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Written */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupInfo"];
+                };
+            };
+            /** @description Forbidden — admins only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    download_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The backup, e.g. atlas-20261101T020000Z */
+                name: string;
+                /** @description `database` or `uploads` */
+                part: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description No such backup or part */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_smtp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings, or null when email is off */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": null | components["schemas"]["SmtpSettings"];
+                };
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    put_smtp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SmtpSettings"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmtpSettings"];
+                };
+            };
+            /** @description Invalid host, address, or credential */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_smtp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Email is off */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    test_smtp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description Sent */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not configured, or the server refused */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     get_system: {
         parameters: {
             query?: never;
@@ -3708,6 +6973,124 @@ export interface operations {
             };
         };
     };
+    continue_agent_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session to continue */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContinueRequest"];
+            };
+        };
+        responses: {
+            /** @description The continuation run */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSession"];
+                };
+            };
+            /** @description It is still running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description An empty prompt */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_agent_session_diff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status, commits and patch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDiff"];
+                };
+            };
+            /** @description No such session, or no workspace on disk */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    rerun_agent_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The session to re-run */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new run */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSession"];
+                };
+            };
+            /** @description No such session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description It is still running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     get_agent_session_transcript: {
         parameters: {
             query?: never;
@@ -3730,6 +7113,114 @@ export interface operations {
                 };
             };
             /** @description No such session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_attachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The attachment */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not the uploader, and not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such attachment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    download_attachment: {
+        parameters: {
+            query?: {
+                /** @description Which version. Defaults to the newest. */
+                version?: number;
+                /** @description Force a download even for a previewable type. */
+                download?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The attachment */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description No such attachment or version */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_versions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The attachment */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Its versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentVersion"][];
+                };
+            };
+            /** @description No such attachment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3871,6 +7362,58 @@ export interface operations {
             };
         };
     };
+    set_avatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The image */
+        requestBody: {
+            content: {
+                "image/png": number[];
+            };
+        };
+        responses: {
+            /** @description Set; the updated account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDto"];
+                };
+            };
+            /** @description Not an image, or too large */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    clear_avatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_sessions: {
         parameters: {
             query?: never;
@@ -3930,6 +7473,222 @@ export interface operations {
             };
             /** @description No such session for this user */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rule"];
+                };
+            };
+            /** @description No such rule */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    replace_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rule"];
+                };
+            };
+            /** @description No such rule */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description An invalid rule */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such rule */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    run_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunRequest"];
+            };
+        };
+        responses: {
+            /** @description How it went */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunResult"];
+                };
+            };
+            /** @description No such rule or card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Runs, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"][];
+                };
+            };
+            /** @description No such rule */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    issue_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The token, shown once */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookToken"];
+                };
+            };
+            /** @description No such rule */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a webhook-triggered rule */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4091,6 +7850,105 @@ export interface operations {
             };
             /** @description The request is invalid */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    run_bulk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkRequest"];
+            };
+        };
+        responses: {
+            /** @description What happened (or would) to each card */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Report"];
+                };
+            };
+            /** @description No cards, or more than 1000 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    replace_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The template */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateInput"];
+            };
+        };
+        responses: {
+            /** @description Replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardTemplate"];
+                };
+            };
+            /** @description No such template */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The template */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such template */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4427,7 +8285,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The run, recorded as running */
+            /** @description The run, recorded as running (and `queued` when the instance is at its concurrency cap) */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -4456,6 +8314,99 @@ export interface operations {
             };
             /** @description The vault is not configured, or the CLI failed to spawn */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_attachments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card's attachments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    upload_attachment: {
+        parameters: {
+            query: {
+                /**
+                 * @description The file's name. Display only — it is never used to build a path. Re-using a name on
+                 *     the same card adds a new version.
+                 */
+                filename: string;
+            };
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        /** @description The file's bytes */
+        requestBody: {
+            content: {
+                "application/octet-stream": number[];
+            };
+        };
+        responses: {
+            /** @description Stored (as a new attachment or a new version) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Larger than ATLAS_MAX_UPLOAD_MB */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Larger than ATLAS_MAX_UPLOAD_MB */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4660,6 +8611,133 @@ export interface operations {
             };
         };
     };
+    list_card_components: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card's components */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Component"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_card_components: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCardComponentsRequest"];
+            };
+        };
+        responses: {
+            /** @description The card's components now */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Component"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A component of another project */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_card_cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cover URL, or null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    set_card_cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UseImageRequest"];
+            };
+        };
+        responses: {
+            /** @description The cover URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
     card_cycle: {
         parameters: {
             query?: never;
@@ -4810,6 +8888,83 @@ export interface operations {
             };
         };
     };
+    get_card_fields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fields and values */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardFieldValue"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_card_fields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFieldsRequest"];
+            };
+        };
+        responses: {
+            /** @description The card's fields now */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardFieldValue"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A field not laid out for this card, a bad value, or a required field cleared */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     card_git_links: {
         parameters: {
             query?: never;
@@ -4873,6 +9028,115 @@ export interface operations {
                 };
             };
             /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Outbound links (inverses are materialised) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardLink"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    link_card: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkCardRequest"];
+            };
+        };
+        responses: {
+            /** @description Linked; this card's links */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardLink"][];
+                };
+            };
+            /** @description No such card (either end) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A card cannot link to itself */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unlink_card: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+                /** @description The link, as listed on this card */
+                linkId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such card or link */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4996,6 +9260,115 @@ export interface operations {
             };
             /** @description The vault is not configured, or GitHub errored */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_remote_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card's web links */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteLink"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    add_remote_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddRemoteLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Added */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteLink"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not an http(s) URL */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    remove_remote_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+                /** @description The remote link */
+                linkId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such card or link */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5396,6 +9769,188 @@ export interface operations {
             };
         };
     };
+    list_watchers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Who is watching */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Watcher"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    watch_card: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Watching; the updated list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Watcher"][];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unwatch_card: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+                /** @description The watcher */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No longer watching */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not yourself, and not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_worklogs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every worklog, and the total */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorklogSummary"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    log_work: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The card key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LogWorkRequest"];
+            };
+        };
+        responses: {
+            /** @description Logged */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Worklog"];
+                };
+            };
+            /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a duration */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     delete_comment: {
         parameters: {
             query?: never;
@@ -5498,6 +10053,81 @@ export interface operations {
             };
             /** @description The comment is empty or too long */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_component: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The component */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such component */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_component: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The component */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateComponentRequest"];
+            };
+        };
+        responses: {
+            /** @description Edited */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Component"];
+                };
+            };
+            /** @description No such component */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name is taken */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5763,8 +10393,172 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Probed less than 30 seconds ago */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             /** @description The secrets vault is not configured, or the secret could not be decrypted */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_fields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The global field registry, by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomField"][];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_field: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFieldRequest"];
+            };
+        };
+        responses: {
+            /** @description Defined */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomField"];
+                };
+            };
+            /** @description Not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid name or options */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_field: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The field */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such field */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_field: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The field */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFieldRequest"];
+            };
+        };
+        responses: {
+            /** @description Edited */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomField"];
+                };
+            };
+            /** @description No such field */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Name taken, or an option still in use */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5827,6 +10621,38 @@ export interface operations {
                 };
             };
             /** @description The name is invalid, or nothing was sent */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    burndown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cycle */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Remaining, scope, completed, ideal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Burndown"];
+                };
+            };
+            /** @description Cycles off, or not started */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5972,6 +10798,29 @@ export interface operations {
             };
         };
     };
+    cycle_report: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The cycle */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cycle report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CycleReport"];
+                };
+            };
+        };
+    };
     start_cycle: {
         parameters: {
             query?: never;
@@ -6035,6 +10884,189 @@ export interface operations {
             };
             /** @description The end date is before the start date */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_dashboards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dashboards, by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"][];
+                };
+            };
+        };
+    };
+    create_dashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            /** @description Invalid layout */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_dashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The dashboard */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The dashboard */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            /** @description No such dashboard you can see */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    replace_dashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The dashboard */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            /** @description No such dashboard of yours */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_dashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The dashboard */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such dashboard of yours */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    export_csv: {
+        parameters: {
+            query: {
+                /** @description The AQL query whose results are exported. */
+                aql: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A CSV file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description The query does not parse */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6367,6 +11399,71 @@ export interface operations {
             };
         };
     };
+    generate_text: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerateTextRequest"];
+            };
+        };
+        responses: {
+            /** @description The text, and for a query whether it parses */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GeneratedText"];
+                };
+            };
+            /** @description No usable Gemini key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_image: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The image */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description No such image */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     update_hierarchy_level: {
         parameters: {
             query?: never;
@@ -6421,6 +11518,216 @@ export interface operations {
             };
             /** @description The name is invalid */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_milestone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The milestone */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such milestone */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_milestone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The milestone */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MilestoneRequest"];
+            };
+        };
+        responses: {
+            /** @description Edited */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Milestone"];
+                };
+            };
+            /** @description No such milestone */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    inbox: {
+        parameters: {
+            query?: {
+                /** @description Only unread ones. */
+                unread?: boolean;
+                /** @description At most this many (1–200, default 50). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bell */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inbox"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preferences, defaults filled in */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferences"];
+                };
+            };
+        };
+    };
+    put_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preferences"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferences"];
+                };
+            };
+            /** @description Email chosen with no SMTP configured */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    read_all: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description All read */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read_one: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The notification */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such notification of yours */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6614,6 +11921,57 @@ export interface operations {
             };
         };
     };
+    import_bundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportBundleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDto"];
+                };
+            };
+            /** @description Viewers cannot create projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The key is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a valid bundle */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     get_project: {
         parameters: {
             query?: never;
@@ -6766,6 +12124,65 @@ export interface operations {
             };
         };
     };
+    get_agent_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings, defaults filled in */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSettings"];
+                };
+            };
+        };
+    };
+    put_agent_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSettings"];
+                };
+            };
+            /** @description Invalid, or a risky choice without acknowledgeRisk */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     archive_project: {
         parameters: {
             query?: never;
@@ -6812,6 +12229,137 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    dry_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DryRunRequest"];
+            };
+        };
+        responses: {
+            /** @description What would happen, with every smart value resolved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunResult"];
+                };
+            };
+            /** @description An invalid rule */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_rules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rules, by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rule"][];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rule"];
+                };
+            };
+            /** @description An invalid rule */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_project_avatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UseImageRequest"];
+            };
+        };
+        responses: {
+            /** @description The avatar URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
                 };
             };
         };
@@ -6991,6 +12539,83 @@ export interface operations {
                 };
             };
             /** @description The name or swimlane is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_templates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Templates, by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardTemplate"][];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardTemplate"];
+                };
+            };
+            /** @description The name is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description An invalid template */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7243,6 +12868,110 @@ export interface operations {
             };
         };
     };
+    list_components: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Components, by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Component"][];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_component: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateComponentRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Component"];
+                };
+            };
+            /** @description The name is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid name or lead */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_project_cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UseImageRequest"];
+            };
+        };
+        responses: {
+            /** @description The cover URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
     list_cycles: {
         parameters: {
             query?: never;
@@ -7343,6 +13072,231 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    duplicate_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project to copy */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DuplicateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDto"];
+                };
+            };
+            /** @description Viewers cannot create projects */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The key is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    export_bundle: {
+        parameters: {
+            query?: {
+                /** @description `false` exports configuration only — a template. Default `true`. */
+                includeCards?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bundle */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bundle"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_layout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The layout, in display order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutEntry"][];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    replace_layout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description The new layout */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutEntry"][];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description An unknown field, type, or invalid default */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    generate_images: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerateImagesRequest"];
+            };
+        };
+        responses: {
+            /** @description The generation and its images (blocked/failed ones are recorded too) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Generation"];
+                };
+            };
+            /** @description No usable Gemini key, or Gemini refused for quota/billing */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A bad option, or the safety filter blocked it */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_generations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Generations, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Generation"][];
                 };
             };
         };
@@ -7450,6 +13404,78 @@ export interface operations {
                 };
             };
             /** @description The name is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    import_csv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CsvRequest"];
+            };
+        };
+        responses: {
+            /** @description Imported; the new keys, in file order */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Imported"];
+                };
+            };
+            /** @description The plan had problems; nothing was saved */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+        };
+    };
+    preview_csv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CsvRequest"];
+            };
+        };
+        responses: {
+            /** @description The plan; nothing is saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            /** @description Not CSV, too big, or no Summary column */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7697,6 +13723,83 @@ export interface operations {
             };
         };
     };
+    list_milestones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Planned (by date), released, archived */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Milestone"][];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_milestone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MilestoneRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Milestone"];
+                };
+            };
+            /** @description The name is taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid name or dates */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     list_priorities: {
         parameters: {
             query?: never;
@@ -7917,6 +14020,151 @@ export interface operations {
             };
             /** @description No repo was linked, or no such project */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    average_age: {
+        parameters: {
+            query?: {
+                /** @description How many days back (default 30, at most 730). */
+                days?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Average age in days */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyChart"];
+                };
+            };
+        };
+    };
+    control_chart: {
+        parameters: {
+            query?: {
+                /** @description How many days back (default 30, at most 730). */
+                days?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cycle times with a rolling average */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlChart"];
+                };
+            };
+        };
+    };
+    created_vs_resolved: {
+        parameters: {
+            query?: {
+                /** @description How many days back (default 30, at most 730). */
+                days?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily created/resolved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyChart"];
+                };
+            };
+        };
+    };
+    cumulative_flow: {
+        parameters: {
+            query?: {
+                /** @description How many days back (default 30, at most 730). */
+                days?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily counts per status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyChart"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    velocity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Committed vs completed per cycle */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Velocity"];
+                };
+            };
+            /** @description Cycles are off for this project */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8315,6 +14563,38 @@ export interface operations {
             };
         };
     };
+    list_trash: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The project key */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted cards */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardDto"][];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     list_workflows: {
         parameters: {
             query?: never;
@@ -8418,6 +14698,104 @@ export interface operations {
                 };
             };
             /** @description The name or a status is invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    agent_costs: {
+        parameters: {
+            query?: {
+                /** @description How many days back (default 30, at most 730). */
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Spend by provider, project, card and day */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCosts"];
+                };
+            };
+        };
+    };
+    aggregate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AggregateRequest"];
+            };
+        };
+        responses: {
+            /** @description Buckets, largest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Aggregate"];
+                };
+            };
+            /** @description Bad AQL */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a groupable field */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    two_dimensional: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TwoDimensionalRequest"];
+            };
+        };
+        responses: {
+            /** @description A count matrix */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoDimensional"];
+                };
+            };
+            /** @description Not a groupable field */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -9143,6 +15521,38 @@ export interface operations {
             };
         };
     };
+    get_avatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description No avatar */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     deactivate_user: {
         parameters: {
             query?: never;
@@ -9467,6 +15877,126 @@ export interface operations {
             };
         };
     };
+    delete_worklog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The worklog */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not yours */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such worklog */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    edit_worklog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The worklog */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditWorklogRequest"];
+            };
+        };
+        responses: {
+            /** @description Edited */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Worklog"];
+                };
+            };
+            /** @description Not yours */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such worklog */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    live: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching to the WebSocket protocol */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description A foreign Origin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     healthz: {
         parameters: {
             query?: never;
@@ -9487,6 +16017,41 @@ export interface operations {
             };
             /** @description The database could not be reached */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    receive_hook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The rule's webhook token */
+                token: string;
+            };
+            cookie?: never;
+        };
+        /** @description Any JSON; available as {{webhook.body}} */
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Accepted and run */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No rule has this token */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

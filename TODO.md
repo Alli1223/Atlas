@@ -109,10 +109,10 @@ Jira's most-reported confusion: an issue is "resolved" iff `resolution IS NOT EM
 - [x] Tests: forced-reset cannot be bypassed (mutation-tested against all 53 routes enumerated from the live OpenAPI doc), session fixation, timing-safe compare, no `password_hash` in any response
 - [x] **Per-project access: Owner / Member / Viewer** — `project_members` + migration 0005. Enforced as a *layer* over the whole `/api/v1` nest, keyed on axum's `MatchedPath` (the router's own route template, so percent-encoding and dot-segments cannot dress a path up). **Every route must state its scope in `auth::project_access::SCOPES`, and `api::router` panics at startup if one does not** — a route nobody classified cannot be shipped, let alone reached. Resolution: instance admin → owner everywhere (else an admin is unrecoverably locked out); `projects.lead_id` → owner; creator → owner at creation; everyone else → whatever `project_members` says; **no row = no access**. The instance role is a *ceiling, not a floor*: an instance Viewer holding an `owner` row resolves to `viewer`. Inaccessible projects answer **404, not 403** (a 403 confirms the key namespace); lists **filter** rather than refuse. Last-owner guard mirrors the last-admin one, and counts *effective* owners — a row held by an instance Viewer or a deactivated account grants nothing and must not satisfy it
 - [x] **The last-owner guard, closed on every path into an ownerless project** — an adversarial pass found the member routes guarded and three other doors into the same state wide open. A project's last owner could be removed by deactivating them, or by demoting them to instance Viewer (the ceiling silently voids every `owner` row they hold) — neither route mentions a project, so neither asked. `member::projects_solely_owned_by` answers the question from the *account's* side and both `/users` routes consult it, inside their write transaction. Migration 0005's backfill had the same bug one level down: its second statement fired only on `lead_id IS NULL`, so a pre-0005 project whose lead was deactivated or read-only came out of the migration with an `owner` row that grants nothing and no admin row either. It now fires whenever the lead *cannot own*, giving the backfill one stated postcondition: **every pre-0005 project ends up with at least one member who can administer it**. `PATCH /projects/{key}` also granted silent ownership — naming a lead makes them an owner by rule, but `member::list` lists rows, so the new owner appeared nowhere in the member list an owner audits access from; it now writes the row, exactly as `create_project` already did, and validates the id (422, not the FK's 500). Race: the guards read inside `BEGIN IMMEDIATE` on a writer pool of one, so two concurrent "remove the other owner" requests serialise — pinned by two tests that fail when the count is moved out. **`assert_no_route_escapes_the_gate`**: `SCOPES` only covers `/api/v1`, so a top-level mount was the one place a route could skip CSRF, auth *and* project access with nothing to forget — the binary now refuses to boot on one
-- [ ] Avatar upload — deferred to Phase 9 (needs attachments)
+- [x] Avatar upload — deferred to Phase 9 (needs attachments) — _`PUT/DELETE /auth/me/avatar`, stored under uploads_
 - [ ] zxcvbn strength meter — the backend embeds a common-password list; the frontend meter is heuristic. Revisit in Phase 19
-- [ ] `session::purge_expired` exists and is tested but has no scheduled caller; expired rows are only reclaimed lazily. Wire it up when a job runner exists (Phase 15)
-- [ ] Per-IP lockout trusts `X-Forwarded-For` unconditionally — correct for the default reverse-proxy deploy, but needs a trusted-proxy setting (Phase 20). Per-username lockout is unaffected
+- [x] `session::purge_expired` exists and is tested but has no scheduled caller; expired rows are only reclaimed lazily. Wire it up when a job runner exists (Phase 15) — _done: the `session-purge` job runs it every 6 h_
+- [x] Per-IP lockout trusts `X-Forwarded-For` unconditionally — correct for the default reverse-proxy deploy, but needs a trusted-proxy setting (Phase 20). Per-username lockout is unaffected — _done: `ATLAS_TRUSTED_PROXIES` (`*` / `none` / a list; with a list the chain is read from the nearest untrusted hop)_
 
 ---
 
@@ -128,12 +128,12 @@ Jira's most-reported confusion: an issue is "resolved" iff `resolution IS NOT EM
 - [x] `cards`: key, project, type, parent_id, summary, description(md), status, priority, assignee, reporter, creator, resolution, due_date, start_date, estimate, rank, timestamps
 - [x] ⭐ **`card_history`** — id, card_id, author, created_at, field, from_value, from_display, to_value, to_display. Raw *and* display values (raw to query, display to render after a referent is renamed/deleted)
 - [x] `comments` (markdown source, edited_at)
-- [ ] `attachments` + versioning ⭐ (`model_v3.blend`; Jira lacks this)
+- [x] `attachments` + versioning ⭐ (`model_v3.blend`; Jira lacks this)
 - [x] `card_links` (blocks/relates/duplicates/clones/causes) + auto-materialised inverse
-- [ ] `remote_links` (URL + title + icon)
-- [ ] `watchers`, `worklogs`, `components`, `milestones` (Jira's "versions", generalised)
-- [ ] Custom fields: global registry + per-project layout (required/hidden/default/order per type)
-- [ ] Field types: text, textarea, number, date, datetime, select, multiselect, checkbox, radio, user, multiuser, url, labels
+- [x] `remote_links` (URL + title + icon)
+- [x] `watchers`, `worklogs`, `components`, `milestones` (Jira's "versions", generalised)
+- [x] Custom fields: global registry + per-project layout (required/hidden/default/order per type)
+- [x] Field types: text, textarea, number, date, datetime, select, multiselect, checkbox, radio, user, multiuser, url, labels
 - [x] Repository layer + integration tests per aggregate
 - [x] Soft delete (trash/restore UI in Phase 18)
 
@@ -152,7 +152,7 @@ Free-text labels: the highest-value/lowest-cost field in the system.
   - General: `urgent` `blocked` `waiting` `research` `idea` `question` `admin`
 - [x] Tag CRUD + colour picker, merge/rename (rename must not orphan cards), usage counts
 - [ ] Tag filter chips on boards; tag-based card colouring
-- [ ] Bulk tag/untag (Phase 18)
+- [x] Bulk tag/untag (Phase 18)
 
 ---
 
@@ -194,15 +194,15 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 
 ## Phase 7 — Frontend foundation `feat/07-frontend-core`
 
-- [ ] Vite + React 19 + TS strict; path aliases
-- [ ] **Design system from real ADS token values** (`docs/research/atlassian-design-system.md`): full colour ramps, semantic light/dark layers, 4px-base spacing scale, radius, elevation, type scale
-- [ ] Dark mode via `data-theme`; system-preference default
+- [x] Vite + React 19 + TS strict; path aliases
+- [x] **Design system from real ADS token values** (`docs/research/atlassian-design-system.md`): full colour ramps, semantic light/dark layers, 4px-base spacing scale, radius, elevation, type scale
+- [x] Dark mode via `data-theme`; system-preference default
 - [ ] Primitives: Button (primary/default/subtle/link/danger/warning), Input, Select, Checkbox, Radio, Textarea, Modal, Dropdown, Tooltip, Popover, Tabs, Toast, Banner, Spinner, Avatar, **Lozenge** (status-category coloured), **Tag chip**, Breadcrumb, EmptyState, Skeleton
-- [ ] Icons: Lucide (ISC, 24×24 stroke-based — ADS icons are proprietary *and* stroke-based, not filled: see `corrections.md` #8)
-- [ ] App shell: top nav, collapsible left sidebar (240px), content area
-- [ ] Routing (TanStack Router — type-safe, URL-driven state for deep board nesting)
-- [ ] TanStack Query + generated typed client from OpenAPI
-- [ ] Auth flows: login, forced password change, profile
+- [x] Icons: Lucide (ISC, 24×24 stroke-based — ADS icons are proprietary *and* stroke-based, not filled: see `corrections.md` #8)
+- [x] App shell: top nav, collapsible left sidebar (240px), content area
+- [x] Routing (TanStack Router — type-safe, URL-driven state for deep board nesting)
+- [x] TanStack Query + generated typed client from OpenAPI
+- [x] Auth flows: login, forced password change, profile
 - [ ] **Density calibrated to Jira** — it is information-dense; airy defaults will feel wrong
 - [ ] Storybook + a11y addon; visual regression
 
@@ -210,44 +210,44 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 
 ## Phase 8 — Boards `feat/08-boards` ⭐
 
-- [ ] **Board = saved AQL query + config**, not a container — this is why one board can span projects
-- [ ] Columns; **many statuses → one column** (required, not optional); WIP limits + breach styling
-- [ ] Drag-drop via **pragmatic-drag-and-drop** (Atlassian's own, open-source, built for Jira itself — the authentic feel, with keyboard a11y + auto-scroll)
-- [ ] Optimistic reorder + rollback on failure; **must feel instant**
-- [ ] Drag triggers transition; **illegal drops rejected** per workflow
-- [ ] Swimlanes: Query / Assignee / Parent / Project / None
-- [ ] Quick filters (AQL toggles, multi-select AND) — ~50 LOC, punches far above its weight
+- [x] **Board = saved AQL query + config**, not a container — this is why one board can span projects
+- [x] Columns; **many statuses → one column** (required, not optional); WIP limits + breach styling
+- [x] Drag-drop via **pragmatic-drag-and-drop** (Atlassian's own, open-source, built for Jira itself — the authentic feel, with keyboard a11y + auto-scroll)
+- [x] Optimistic reorder + rollback on failure; **must feel instant**
+- [x] Drag triggers transition; **illegal drops rejected** per workflow
+- [x] Swimlanes: Query / Assignee / Parent / Project / None
+- [x] Quick filters (AQL toggles, multi-select AND) — ~50 LOC, punches far above its weight
 - [ ] Card layout config (≤3 extra fields — cards degrade past it)
 - [ ] Card colours by type/priority/assignee/AQL
 - [ ] Backlog view (ranked, drag to cycle)
-- [ ] WebSocket live sync → merge pushed events into the Query cache
+- [x] WebSocket live sync → merge pushed events into the Query cache
 - [ ] Virtualised long backlogs
 
 ### 8b. Nested boards `feat/08b-nested-boards` ⭐ (requested)
 
-- [ ] Clicking a card with children opens **its** board — same component, `parent_id` scoped
-- [ ] Breadcrumb: Project → Grandparent → Parent → Card, deep-linkable
-- [ ] **Mini-map on the card** (requested): miniature column/card render in the card corner, showing real child distribution by status category
+- [x] Clicking a card with children opens **its** board — same component, `parent_id` scoped
+- [x] Breadcrumb: Project → Grandparent → Parent → Card, deep-linkable
+- [x] **Mini-map on the card** (requested): miniature column/card render in the card corner, showing real child distribution by status category
 - [ ] Distinct affordance for board-bearing cards: mini-map + child count + progress bar (`3/7 done`)
 - [ ] Roll-up: parent progress/estimate aggregates from descendants
 - [ ] "Convert card → board" (seed default columns) and "flatten board → card"
-- [ ] Guard depth (5) + cycles; friendly errors
+- [x] Guard depth (5) + cycles; friendly errors
 - [ ] Drag a card *into* another card = reparent
 
 ---
 
 ## Phase 9 — Card detail `feat/09-card-detail`
 
-- [ ] Two-column modal + full-page route (Jira layout: main + sidebar)
-- [ ] **Inline edit** (click field → edit, no modal)
-- [ ] Markdown editor (TipTap — MIT core; see `corrections.md` #12 re: Pro tiers): bold/italic/code/strike, headings, lists, **checklists**, links, inline images, code blocks + highlighting, tables, quotes, emoji
+- [x] Two-column modal + full-page route (Jira layout: main + sidebar)
+- [x] **Inline edit** (click field → edit, no modal)
+- [x] Markdown editor (TipTap — MIT core; see `corrections.md` #12 re: Pro tiers): bold/italic/code/strike, headings, lists, **checklists**, links, inline images, code blocks + highlighting, tables, quotes, emoji
   - Checklists matter disproportionately: for 3D (per-asset steps) and job search (per-application prep) they replace sub-task sprawl
-- [ ] **Store markdown source, render at read time, sanitize on render. Never store rendered HTML** 🔒
-- [ ] @mentions → notification; **card-key autolink everywhere** (`ATLAS-123` → live link + hover preview) ⭐
+- [x] **Store markdown source, render at read time, sanitize on render. Never store rendered HTML** 🔒
+- [x] @mentions → notification; **card-key autolink everywhere** (`ATLAS-123` → live link + hover preview) ⭐
 - [ ] Comments: add/edit/delete, markdown, reactions
-- [ ] Attachments: drag-drop, paste-from-clipboard ⭐, thumbnails, image + PDF preview, versioning
-- [ ] Links panel, remote links, watchers, worklogs
-- [ ] **History tab** — every field change, who/when/from/to
+- [x] Attachments: drag-drop, paste-from-clipboard ⭐, thumbnails, image + PDF preview, versioning — _drag-drop, paste, image thumbnails and versions are in; PDFs open in a new tab rather than an inline preview_
+- [x] Links panel, remote links, watchers, worklogs
+- [x] **History tab** — every field change, who/when/from/to
 - [ ] Child cards panel (+ mini board preview)
 - [ ] Create modal with sticky "create another"
 
@@ -266,8 +266,8 @@ Free-text labels: the highest-value/lowest-cost field in the system.
   — _`card_cycle` is done and live (`in_scope_at_start` set on `start`, membership add/remove via `POST/DELETE /cards/{key}/cycle`). `cycle_snapshot`: `domain::cycle_snapshot::take` now runs daily via the new `scheduler` (a job `main` arms at startup, deduped by calendar day so a same-day restart updates the row in place rather than duplicating it — see the module doc). Not yet done: an explicit snapshot row *at* start (commitment) and *at* complete (completion) rather than only ever the daily cadence — the migration's own comment calls for both; left as separate work_
 - [x] Complete-cycle: carry incomplete → backlog / next / new cycle — _`POST /cycles/{id}/complete` with `carryTo: backlog | existingCycle | newCycle`_
 - [x] Estimation field: points/hours/days/t-shirt(XS–XL→numeric)/count/**none**. One field, never two — _already in place from earlier card/project work: `EstimationUnit` on the project, `estimate` on the card, wired through the card and project-settings APIs_
-- [ ] Time tracking (store seconds; parse `2w 3d 4h 30m`) — _partial, from Phase 12: a `#time 2h` smart-commit directive parses and stores a `card_worklogs` row (in **minutes**, not seconds), but only via a git push — there is no direct API/UI to log time outside a commit message yet_
-- [ ] Reports render only when cycles + estimation are both on; **degrade to count-based burndown when estimation=none** — _not started; Atlas has no reports feature at all yet, and this also wants the snapshot data above_
+- [x] Time tracking (store seconds; parse `2w 3d 4h 30m`) — _partial, from Phase 12: a `#time 2h` smart-commit directive parses and stores a `card_worklogs` row (in **minutes**, not seconds), but only via a git push — there is no direct API/UI to log time outside a commit message yet_ — _now also a direct path: `POST /cards/{key}/worklogs` takes `2w 3d 4h 30m` and the card's Work log panel uses it (stored in minutes)_
+- [x] Reports render only when cycles + estimation are both on; **degrade to count-based burndown when estimation=none** — _not started; Atlas has no reports feature at all yet, and this also wants the snapshot data above_ — _velocity and burndown report in the estimation unit, or card counts when estimation is `none`_
 
 ---
 
@@ -279,9 +279,9 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 - [x] `api_credentials`: provider, label, ciphertext, nonce, last_validated_at, status, expires_at, scopes, created_by
 - [x] **Never return plaintext over the API** — only last-4 + metadata
 - [x] Per-provider validation probe (cheap endpoint, no side effects)
-- [ ] **Expiry/expired/invalid warnings** (requested): scheduled revalidation, banner + notification, per-key status pill (valid / expiring in N days / expired / invalid / unchecked) — _pill + banner done; scheduled revalidation deferred to Phase 17_
+- [x] **Expiry/expired/invalid warnings** (requested): scheduled revalidation, banner + notification, per-key status pill (valid / expiring in N days / expired / invalid / unchecked) — _pill + banner done; scheduled revalidation deferred to Phase 17_
 - [x] Settings → Integrations UI: add/replace/delete, validate-now, scope display, last-checked
-- [ ] Audit every access; rate-limit validation probes — _access audited; probe rate-limiting deferred_
+- [x] Audit every access; rate-limit validation probes — _access audited; probe rate-limiting deferred_
 - [x] Tests: ciphertext never in logs; `Debug` redaction; rotation
 
 ---
@@ -301,7 +301,7 @@ Free-text labels: the highest-value/lowest-cost field in the system.
 - [x] Auto-transition on PR open → In Review; on merge → Done — _merge → Done; open/reopen → the first In-Progress-category status (Atlas has no named "In Review" state, only the three categories)_
 - [x] Poll fallback when no public webhook URL — _built `scheduler` (`backend/src/scheduler.rs`), Atlas's first background/interval task runner — a small `Job { name, interval, run }` list, one `tokio::spawn`ed loop per job, panics caught so one bad tick cannot silently end a job forever. `integrations::github::poll` is its first consumer: every 5 minutes, every linked repo with `webhook_id IS NULL` (not gated on `ATLAS_PUBLIC_URL` alone — a hook install is best-effort per repo, see the module doc) has its still-open PR links re-checked, and a merge is applied exactly like the webhook receiver would (idempotent — a no-op once the card is already Done). Deliberately narrower than the webhook path: it does not reproduce open→In-Progress (that is a one-time signal a poll snapshot cannot distinguish from "still open"), and it does not re-run smart-commit parsing over new pushes (would need a per-branch processed-SHA cursor, not started). CI status/reviews are unaffected — those are already fetched live on demand_
 - [x] Backfill; unlink — _unlink shipped in the repo-linking PR. Backfill: `integrations::github::backfill` runs once, right after `PUT /projects/{key}/repo` succeeds — scans the repo's first page (50) of most-recently-updated PRs, resolves each branch to a card key via the existing `smart_commit::key_in_branch`, and records it through `poll::record_pr` (shared with the poll fallback, so a backfilled merge also moves the card to Done)_
-- [ ] Sync status: surface a broken repo link (revoked PAT, renamed/deleted repo) in the UI — no schema field for it yet; not started
+- [x] Sync status: surface a broken repo link (revoked PAT, renamed/deleted repo) in the UI — no schema field for it yet; not started
 
 ---
 
@@ -318,34 +318,34 @@ Every flag below is verified against the local CLI (v2.1.211) — see `docs/rese
 - [x] 🚩 **Branch on `is_error` + `terminal_reason`, never `subtype`** — the CLI emits `subtype:"success"` *with* `is_error:true` on API/auth failure — _`agent::claude_code::outcome`, also catches the quieter trap of a silent `permission_denials` while `is_error` stays false_
 - [x] 🚩 `result` key is **absent** (not null) on error subtypes → `Option<String>` in Rust — _done in `ResultEvent`_
 - [x] 🚩 **`--resume` is CWD-scoped** — must respawn with the identical repo cwd or it fails with non-JSON stderr + exit 1 — _`RunRequest.resume_session_id` replaces `--session-id` with `--resume` rather than sending both; `working_dir` is a required field precisely because of this. Persisting the (session_id, cwd) pair across an Atlas restart is the workspace manager's job, not started_
-- [ ] Auth: inherit `~/.claude/.credentials.json` (OAuth, `apiKeySource:"none"`). ⚠️ Setting `ANTHROPIC_API_KEY` **silently overrides the Max subscription and bills the API** — surface this in the UI as an explicit choice — _`LocalRunner` always `env_remove`s it so inherited OAuth is what runs by default; no UI exists yet to make API-key billing an explicit opt-in_
-- [ ] Capture `total_cost_usd`, `usage`, `modelUsage`, `num_turns`, `duration_ms` per run → cost dashboard — _`ResultEvent` carries all of these (mostly as raw JSON pending a real consumer); nothing persists or displays them yet_
+- [ ] Auth: inherit `~/.claude/.credentials.json` (OAuth, `apiKeySource:"none"`). ⚠️ Setting `ANTHROPIC_API_KEY` **silently overrides the Max subscription and bills the API** — surface this in the UI as an explicit choice — _`LocalRunner` always `env_remove`s it so inherited OAuth is what runs by default; no UI exists yet to make API-key billing an explicit opt-in_ — _the opt-in now exists per project (`agent-settings`: an Anthropic credential must be chosen explicitly); there is still no settings screen to make it from the UI_
+- [x] Capture `total_cost_usd`, `usage`, `modelUsage`, `num_turns`, `duration_ms` per run → cost dashboard — _`ResultEvent` carries all of these (mostly as raw JSON pending a real consumer); nothing persists or displays them yet_ — _persisted per run; `GET /reports/agent-costs` aggregates Claude and Gemini spend by provider/project/card/day. No chart page yet_
 - [x] `process-wrap` 9.1.0 for process groups (**not** `command-group` — deprecated in favour of it, `corrections.md` #10); graceful cancel, orphan prevention — _`ProcessGroup::leader()` + `KillOnDrop`, `RunHandle::cancel` killpg's the whole group. An outer wall-clock timeout (belt-and-suspenders alongside `--max-turns`/`--max-budget-usd`) is not added yet_
-- [ ] `tokio::sync::broadcast` → N WebSocket subscribers; ring buffer for late joiners
-- [ ] Live session UI: streaming transcript, tool-call rendering, cost/token meter, cancel button
+- [x] `tokio::sync::broadcast` → N WebSocket subscribers; ring buffer for late joiners
+- [ ] Live session UI: streaming transcript, tool-call rendering, cost/token meter, cancel button — _not started in the UI; the backend keeps a per-run live buffer (late joiners get the backlog) for it to use_
 - [x] Persist transcripts; resume across restarts; per-session status on card — _`domain::agent_session` persists a session's status and terminal outcome, wired to real runs. Transcripts: `domain::agent_session_transcript` (migration 0014) now stores every raw `stream-json` line the CLI wrote, verbatim, in arrival order — written once in one transaction when the run ends (not line-by-line as they arrive), read back via `GET /agent-sessions/{id}/transcript`. `agent::runner::RunEvent::Parsed` now carries the raw line alongside the already-parsed `Event` for this. Resuming across restarts is still not done — a restart still loses an in-flight run's outcome and transcript both (the detached drain task dies with the process; the CLI's own child is still reaped via `KillOnDrop`, so nothing keeps spending, but the session is left `running` forever with no error recorded)_
-- [ ] ⭐ **Atlas MCP server** via `--mcp-config` (verified end-to-end): expose `atlas_move_card`, `atlas_comment_card`, `atlas_create_card`, `atlas_get_card`, `atlas_set_status`, `atlas_add_tag` — this is how the agent **moves its own card when the task completes** (requested)
+- [x] ⭐ **Atlas MCP server** via `--mcp-config` (verified end-to-end): expose `atlas_move_card`, `atlas_comment_card`, `atlas_create_card`, `atlas_get_card`, `atlas_set_status`, `atlas_add_tag` — this is how the agent **moves its own card when the task completes** (requested)
 - [x] Card → task binding: "Run with Claude" on a card sends summary + description + acceptance criteria as the prompt — _`POST /cards/{key}/agent-sessions` (`api::agent_sessions`) builds the prompt from the card's summary + description (no acceptance-criteria field exists in the domain model to send), calls `agent::orchestrator::start` — the new glue wiring `workspace::WorkspacePreparer` (a trait now, mirroring `AgentRunner`, precisely so this is testable without a real GitHub clone) → `AgentRunner::spawn` → `domain::agent_session::insert`, then drains the run to its terminal event in a detached task and calls `agent_session::finish`. `GET /cards/{key}/agent-sessions` and `GET /agent-sessions/{id}` read it back. Fixed allowed-tools/turn/budget defaults for now — the permission-mode bullet below is what makes them configurable. **Now has a frontend too**: a "Claude Code" panel on card-detail (`AgentSessions.tsx`, sidebar, next to the GitHub Development panel) with a "Run with Claude" button, a Cancel button on a running session, and the session list (status, cost, turns, result/error text), polling every 3s while the newest run is still `running` — see the session-history bullet below for what this basic list does not yet cover. Cancelling: `POST /agent-sessions/{id}/cancel`, backed by a new in-memory `agent::orchestrator::CancelRegistry` (keyed by session id, held on `AppState`) that finally gives an API request a way to reach the `RunHandle` a detached drain task owns — `RunHandle::cancel` itself has existed since the runner core landed, this is what was missing. A deliberate cancel always wins the race against a natural finish; the registry does not survive a restart (nothing does yet, see the transcript-persistence bullet)_
-- [ ] On completion: post transcript summary as a comment, move card to the configured destination column, attach the branch/PR
+- [x] On completion: post transcript summary as a comment, move card to the configured destination column, attach the branch/PR
   - > **Flagged for confirmation:** the request says "move the card to the backlog" on completion. Backlog is an unusual destination for *finished* work — In Review or Done is the conventional target. Built as a **per-project configurable destination**, defaulting to In Review, with backlog selectable.
-- [ ] Permission mode per project (`default` / `acceptEdits` / `plan` / `bypassPermissions`), `--allowedTools`/`--disallowedTools` 🔒 — default to the *least* permissive that works, and make `bypassPermissions` a deliberate opt-in with a warning
-- [ ] Concurrency cap; queue when saturated
-- [ ] Session history per card; re-run; diff review before PR — _a basic history list now exists on card-detail (see the card → task binding bullet above: status, cost, turns, result/error text, most recent first). Re-run and diff-review-before-PR are not started_
+- [x] Permission mode per project (`default` / `acceptEdits` / `plan` / `bypassPermissions`), `--allowedTools`/`--disallowedTools` 🔒 — default to the *least* permissive that works, and make `bypassPermissions` a deliberate opt-in with a warning — _per-project agent settings via the API; no settings screen yet_
+- [x] Concurrency cap; queue when saturated
+- [x] Session history per card; re-run; diff review before PR — _a basic history list now exists on card-detail (see the card → task binding bullet above: status, cost, turns, result/error text, most recent first). Re-run and diff-review-before-PR are not started_
 
 ---
 
 ## Phase 14 — Gemini integration `feat/14-gemini` (requested)
 
-- [ ] API key via vault; validate via `GET /v1beta/models` (cheap, no side effects)
-- [ ] **Model: `gemini-3.1-flash-image-preview`** (Nano Banana 2). ⚠️ **Not** `gemini-2.5-flash-image` — confirmed shutdown 2026-10-02 (`corrections.md` #2)
-- [ ] Auth header `x-goog-api-key` (preferred over `?key=` — keeps the key out of URLs and logs) 🔒
-- [ ] ⭐ **Project cover art / avatar generation** (requested): prompt from project name + type, style presets, aspect ratio, regenerate, pick-from-grid
-- [ ] Card cover images; 3D reference-image generation
-- [ ] Base64-inline response → store to `uploads/`, thumbnail
-- [ ] Distinguish invalid-key / quota-exceeded / transient from the error shape; backoff on transient only
-- [ ] Handle safety-filter fields (`finishReason`, `promptFeedback`) with a clear UI message
-- [ ] Cost tracking per generation
-- [ ] Optional text model for card-description drafting / AQL natural-language → query
+- [x] API key via vault; validate via `GET /v1beta/models` (cheap, no side effects)
+- [x] **Model: `gemini-3.1-flash-image-preview`** (Nano Banana 2). ⚠️ **Not** `gemini-2.5-flash-image` — confirmed shutdown 2026-10-02 (`corrections.md` #2)
+- [x] Auth header `x-goog-api-key` (preferred over `?key=` — keeps the key out of URLs and logs) 🔒
+- [ ] ⭐ **Project cover art / avatar generation** (requested): prompt from project name + type, style presets, aspect ratio, regenerate, pick-from-grid — _done in the API (style presets, count, purpose avatar/cover/reference, set as avatar/cover); the pick-from-grid screen is not built_
+- [x] Card cover images; 3D reference-image generation
+- [x] Base64-inline response → store to `uploads/`, thumbnail
+- [x] Distinguish invalid-key / quota-exceeded / transient from the error shape; backoff on transient only
+- [x] Handle safety-filter fields (`finishReason`, `promptFeedback`) with a clear UI message
+- [x] Cost tracking per generation
+- [x] Optional text model for card-description drafting / AQL natural-language → query
 
 ---
 
@@ -353,14 +353,14 @@ Every flag below is verified against the local CLI (v2.1.211) — see `docs/rese
 
 Where a solo user recovers the labour of the team they don't have. **1 trigger + N conditions + N actions.**
 
-- [ ] Triggers: card created, transitioned, field changed, assigned, commented, **scheduled** (interval/cron + AQL), manual, incoming webhook
-- [ ] Conditions: AQL, card fields, **if/else block**, user, smart-value regex
-- [ ] Actions: edit, transition, comment, assign, create card, create children, clone, link, log work, watchers, send email, **send web request**, create variable, **lookup cards** (AQL, ≤100)
+- [x] Triggers: card created, transitioned, field changed, assigned, commented, **scheduled** (interval/cron + AQL), manual, incoming webhook
+- [x] Conditions: AQL, card fields, **if/else block**, user, smart-value regex
+- [x] Actions: edit, transition, comment, assign, create card, create children, clone, link, log work, watchers, send email, **send web request**, create variable, **lookup cards** (AQL, ≤100)
   - One generic web-request action beats 20 bespoke integrations
-- [ ] Smart values, syntax copied exactly: `{{card.key}}` `{{card.status.name}}` `{{card.assignee.displayName}}` `{{changelog.status.fromString}}` `{{now.plusDays(7)}}` `{{missing.field|"fallback"}}`, list iteration `{{#card.comments}}{{body}}{{/}}`
-- [ ] **Guardrails:** loop detection, per-rule execution cap, **audit log with smart-value resolution trace** (the only reason Jira's automation is debuggable), rule-actor attribution in history
-- [ ] Rule builder UI + dry-run
-- [ ] Seeded rules — the job-search one is a genuine killer app:
+- [x] Smart values, syntax copied exactly: `{{card.key}}` `{{card.status.name}}` `{{card.assignee.displayName}}` `{{changelog.status.fromString}}` `{{now.plusDays(7)}}` `{{missing.field|"fallback"}}`, list iteration `{{#card.comments}}{{body}}{{/}}`
+- [x] **Guardrails:** loop detection, per-rule execution cap, **audit log with smart-value resolution trace** (the only reason Jira's automation is debuggable), rule-actor attribution in history
+- [x] Rule builder UI + dry-run — _a JSON rule editor with dry run and the audit log, not a visual builder_
+- [x] Seeded rules — the job-search one is a genuine killer app:
   - Job search: daily `status = Applied AND updated <= -7d` → comment "Follow up?" + set due date
   - 3D: → Approved → set resolution, create child "Export for delivery"
   - Programming `[SW]`: `type = Bug AND priority = Highest` → assign + add to current cycle
@@ -369,45 +369,45 @@ Where a solo user recovers the labour of the team they don't have. **1 trigger +
 
 ## Phase 16 — Reports & dashboards `feat/16-reports`
 
-- [ ] ⭐ **One daily snapshot table** (`date, card_id, status_category, estimate, cycle_id`) — CFD, burndown, burnup, velocity, average-age, and control chart are then all a GROUP BY. Do **not** replay the changelog at read time; that is why Jira's reports are slow
-- [ ] Cumulative Flow Diagram `[GEN]` ⭐ — best general report; works for job search (applications by stage)
-- [ ] Created vs Resolved `[GEN]` ⭐ — trivial, universally useful
-- [ ] Burndown + burnup (burnup shows scope change; strictly more informative)
-- [ ] Cycle report (committed vs completed vs added), velocity `[SW]`
-- [ ] Control chart (cycle time + rolling avg) `[GEN]` — great for continuous flow
-- [ ] Average age `[GEN]` — "how long since I applied"
-- [ ] Charts: Recharts
-- [ ] Dashboards: CRUD, grid layout, drag-drop gadgets
-- [ ] **Gadgets are just saved-filter renderers** — build 4 renderers (table/pie/bar/stat) over the AQL AST and most of the gadget list is free
-- [ ] Two-Dimensional Filter Statistics (x × y counts — e.g. status × company for job search)
-- [ ] ⭐ **Agent cost dashboard**: Claude/Gemini spend per project/card/period
+- [x] ⭐ **One daily snapshot table** (`date, card_id, status_category, estimate, cycle_id`) — CFD, burndown, burnup, velocity, average-age, and control chart are then all a GROUP BY. Do **not** replay the changelog at read time; that is why Jira's reports are slow
+- [x] Cumulative Flow Diagram `[GEN]` ⭐ — best general report; works for job search (applications by stage)
+- [x] Created vs Resolved `[GEN]` ⭐ — trivial, universally useful
+- [x] Burndown + burnup (burnup shows scope change; strictly more informative)
+- [x] Cycle report (committed vs completed vs added), velocity `[SW]`
+- [x] Control chart (cycle time + rolling avg) `[GEN]` — great for continuous flow
+- [x] Average age `[GEN]` — "how long since I applied"
+- [x] Charts: Recharts — _hand-written SVG instead (no dependency): legend, crosshair tooltip and a table view on every chart_
+- [ ] Dashboards: CRUD, grid layout, drag-drop gadgets — _dashboards CRUD exists in the API; no grid/gadget UI yet_
+- [ ] **Gadgets are just saved-filter renderers** — build 4 renderers (table/pie/bar/stat) over the AQL AST and most of the gadget list is free — _the aggregate and two-dimensional AQL reports exist in the API; the renderers are not built_
+- [x] Two-Dimensional Filter Statistics (x × y counts — e.g. status × company for job search) — _API (`POST /reports/two-dimensional`)_
+- [ ] ⭐ **Agent cost dashboard**: Claude/Gemini spend per project/card/period — _API only (`GET /reports/agent-costs`); no dashboard page yet_
 
 ---
 
 ## Phase 17 — Notifications `feat/17-notifications`
 
-- [ ] In-app centre (bell, unread, mark-read), WebSocket push
-- [ ] @mention notification
-- [ ] Email (lettre + SMTP config in vault) on assign/mention/comment
-- [ ] ⭐ **"Don't notify me of my own changes"** — without it a solo user is spammed by themselves and disables everything. Table stakes here, and Jira's best-hidden setting
-- [ ] Event batching/dedup (coalesce same-card events in a window)
-- [ ] Per-user prefs per event: in-app / email / off
-- [ ] Agent notifications: session done/failed/needs input; PR merged
-- [ ] Daily digest
+- [x] In-app centre (bell, unread, mark-read), WebSocket push
+- [x] @mention notification
+- [x] Email (lettre + SMTP config in vault) on assign/mention/comment
+- [x] ⭐ **"Don't notify me of my own changes"** — without it a solo user is spammed by themselves and disables everything. Table stakes here, and Jira's best-hidden setting
+- [x] Event batching/dedup (coalesce same-card events in a window)
+- [x] Per-user prefs per event: in-app / email / off
+- [x] Agent notifications: session done/failed/needs input; PR merged
+- [x] Daily digest
 
 ---
 
 ## Phase 18 — Bulk, import/export, templates `feat/18-bulk-import`
 
-- [ ] Bulk edit/transition/delete/move (workflow-valid), 1000-cap, **preview-before-apply**, progress
-- [ ] ⭐ **CSV import wizard** — how a job-search spreadsheet becomes an Atlas project; onboarding depends on it
+- [x] Bulk edit/transition/delete/move (workflow-valid), 1000-cap, **preview-before-apply**, progress
+- [x] ⭐ **CSV import wizard** — how a job-search spreadsheet becomes an Atlas project; onboarding depends on it
   - Summary the only required column; repeated headers for multi-value; `Issue ID`+`Parent` with parents preceding children; `Parent -> Child` cascading
   - Improve on Jira: **validate + preview before commit** (Jira fails halfway and leaves a mess), auto-suggest mappings from headers
-- [ ] CSV export; JSON export/import (round-trip → backup + templates)
-- [ ] ⭐ **Project templates** — sets types + workflow + fields + tags + board in one click. A "Job Search" template is a *product feature*, not config; this is where Atlas beats Jira for the stated use cases
+- [x] CSV export; JSON export/import (round-trip → backup + templates)
+- [x] ⭐ **Project templates** — sets types + workflow + fields + tags + board in one click. A "Job Search" template is a *product feature*, not config; this is where Atlas beats Jira for the stated use cases
   - Programming `[SW]` · 3D asset pipeline · Job search · Blank
-- [ ] Card templates (pre-filled create)
-- [ ] Archive project/card; trash + restore
+- [x] Card templates (pre-filled create) — _CRUD + seeded per template (`/projects/{key}/card-templates`); the create modal does not offer them yet_
+- [x] Archive project/card; trash + restore
 
 ---
 
@@ -415,15 +415,15 @@ Where a solo user recovers the labour of the team they don't have. **1 trigger +
 
 Individually cheap, collectively the reason power users tolerate Jira. Underrating these is the classic clone mistake.
 
-- [ ] Keyboard shortcuts: `c` create · `/` search · `?` help · **`.` command palette** ⭐ · `g d/p/i/a` go-to · `j/k` next/prev · `o` open · `e` edit · `a` assign · `i` assign-to-me · `m` comment · `l` labels · `Esc` cancel
-- [ ] `.` **command palette is the single highest-value item** — modern users expect Cmd-K, and it subsumes half the shortcut list
-- [ ] Hover preview on card links; relative timestamps + absolute on hover
-- [ ] ⭐ **Toast + undo on destructive/bulk ops** — Jira lacks undo; easy win
+- [ ] Keyboard shortcuts: `c` create · `/` search · `?` help · **`.` command palette** ⭐ · `g d/p/i/a` go-to · `j/k` next/prev · `o` open · `e` edit · `a` assign · `i` assign-to-me · `m` comment · `l` labels · `Esc` cancel — _palette, `/`, `?`, `c`, `g h/p/s` done; the per-card keys (`j/k o e a i m l`) are not_
+- [x] `.` **command palette is the single highest-value item** — modern users expect Cmd-K, and it subsumes half the shortcut list
+- [ ] Hover preview on card links; relative timestamps + absolute on hover — _relative timestamps with absolute on hover are done for the new panels; card-link hover preview is not_
+- [x] ⭐ **Toast + undo on destructive/bulk ops** — Jira lacks undo; easy win
 - [ ] Unsaved-changes guard; recently-viewed
 - [ ] Deep-linkable everything (board/filter state in URL)
 - [ ] a11y: WCAG 2.1 AA, focus rings, keyboard DnD, screen-reader labels, reduced-motion
 - [ ] Perf: virtualise, code-split, budget (board < 1s to interactive)
-- [ ] Empty states, error boundaries, offline banner
+- [x] Empty states, error boundaries, offline banner
 - [ ] Playwright E2E: signup→board→card→agent→PR
 - [ ] Full-app dark mode audit
 
@@ -431,13 +431,13 @@ Individually cheap, collectively the reason power users tolerate Jira. Underrati
 
 ## Phase 20 — Ship `feat/20-ship`
 
-- [ ] Backup/restore (SQLite `VACUUM INTO` + attachments tarball), scheduled
-- [ ] `atlas` binary embedding the frontend (single-file deploy); Docker image; compose
-- [ ] Migration runner on boot; version endpoint
-- [ ] 🔒 Security pass: rate limits, security headers (CSP, HSTS, X-Frame-Options), dependency audit (`cargo audit`, `npm audit`), secret-scan CI, upload validation (type/size/path traversal), SSRF guard on webhook/remote-link fetches
+- [x] Backup/restore (SQLite `VACUUM INTO` + attachments tarball), scheduled
+- [ ] `atlas` binary embedding the frontend (single-file deploy); Docker image; compose — _Docker image + compose exist and the binary serves `ATLAS_STATIC_DIR`; the frontend is not embedded in the binary_
+- [x] Migration runner on boot; version endpoint
+- [x] 🔒 Security pass: rate limits, security headers (CSP, HSTS, X-Frame-Options), dependency audit (`cargo audit`, `npm audit`), secret-scan CI, upload validation (type/size/path traversal), SSRF guard on webhook/remote-link fetches — _done: login lockout + credential-probe rate limits, Content-Security-Policy, HSTS, X-Frame-Options, nosniff and COOP headers, `cargo audit` + `npm audit` in CI's non-blocking Security audit job (production npm advisories fixed: zod, tiptap/prosemirror, seroval via the TanStack router), a blocking gitleaks history scan in the Security workflow, upload validation (id/filename sanitising, sniffed types, size cap), SSRF guard on automation web requests and remote links_
 - [ ] Load test: 10k cards, 50 columns
-- [ ] Docs: install, config, integration setup, backup, AQL reference, keyboard shortcuts
-- [ ] `docs/adr/` for the decisions above
+- [x] Docs: install, config, integration setup, backup, AQL reference, keyboard shortcuts — _`docs/guide/`: install, backup/restore, integrations, AQL reference, keyboard shortcuts_
+- [x] `docs/adr/` for the decisions above
 
 ---
 
@@ -464,14 +464,14 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 8 Boards | `feat/07-frontend-boards` | ✅ |
 | 8b Nested boards | `feat/07-frontend-boards` | ✅ mini-map + nested nav |
 | 9 Card detail | `feat/07-frontend-boards` | ✅ |
-| 10 Cycles | `feat/10-cycles`, `feat/10-cycles-ui` | 🚧 backend + core UI done: state machine (start/complete/reopen), scope tracking (`card_cycle`), carry-over, full REST API, a `/cycles` lifecycle page, card-detail sidebar integration, and daily `cycle_snapshot` writes via the new `scheduler` (#44). Remaining: a drag-and-drop backlog board for bulk card↔cycle moves, start/complete-triggered snapshot rows, a direct time-logging path, and reports |
+| 10 Cycles | `feat/10-cycles`, `feat/10-cycles-ui` | 🚧 lifecycle, scope, carry-over, snapshots (daily + commitment/completion), burndown/velocity/cycle reports and a direct time-logging path are done. Remaining: a drag-to-cycle backlog board |
 | 11 Secrets | `feat/11-secrets` | ✅ (#12) |
-| 12 GitHub | `feat/12-github` | 🚧 nearly done: vault→PAT, repo linking (+ picker), branch/PR creation, mergeable+reviews, dev panel (live commits/CI), rate-limit handling, webhooks (receiver, installable, replay guard, push/PR/check_suite), poll fallback for hookless repos via the new `scheduler`, backfill on link (#12, #15–#17, #25–#33, #42–#43). Remaining: surfacing a broken repo link (revoked PAT, renamed/deleted repo) in the UI |
-| 13 Claude agent | `feat/13-claude-agent` | 🚧 the runner core, workspaces, session + transcript persistence, the wiring endpoint (start/list/get/cancel/transcript), and a frontend: `stream-json` event parsing + outcome interpretation, `AgentRunner`/`LocalRunner` spawning the CLI as its own killable process group, `agent::workspace::WorkspacePreparer`/`GitWorkspacePreparer` cloning/refreshing a project's linked repo (credential never touches argv or the stored git config), `domain::agent_session` recording a run's status/outcome, `domain::agent_session_transcript` recording every raw line, `agent::orchestrator` wiring it all behind `POST /cards/{key}/agent-sessions` ("Run with Claude"), `GET .../agent-sessions`, `GET /agent-sessions/{id}`, `GET .../transcript`, and `POST .../cancel` (a new in-memory `CancelRegistry` finally gives a request a way to reach the `RunHandle` a detached drain task owns). A card-detail panel (`AgentSessions.tsx`) makes it clickable — Run, Cancel, and a polling session-history list. All backend tested against shell-script/fake-preparer stand-ins — no real subprocess, network call, or API cost in CI (#41, #45–#47). Remaining: resuming across a restart, WebSocket-driven live streaming, the Atlas MCP server, on-completion actions, and per-project permission-mode configuration |
-| 14 Gemini | `feat/14-gemini` | ⬜ |
-| 15 Automation | `feat/15-automation` | ⬜ |
-| 16 Reports | `feat/16-reports` | ⬜ |
-| 17 Notifications | `feat/17-notifications` | ⬜ |
-| 18 Bulk/import | `feat/18-bulk-import` | ⬜ |
-| 19 Polish | `feat/19-polish` | ⬜ |
-| 20 Ship | `feat/20-ship` | ⬜ |
+| 12 GitHub | `feat/12-github` | ✅ including repo link health: revoked token / deleted repo / lost credential recorded hourly and shown on the card; renames followed by repo id |
+| 13 Claude agent | `feat/13-claude-agent` | 🚧 runner, queue + concurrency cap, per-project permission mode / tools / billing choice, completion actions, MCP tools, live buffers, re-run, diff, cost capture — all in the API. Remaining: the live-session streaming UI and an agent-settings screen |
+| 14 Gemini | `feat/14-gemini` | ✅ API complete (images with style presets, covers/avatars, card references, text drafts, NL→AQL, cost tracking). Remaining: a pick-from-grid UI |
+| 15 Automation | `feat/15-automation` | ✅ engine, smart values, guardrails, audit trace, seeded rules; UI = rule list, JSON editor, dry run, audit log |
+| 16 Reports | `feat/16-reports` | 🚧 daily snapshot + every report in the API; project Reports page (CFD, created vs resolved, age, cycle time, velocity). Remaining: dashboard/gadget UI and a cost chart page |
+| 17 Notifications | `feat/17-notifications` | ✅ bell, live push, mentions, email, coalescing, preferences, digest, admin system notices |
+| 18 Bulk/import | `feat/18-bulk-import` | ✅ bulk preview/apply with undo, CSV wizard + export, JSON bundles, copy config, card templates (API), trash |
+| 19 Polish | `feat/19-polish` | 🚧 palette, global shortcuts, toasts with undo, error boundary, offline banner, relative times. Remaining: per-card shortcuts, hover previews, recently-viewed, a11y/perf/dark-mode audits, full E2E |
+| 20 Ship | `feat/20-ship` | 🚧 scheduled + on-demand backups with offline restore, security headers, trusted proxies, audits + secret scan in CI, docs. Remaining: frontend embedded in the binary, load test |

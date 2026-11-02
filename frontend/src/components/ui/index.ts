@@ -39,3 +39,5 @@ export type { TagColor, TagProps } from './Tag'
 
 export { Textarea } from './Textarea'
 export type { TextareaProps } from './Textarea'
+
+export { RelativeTime } from './RelativeTime'

@@ -220,21 +220,10 @@ fn parse_time_arg(arg: &str) -> Option<(i64, Option<String>)> {
 }
 
 /// A single `2w` / `3d` / `4h` / `30m` token → minutes, on a 5-day / 8-hour working
-/// calendar. `None` if the token is not a duration.
+/// calendar. `None` if the token is not a duration. Delegates to the worklog grammar so a
+/// commit message and the worklog form cannot disagree about what `1d` means.
 fn duration_token_minutes(token: &str) -> Option<i64> {
-    let unit = token.chars().next_back()?;
-    let value: i64 = token[..token.len() - unit.len_utf8()].parse().ok()?;
-    if value < 0 {
-        return None;
-    }
-    let per_unit = match unit.to_ascii_lowercase() {
-        'w' => 5 * 8 * 60,
-        'd' => 8 * 60,
-        'h' => 60,
-        'm' => 1,
-        _ => return None,
-    };
-    value.checked_mul(per_unit)
+    crate::domain::worklog::token_minutes(token)
 }
 
 // ---------------------------------------------------------------------------
@@ -521,7 +510,10 @@ mod tests {
     #[test]
     fn keys_must_lead_the_line() {
         // A key in the middle of prose does not start a smart commit.
-        assert!(parse("Fix the thing for ATLAS-42 #done").is_empty());
+        assert_eq!(
+            parse("Fix the thing for ATLAS-42 #done"),
+            Vec::<SmartCommit>::new()
+        );
     }
 
     #[test]
@@ -549,7 +541,7 @@ mod tests {
         assert_eq!(commit.keys, vec!["SHA-256".to_owned()]);
         assert!(commit.is_link_only());
         // A word starting with a digit is not a project key, so this is not a smart commit.
-        assert!(parse("8-bit rendering fixed").is_empty());
+        assert_eq!(parse("8-bit rendering fixed"), Vec::<SmartCommit>::new());
     }
 
     #[test]
@@ -574,9 +566,9 @@ mod tests {
     fn an_unparseable_or_zero_time_is_dropped_rather_than_logged() {
         // `card_worklogs.minutes` is CHECK(> 0), so a zero or junk duration must not become
         // a command at all.
-        assert!(one("ATLAS-1 #time 0m").commands.is_empty());
-        assert!(one("ATLAS-1 #time soon").commands.is_empty());
-        assert!(one("ATLAS-1 #time").commands.is_empty());
+        assert_eq!(one("ATLAS-1 #time 0m").commands, Vec::<Command>::new());
+        assert_eq!(one("ATLAS-1 #time soon").commands, Vec::<Command>::new());
+        assert_eq!(one("ATLAS-1 #time").commands, Vec::<Command>::new());
     }
 
     #[test]

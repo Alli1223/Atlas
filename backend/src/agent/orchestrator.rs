@@ -49,7 +49,8 @@
 //! can finish in the same instant it is asked to stop) — it reflects what the caller asked
 //! for, not a coin flip over which event the drain loop's `select!` happened to observe first.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::oneshot;
@@ -66,7 +67,56 @@ use crate::domain::agent_session::{
 use crate::domain::agent_session_transcript;
 use crate::domain::card::Card;
 use crate::error::{AppError, AppResult};
+use crate::secrets::Secret;
 use crate::secrets::vault::Vault;
+
+/// The last lines of every live run, for a viewer who opens the session mid-run (the
+/// WebSocket only carries lines from the moment it subscribed). Keyed by agent session id;
+/// an entry exists only while its run is executing.
+pub type LiveBuffers = Arc<Mutex<HashMap<String, VecDeque<String>>>>;
+
+/// How many lines a live buffer keeps.
+pub const LIVE_BUFFER_LINES: usize = 500;
+
+/// A snapshot of a live run's buffered lines, or `None` if it is not executing here.
+pub fn live_lines(buffers: &LiveBuffers, session_id: &str) -> Option<Vec<String>> {
+    buffers
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(session_id)
+        .map(|lines| lines.iter().cloned().collect())
+}
+
+/// Per-run knobs beyond the prompt and tools, all defaulting to the conservative choice.
+#[derive(Debug, Default)]
+pub struct RunOptions {
+    /// `--permission-mode`; `None` = [`RunRequest::default_permission_mode`].
+    pub permission_mode: Option<String>,
+    /// `--disallowedTools`.
+    pub disallowed_tools: Vec<String>,
+    /// Bill this Anthropic key instead of the machine's Claude login.
+    pub api_key: Option<Secret<String>>,
+    /// Continue an earlier CLI session instead of starting one (`--resume`).
+    pub resume_session_id: Option<String>,
+    /// The Atlas session this one re-runs or continues.
+    pub rerun_of: Option<String>,
+}
+
+/// What happens around a run beyond recording it: streaming each line live, and the
+/// completion actions (summary comment, moving the card, telling the starter).
+#[derive(Debug, Clone)]
+pub struct AfterRun {
+    /// Where live lines and the finish event go.
+    pub hub: crate::activity::Hub,
+    /// Where late joiners read the lines so far.
+    pub live: LiveBuffers,
+    /// The card's project, for scoping the live frames.
+    pub project_id: String,
+    /// Post the result as a comment on the card.
+    pub post_summary: bool,
+    /// Move the card here when the run completes; `None` = leave it.
+    pub destination_status_id: Option<String>,
+}
 
 /// Live runs' cancel signals, keyed by agent session id. See the module doc.
 pub type CancelRegistry = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
@@ -95,6 +145,22 @@ pub struct StartRequest<'a> {
     /// `--mcp-config` environment so it does not depend on inheriting one. The handler takes
     /// it from `config.database_url`.
     pub database_url: String,
+    /// Everything else, defaulting to the conservative choice.
+    pub options: RunOptions,
+    /// Live streaming and completion actions; `None` = record only.
+    pub after: Option<AfterRun>,
+}
+
+/// What [`launch_prepared`] needs to spawn a run whose session row already exists.
+#[derive(Debug)]
+pub struct Launch {
+    pub prompt: String,
+    pub claude_session_id: String,
+    pub allowed_tools: Vec<String>,
+    pub limits: RunLimits,
+    pub database_url: String,
+    pub options: RunOptions,
+    pub after: Option<AfterRun>,
 }
 
 /// Prepares the card's project workspace, spawns the run, and records it as `running`.
@@ -116,8 +182,13 @@ pub async fn start(
     // The session row and its capability token must exist *before* the run is spawned: the
     // token rides in the run's `--mcp-config`, and it is keyed on the session id. So the CLI
     // session id is generated here rather than scraped back from the runner, letting the whole
-    // record — row, capability, mcp config — be built up front and the run spawned last.
-    let claude_session_id = uuid::Uuid::new_v4().to_string();
+    // record — row, capability, mcp config — be built up front and the run spawned last. A
+    // continued run keeps the CLI session it resumes.
+    let claude_session_id = request
+        .options
+        .resume_session_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let mut tx = db.begin_write().await?;
     let session = agent_session::insert(
@@ -131,8 +202,53 @@ pub async fn start(
         now(),
     )
     .await?;
-    let minted = mcp::capability::mint(&mut tx, &session.id, now()).await?;
+    if let Some(rerun_of) = &request.options.rerun_of {
+        agent_session::set_rerun_of(&mut tx, &session.id, rerun_of).await?;
+    }
+    let session = agent_session::find_by_id_tx(&mut tx, &session.id)
+        .await?
+        .ok_or_else(|| {
+            AppError::internal(anyhow::anyhow!("the session just inserted is missing"))
+        })?;
     tx.commit().await?;
+
+    launch_prepared(
+        db,
+        runner,
+        registry,
+        &session,
+        working_dir,
+        Launch {
+            prompt: request.prompt,
+            claude_session_id,
+            allowed_tools: request.allowed_tools,
+            limits: request.limits,
+            database_url: request.database_url,
+            options: request.options,
+            after: request.after,
+        },
+    )
+    .await?;
+    Ok(session)
+}
+
+/// Spawns a run for a session that already has a row and a prepared workspace: mints its MCP
+/// capability, spawns the CLI, registers it for cancellation, and starts draining it. Used by
+/// [`start`] and by the queue dispatcher for a session that waited for a free slot.
+pub async fn launch_prepared(
+    db: &Db,
+    runner: &dyn AgentRunner,
+    registry: &CancelRegistry,
+    session: &AgentSession,
+    working_dir: PathBuf,
+    launch: Launch,
+) -> AppResult<()> {
+    let minted = {
+        let mut tx = db.begin_write().await?;
+        let minted = mcp::capability::mint(&mut tx, &session.id, now()).await?;
+        tx.commit().await?;
+        minted
+    };
 
     // The child MCP server is this very binary in `mcp` mode; falling back to `atlas` on PATH
     // keeps a test or an unusual deployment working if the exe path cannot be read.
@@ -141,22 +257,29 @@ pub async fn start(
         .and_then(|p| p.to_str().map(ToOwned::to_owned))
         .unwrap_or_else(|| "atlas".to_owned());
     let mcp_config =
-        mcp::mcp_config_json(&atlas_exe, &minted.token, &request.database_url).to_string();
+        mcp::mcp_config_json(&atlas_exe, &minted.token, &launch.database_url).to_string();
 
     // The run may use its own allowlist *and* Atlas's tools.
-    let mut allowed_tools = request.allowed_tools;
+    let mut allowed_tools = launch.allowed_tools;
     allowed_tools.extend(mcp::ALLOWED_TOOLS.iter().map(|t| (*t).to_owned()));
 
+    let resuming = launch.options.resume_session_id.is_some();
     let handle = match runner
         .spawn(RunRequest {
-            prompt: request.prompt.clone(),
-            working_dir,
-            resume_session_id: None,
-            session_id: Some(claude_session_id),
+            prompt: launch.prompt.clone(),
+            working_dir: working_dir.clone(),
+            resume_session_id: launch.options.resume_session_id.clone(),
+            session_id: (!resuming).then(|| launch.claude_session_id.clone()),
             allowed_tools,
             mcp_config: Some(mcp_config),
-            permission_mode: RunRequest::default_permission_mode(),
-            limits: request.limits,
+            permission_mode: launch
+                .options
+                .permission_mode
+                .clone()
+                .unwrap_or_else(RunRequest::default_permission_mode),
+            limits: launch.limits,
+            disallowed_tools: launch.options.disallowed_tools.clone(),
+            api_key: launch.options.api_key.clone(),
         })
         .await
     {
@@ -164,7 +287,7 @@ pub async fn start(
         // The row exists but the run never started: record it as failed and revoke its
         // capability, rather than leaving a `running` session that will never drain.
         Err(err) => {
-            fail_unstarted(db, &session, &err).await;
+            fail_unstarted(db, session, &err).await;
             return Err(err);
         }
     };
@@ -178,14 +301,16 @@ pub async fn start(
         handle,
         registry.clone(),
         cancel_rx,
+        launch.after,
+        working_dir,
     );
 
-    Ok(session)
+    Ok(())
 }
 
 /// Marks a session that failed to spawn as `failed` and revokes its capability. Best-effort:
 /// a bookkeeping failure here must not mask the spawn error the caller is about to see.
-async fn fail_unstarted(db: &Db, session: &AgentSession, err: &AppError) {
+pub async fn fail_unstarted(db: &Db, session: &AgentSession, err: &AppError) {
     let outcome = OutcomeFields {
         status: AgentSessionStatus::Failed,
         result_text: None,
@@ -264,9 +389,14 @@ fn spawn_drain(
     handle: RunHandle,
     registry: CancelRegistry,
     cancel_rx: oneshot::Receiver<()>,
+    after: Option<AfterRun>,
+    working_dir: PathBuf,
 ) {
     tokio::spawn(async move {
-        let drained = drain_to_result(handle, cancel_rx).await;
+        if let Some(after) = &after {
+            lock_live(&after.live).insert(session.id.clone(), VecDeque::new());
+        }
+        let drained = drain_to_result(handle, cancel_rx, &session.id, after.as_ref()).await;
 
         // The run is over one way or another; nothing can cancel it any more, so its entry
         // (if the session was not already cancelled, which removes it itself) has no further
@@ -294,6 +424,196 @@ fn spawn_drain(
         // after `finish` so the session is already non-`running` — a tool call racing this is
         // refused by the status check regardless.
         revoke_capability(&db, &session.id).await;
+
+        record_details(&db, &session.id, &drained, &working_dir).await;
+        if let Some(after) = &after {
+            lock_live(&after.live).remove(&session.id);
+            completion_actions(&db, &session, &outcome, after).await;
+        }
+    });
+}
+
+fn lock_live(live: &LiveBuffers) -> std::sync::MutexGuard<'_, HashMap<String, VecDeque<String>>> {
+    live.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The workspace's current branch, if it is a git checkout. Best-effort and bounded.
+async fn current_branch(dir: &std::path::Path) -> Option<String> {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let branch = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    (output.status.success() && !branch.is_empty() && branch != "HEAD").then_some(branch)
+}
+
+/// Records a finished run's usage, duration and branch. Best-effort, like the outcome.
+async fn record_details(
+    db: &Db,
+    session_id: &str,
+    drained: &Drained,
+    working_dir: &std::path::Path,
+) {
+    let usage = drained
+        .result
+        .as_ref()
+        .map(|r| serde_json::json!({ "usage": r.usage, "modelUsage": r.model_usage }).to_string());
+    let duration = drained
+        .result
+        .as_ref()
+        .and_then(|r| r.duration_ms)
+        .and_then(|d| i64::try_from(d).ok());
+    let branch = current_branch(working_dir).await;
+    if let Err(err) = agent_session::record_details(
+        db,
+        session_id,
+        usage.as_deref(),
+        duration,
+        branch.as_deref(),
+    )
+    .await
+    {
+        tracing::warn!(session = %session_id, error = %err, "failed to record run details");
+    }
+}
+
+/// The summary comment a finished run posts: its status, its result, and the numbers.
+fn summary_body(outcome: &OutcomeFields, branch: Option<&str>) -> String {
+    let mut body = format!("🤖 **Claude Code {}**", outcome.status);
+    if let Some(text) = outcome
+        .result_text
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+    {
+        let text: String = text.chars().take(8000).collect();
+        body.push_str("\n\n");
+        body.push_str(&text);
+    }
+    if let Some(error) = &outcome.error_message {
+        body.push_str("\n\n> ");
+        body.push_str(error);
+    }
+    let mut facts = Vec::new();
+    if let Some(cost) = outcome.total_cost_usd {
+        facts.push(format!("${cost:.2}"));
+    }
+    if let Some(turns) = outcome.num_turns {
+        facts.push(format!("{turns} turns"));
+    }
+    if let Some(branch) = branch {
+        facts.push(format!("branch `{branch}`"));
+    }
+    if !facts.is_empty() {
+        body.push_str("\n\n_");
+        body.push_str(&facts.join(" · "));
+        body.push('_');
+    }
+    body
+}
+
+/// What happens when a run ends: the result as a comment, the card moved to the project's
+/// destination (only on a clean completion), and the starter told. Every write is attributed
+/// to the starter with an `agent:<session>` actor tag. Best-effort throughout: the run is
+/// already recorded, and one failed follow-up must not hide the others.
+async fn completion_actions(
+    db: &Db,
+    session: &AgentSession,
+    outcome: &OutcomeFields,
+    after: &AfterRun,
+) {
+    let Ok(Some(fresh)) = agent_session::find_by_id(db, &session.id).await else {
+        return;
+    };
+    let Ok(Some(card)) = crate::domain::card::find_by_id(db, &session.card_id).await else {
+        return;
+    };
+    let completed = outcome.status == AgentSessionStatus::Completed;
+    let actor = format!("agent:{}", session.id);
+
+    if after.post_summary
+        && let Some(author) = &session.started_by
+    {
+        let body = summary_body(outcome, fresh.branch.as_deref());
+        let result: AppResult<()> = crate::activity::with_actor(actor.clone(), async {
+            let mut tx = db.begin_write().await?;
+            crate::domain::comment::insert(&mut tx, &card.id, author, &body, now()).await?;
+            tx.commit().await?;
+            Ok(())
+        })
+        .await;
+        if let Err(err) = result {
+            tracing::warn!(session = %session.id, error = %err, "failed to post the run summary");
+        }
+    }
+
+    if completed
+        && let Some(destination) = &after.destination_status_id
+        && *destination != card.status_id
+    {
+        let result: AppResult<()> = crate::activity::with_actor(actor.clone(), async {
+            let mut tx = db.begin_write().await?;
+            crate::domain::card::update(
+                &mut tx,
+                &card,
+                &crate::domain::card::CardPatch {
+                    status_id: Some(destination.clone()),
+                    ..crate::domain::card::CardPatch::default()
+                },
+                session.started_by.as_deref(),
+                now(),
+            )
+            .await?;
+            tx.commit().await?;
+            Ok(())
+        })
+        .await;
+        if let Err(err) = result {
+            // A workflow may refuse the move (a validator, a missing field). The run still
+            // succeeded; the card simply stays where it is, and the reason is logged.
+            tracing::info!(session = %session.id, error = %err, "the completed run's card could not be moved");
+        }
+    }
+
+    if let Some(starter) = &session.started_by {
+        let title = if completed {
+            format!("Claude finished {}", card.key)
+        } else {
+            format!("Claude run on {} ended: {}", card.key, outcome.status)
+        };
+        let notice = crate::notify::Notice {
+            user_id: starter.clone(),
+            kind: crate::notify::Kind::Agent,
+            card_id: Some(card.id.clone()),
+            project_id: Some(after.project_id.clone()),
+            actor_id: None,
+            title,
+            body: outcome
+                .result_text
+                .as_ref()
+                .map(|t| t.chars().take(280).collect()),
+            link: Some(format!("/cards/{}", card.key)),
+        };
+        if let Err(err) = crate::notify::deliver(db, &after.hub, notice).await {
+            tracing::warn!(session = %session.id, error = %err, "failed to notify the run's starter");
+        }
+    }
+
+    after.hub.publish(crate::activity::HubMessage {
+        project_id: Some(after.project_id.clone()),
+        user_id: None,
+        payload: serde_json::json!({
+            "type": "agent.finished",
+            "sessionId": session.id,
+            "cardKey": card.key,
+            "status": outcome.status,
+        }),
     });
 }
 
@@ -320,7 +640,12 @@ struct Drained {
 /// and a sent signal look identical to its `tokio::select!` — so the run would be killed and
 /// its events truncated before this had read any of them. Keeping the whole handle alive keeps
 /// the sender alive for exactly as long as a real caller holding it would.
-async fn drain_to_result(mut handle: RunHandle, mut cancel_rx: oneshot::Receiver<()>) -> Drained {
+async fn drain_to_result(
+    mut handle: RunHandle,
+    mut cancel_rx: oneshot::Receiver<()>,
+    session_id: &str,
+    after: Option<&AfterRun>,
+) -> Drained {
     let mut lines = Vec::new();
     let mut result_event = None;
     let mut cancelled = false;
@@ -337,15 +662,19 @@ async fn drain_to_result(mut handle: RunHandle, mut cancel_rx: oneshot::Receiver
             }
             event = handle.events.recv() => {
                 let Some(event) = event else { break };
-                match event {
+                let line = match event {
                     RunEvent::Parsed(line, event) => {
-                        lines.push(line);
                         if let Event::Result(result) = *event {
                             result_event = Some(result);
                         }
+                        line
                     }
-                    RunEvent::Unparseable(line) => lines.push(line),
+                    RunEvent::Unparseable(line) => line,
+                };
+                if let Some(after) = after {
+                    publish_line(after, session_id, &line);
                 }
+                lines.push(line);
             }
         }
     }
@@ -354,6 +683,24 @@ async fn drain_to_result(mut handle: RunHandle, mut cancel_rx: oneshot::Receiver
         result: result_event,
         cancelled,
     }
+}
+
+/// Streams one line live: into the late-joiner buffer, and onto the hub for open sockets.
+fn publish_line(after: &AfterRun, session_id: &str, line: &str) {
+    {
+        let mut buffers = lock_live(&after.live);
+        if let Some(buffer) = buffers.get_mut(session_id) {
+            if buffer.len() >= LIVE_BUFFER_LINES {
+                buffer.pop_front();
+            }
+            buffer.push_back(line.to_owned());
+        }
+    }
+    after.hub.publish(crate::activity::HubMessage {
+        project_id: Some(after.project_id.clone()),
+        user_id: None,
+        payload: serde_json::json!({ "type": "agent.event", "sessionId": session_id, "line": line }),
+    });
 }
 
 /// Writes a run's whole transcript in one transaction — see the module doc for why this is
@@ -596,6 +943,8 @@ mod tests {
             },
             started_by: None,
             database_url: "sqlite::memory:".to_owned(),
+            options: RunOptions::default(),
+            after: None,
         }
     }
 

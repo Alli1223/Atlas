@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { Banner, Button, EmptyState, Spinner } from '@/components/ui'
 import { useCurrentUser } from '@/features/auth/queries'
+import { CardCollab } from '@/features/collab'
 import type { ApiError } from '@/lib/api'
 import { cx } from '@/lib/cx'
 import { ICON } from '@/lib/icon'
@@ -105,6 +106,8 @@ export function CardDetail({ cardKey, isModal = false }: CardDetailProps) {
           source={data.description ?? ''}
           candidates={candidates}
         />
+
+        <CardCollab cardKey={cardKey} />
 
         <MainTabs
           cardKey={cardKey}

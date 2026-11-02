@@ -243,8 +243,12 @@ pub fn default_validator(provider: Provider) -> Box<dyn Validator> {
         Provider::Github => {
             Box::new(crate::integrations::github::validator::GithubValidator::new())
         }
-        // Phase 13/14/17 replace these as their probes land.
-        Provider::Anthropic | Provider::Gemini | Provider::Smtp => Box::new(NoopValidator),
+        // Phase 14: `GET /v1beta/models?pageSize=1`, key in the `x-goog-api-key` header.
+        Provider::Gemini => Box::new(crate::integrations::gemini::GeminiValidator::new()),
+        // No cheap, side-effect-free probe exists for these: an Anthropic key is only
+        // provable by a billed call, and an SMTP password by a login — "test email" in the
+        // SMTP settings is that check, deliberately user-initiated.
+        Provider::Anthropic | Provider::Smtp => Box::new(NoopValidator),
     }
 }
 

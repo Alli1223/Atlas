@@ -5,7 +5,9 @@
 //! vault they draw their credentials from and the [`crate::error`] taxonomy they
 //! report through.
 //!
+//! - [`gemini`] — image and text generation, and the key probe (`TODO.md` Phase 14).
 //! - [`github`] — repository linking, the card→branch→PR flow, the webhook
 //!   receiver, and smart commits (`TODO.md` Phase 12).
 
+pub mod gemini;
 pub mod github;

@@ -1,0 +1,19 @@
+# gitleaks configuration for the Security workflow's secret scan.
+#
+# The default rule set, plus one allowlist: test fixtures and docs are full of strings shaped
+# like keys on purpose (`ghp_…`, `sk-ant-…`, base64 master keys) — the vault's tests prove
+# those never leak, which they can only do by having some. They are fake, and they are kept
+# to these paths so a real key anywhere else is still caught.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake, deliberately key-shaped fixtures in tests and documentation"
+paths = [
+  '''^backend/tests/''',
+  '''^frontend/src/.*\.test\.tsx?$''',
+  '''^frontend/e2e/''',
+  '''^docs/''',
+  '''^\.env\.example$''',
+]

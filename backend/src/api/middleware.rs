@@ -1,12 +1,14 @@
 //! The tower layer stack applied to every route.
 
 use std::any::Any;
+use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
 use axum::extract::Request;
-use axum::http::{HeaderValue, Method, StatusCode, header};
+use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use tower::ServiceBuilder;
@@ -26,11 +28,21 @@ use crate::telemetry::{self, REQUEST_ID_HEADER};
 /// How long a request may run before it is abandoned.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Maximum accepted request body, in bytes.
+/// The floor of the outermost request-body limit, in bytes.
 ///
-/// Attachment uploads (Phase 9) will need a larger, route-specific limit layered
-/// over this one; 10 MiB is the right default for everything else.
+/// The layer itself is set to the larger of this and `ATLAS_MAX_UPLOAD_MB` (see
+/// [`body_limit`]), because an attachment upload is the one body that may legitimately be
+/// large. That does not loosen anything else: every `Json`/`Bytes` extractor carries axum's
+/// own 2 MB `DefaultBodyLimit`, and the upload handlers count the bytes they stream to disk
+/// against the configured limit themselves.
 const BODY_LIMIT_BYTES: usize = 10 * 1024 * 1024;
+
+/// The outermost body limit for a configuration.
+fn body_limit(config: &Config) -> usize {
+    usize::try_from(config.max_upload_bytes())
+        .unwrap_or(usize::MAX)
+        .max(BODY_LIMIT_BYTES)
+}
 
 /// How long a browser may cache a CORS preflight.
 const CORS_MAX_AGE: Duration = Duration::from_mins(10);
@@ -85,12 +97,171 @@ where
             StatusCode::REQUEST_TIMEOUT,
             REQUEST_TIMEOUT,
         ))
-        .layer(RequestBodyLimitLayer::new(BODY_LIMIT_BYTES))
+        .layer(RequestBodyLimitLayer::new(body_limit(config)))
         .layer(CompressionLayer::new());
 
+    let headers = Arc::new(security_headers(config));
     router
         .layer(axum::middleware::from_fn(problem_instance))
+        .layer(axum::middleware::map_response(
+            move |mut response: Response| {
+                let headers = Arc::clone(&headers);
+                async move {
+                    for (name, value) in headers.iter() {
+                        response
+                            .headers_mut()
+                            .entry(name.clone())
+                            .or_insert_with(|| value.clone());
+                    }
+                    response
+                }
+            },
+        ))
+        .layer(axum::Extension(TrustedProxies::parse(
+            &config.trusted_proxies,
+        )))
         .layer(stack)
+}
+
+/// Which peers' `X-Forwarded-For` / `X-Real-IP` headers are believed
+/// (`ATLAS_TRUSTED_PROXIES`). Read by [`crate::auth::extract::ClientInfo`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrustedProxies {
+    /// `*`: any peer — the documented single-reverse-proxy deploy.
+    Any,
+    /// `none`: never; the TCP peer is the client.
+    None,
+    /// Only these peers, and only these hops are skipped when reading the chain.
+    List(Vec<IpAddr>),
+}
+
+impl TrustedProxies {
+    /// Parses the setting. Unparseable entries are dropped with a warning; a list that ends
+    /// up empty trusts nobody, which fails safe.
+    pub fn parse(setting: &str) -> Self {
+        match setting.trim() {
+            "" | "*" => Self::Any,
+            s if s.eq_ignore_ascii_case("none") => Self::None,
+            list => Self::List(
+                list.split(',')
+                    .map(str::trim)
+                    .filter(|entry| !entry.is_empty())
+                    .filter_map(|entry| {
+                        entry.parse().ok().or_else(|| {
+                            tracing::warn!(
+                                entry,
+                                "ignoring an unparseable ATLAS_TRUSTED_PROXIES entry"
+                            );
+                            None
+                        })
+                    })
+                    .collect(),
+            ),
+        }
+    }
+
+    /// Whether a peer may speak for the client.
+    pub fn trusts(&self, peer: Option<IpAddr>) -> bool {
+        match self {
+            Self::Any => true,
+            Self::None => false,
+            Self::List(list) => peer.is_some_and(|ip| list.contains(&ip)),
+        }
+    }
+
+    /// Whether a hop in the forwarded chain is one of ours (and so skipped).
+    pub fn is_proxy(&self, hop: &str) -> bool {
+        match self {
+            Self::Any | Self::None => false,
+            Self::List(list) => hop.parse::<IpAddr>().is_ok_and(|ip| list.contains(&ip)),
+        }
+    }
+}
+
+/// The SHA-256 hashes (CSP source form) of every inline `<script>` in a page.
+fn inline_script_hashes(html: &str) -> Vec<String> {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let mut hashes = Vec::new();
+    let mut rest = html;
+    while let Some(start) = rest.find("<script") {
+        let after = &rest[start..];
+        let Some(tag_end) = after.find('>') else {
+            break;
+        };
+        let tag = &after[..tag_end];
+        let body_start = tag_end + 1;
+        let Some(close) = after[body_start..].find("</script>") else {
+            break;
+        };
+        let body = &after[body_start..body_start + close];
+        if !tag.contains("src=") && !body.trim().is_empty() {
+            let digest = Sha256::digest(body.as_bytes());
+            hashes.push(format!(
+                "'sha256-{}'",
+                base64::engine::general_purpose::STANDARD.encode(digest)
+            ));
+        }
+        rest = &after[body_start + close..];
+    }
+    hashes
+}
+
+/// The headers every response carries unless a handler set its own.
+///
+/// The CSP allows exactly what the SPA needs: its own origin, the hashes of the inline
+/// no-flash theme script in the served `index.html` (computed at startup, so editing that
+/// script cannot silently break the policy), inline styles (React's `style` props), images
+/// from `data:`/`blob:` (pasted attachments, previews), and the live WebSocket. HSTS is sent
+/// only when Atlas knows it is served over HTTPS (`ATLAS_PUBLIC_URL`), because on plain HTTP
+/// it would be ignored at best and a lockout at worst once TLS is added on another port.
+fn security_headers(config: &Config) -> Vec<(HeaderName, HeaderValue)> {
+    let hashes = config
+        .static_dir
+        .as_ref()
+        .and_then(|dir| std::fs::read_to_string(dir.join("index.html")).ok())
+        .map(|html| inline_script_hashes(&html))
+        .unwrap_or_default();
+    let csp = format!(
+        "default-src 'self'; script-src 'self'{}{}; style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; \
+         object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        if hashes.is_empty() { "" } else { " " },
+        hashes.join(" ")
+    );
+    let mut headers = vec![
+        (
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ),
+        (header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY")),
+        (
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ),
+        (
+            HeaderName::from_static("cross-origin-opener-policy"),
+            HeaderValue::from_static("same-origin"),
+        ),
+        (
+            HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()"),
+        ),
+    ];
+    if let Ok(value) = HeaderValue::from_str(&csp) {
+        headers.push((header::CONTENT_SECURITY_POLICY, value));
+    }
+    if config
+        .public_url
+        .as_deref()
+        .is_some_and(|url| url.starts_with("https://"))
+    {
+        headers.push((
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        ));
+    }
+    headers
 }
 
 /// Builds the CORS layer from configuration.
@@ -191,6 +362,31 @@ impl ResponseForPanic for PanicAsProblem {
         // The panic message may contain anything at all, so it goes to the log
         // and the client gets the generic internal-error document.
         AppError::internal(anyhow::anyhow!("handler panicked: {message}")).into_response()
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+
+    #[test]
+    fn inline_scripts_are_hashed_and_external_ones_are_not() {
+        let html = "<head><script>\n  var a = 1\n</script><script type=\"module\" src=\"/x.js\"></script></head>";
+        let hashes = inline_script_hashes(html);
+        assert_eq!(hashes.len(), 1);
+        assert!(hashes[0].starts_with("'sha256-"));
+    }
+
+    #[test]
+    fn trusted_proxies_parse() {
+        assert_eq!(TrustedProxies::parse("*"), TrustedProxies::Any);
+        assert_eq!(TrustedProxies::parse("none"), TrustedProxies::None);
+        let list = TrustedProxies::parse("127.0.0.1, ::1, junk");
+        assert!(list.trusts(Some("127.0.0.1".parse().unwrap())));
+        assert!(list.trusts(Some("::1".parse().unwrap())));
+        assert!(!list.trusts(Some("10.0.0.9".parse().unwrap())));
+        assert!(!list.trusts(None));
+        assert!(list.is_proxy("127.0.0.1"));
     }
 }
 
@@ -376,14 +572,16 @@ mod tests {
             &Config::default(),
         );
 
-        let oversized = BODY_LIMIT_BYTES + 1;
+        let oversized = body_limit(&Config::default()) + 1;
         let response = router
             .oneshot(
                 HttpRequest::builder()
                     .method(Method::POST)
                     .uri("/echo")
                     .header(header::CONTENT_LENGTH, oversized)
-                    .body(Body::from(vec![b'x'; oversized]))
+                    // The header alone must trigger the refusal, so there is no need to
+                    // allocate the oversized body itself.
+                    .body(Body::empty())
                     .unwrap(),
             )
             .await

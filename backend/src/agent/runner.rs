@@ -81,6 +81,12 @@ pub struct RunRequest {
     /// mode that lets a headless run proceed. See [`RunRequest::default_permission_mode`].
     pub permission_mode: String,
     pub limits: RunLimits,
+    /// `--disallowedTools`: rules that win over the allow list.
+    pub disallowed_tools: Vec<String>,
+    /// An Anthropic API key to bill, set as `ANTHROPIC_API_KEY` for this run only. `None`
+    /// (the default) strips the variable, so the machine's own Claude login runs. A project
+    /// opts in to API billing deliberately — see `domain::agent_settings`.
+    pub api_key: Option<crate::secrets::Secret<String>>,
 }
 
 impl RunRequest {
@@ -222,6 +228,15 @@ fn spawn_local(program: &str, request: &RunRequest) -> AppResult<RunHandle> {
             command
                 .arg("--allowedTools")
                 .arg(request.allowed_tools.join(","));
+        }
+        if !request.disallowed_tools.is_empty() {
+            command
+                .arg("--disallowedTools")
+                .arg(request.disallowed_tools.join(","));
+        }
+        if let Some(key) = &request.api_key {
+            // Overrides the env_remove above, for this child only.
+            command.env("ANTHROPIC_API_KEY", key.expose());
         }
         match &request.resume_session_id {
             Some(resume) => {
@@ -378,6 +393,8 @@ mod tests {
                 max_turns: 10,
                 max_budget_usd: 1.0,
             },
+            disallowed_tools: Vec::new(),
+            api_key: None,
         }
     }
 
@@ -396,7 +413,7 @@ mod tests {
             .await
             .expect("spawn should succeed");
 
-        assert!(!handle.session_id.is_empty());
+        assert_ne!(handle.session_id, "", "a session id must be generated");
         assert_eq!(handle.session_id.len(), 36, "a UUID v4, hyphenated");
 
         let first = timeout(Duration::from_secs(5), handle.events.recv())

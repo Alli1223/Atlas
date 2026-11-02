@@ -38,7 +38,8 @@ export default defineConfig({
       // origin check can never satisfy itself by comparing Origin to Host in dev — the
       // browser says localhost:5173 and Host says 127.0.0.1:8080. The dev origin must
       // therefore be in ATLAS_CORS_ALLOWED_ORIGINS, which is exactly what its default is.
-      '/api': { target: API_TARGET, changeOrigin: true },
+      // `ws: true` because the live channel is `/api/v1/ws`, inside the API prefix.
+      '/api': { target: API_TARGET, changeOrigin: true, ws: true },
       // Live board sync + Claude Code session output.
       // `rewriteWsOrigin` is deliberately NOT set — Vite's docs flag it as a CSRF footgun.
       '/ws': { target: API_TARGET, ws: true },

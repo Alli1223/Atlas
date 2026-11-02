@@ -1,6 +1,5 @@
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
-  Bell,
   ChevronLeft,
   FolderKanban,
   KeyRound,
@@ -8,16 +7,22 @@ import {
   type LucideIcon,
   Palette,
   Plus,
+  Search,
   Settings,
-  Star,
 } from 'lucide-react'
-import { type ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { Avatar, Button, Input } from '@/components/ui'
+import { useCurrentUser } from '@/features/auth/queries'
+import { Toaster } from '@/features/board/Toaster'
+import { NotificationBell, useLiveSync } from '@/features/notifications'
+import { CommandPalette } from '@/features/palette'
 import { ICON } from '@/lib/icon'
 import { useUI } from '@/stores/ui'
 
 import styles from './AppShell.module.css'
+import { ErrorBoundary } from './ErrorBoundary'
+import { OfflineBanner } from './OfflineBanner'
 import { ThemeToggle } from './ThemeToggle'
 
 /** `to` omitted = the destination is not built yet; render an inert row rather than a
@@ -25,7 +30,7 @@ import { ThemeToggle } from './ThemeToggle'
 interface NavItem {
   label: string
   icon: LucideIcon
-  to?: '/' | '/styleguide' | '/projects' | '/settings' | '/admin/settings'
+  to?: '/' | '/styleguide' | '/projects' | '/search' | '/settings' | '/admin/settings'
 }
 
 const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
@@ -34,7 +39,7 @@ const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
     items: [
       { label: 'Overview', to: '/', icon: LayoutDashboard },
       { label: 'Projects', to: '/projects', icon: FolderKanban },
-      { label: 'Starred', icon: Star },
+      { label: 'Search', to: '/search', icon: Search },
     ],
   },
   {
@@ -49,6 +54,8 @@ const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
 
 function TopNav() {
   const navigate = useNavigate()
+  const { user } = useCurrentUser()
+  const [query, setQuery] = useState('')
   return (
     <header className={styles.topnav}>
       <Link to="/" className={styles.brand}>
@@ -65,22 +72,39 @@ function TopNav() {
         Create
       </Button>
 
-      <div className={styles.search}>
-        {/* Disabled placeholder: real search is AQL-backed and lands with the query language. */}
-        <Input type="search" size="compact" placeholder="Search" aria-label="Search Atlas" disabled />
-      </div>
+      <form
+        className={styles.search}
+        role="search"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const text = query.trim()
+          if (!text) return
+          // A card key opens the card; anything else is AQL if it looks like it, text otherwise.
+          if (/^[A-Za-z][A-Za-z0-9]*-\d+$/.test(text)) {
+            void navigate({ to: '/cards/$key', params: { key: text.toUpperCase() } })
+          } else {
+            const aql = /[=~<>]| in /i.test(text) ? text : `text ~ "${text.replace(/"/g, '\\"')}"`
+            void navigate({ to: '/search', search: { q: aql } })
+          }
+          setQuery('')
+        }}
+      >
+        <Input
+          type="search"
+          size="compact"
+          placeholder="Search or jump to a key  ( . for commands )"
+          aria-label="Search Atlas"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </form>
 
       <div className={styles.topnavSpacer} />
 
       <div className={styles.topnavActions}>
         <ThemeToggle />
-        <Button
-          appearance="subtle"
-          isIconOnly
-          aria-label="Notifications"
-          iconBefore={<Bell {...ICON} aria-hidden="true" />}
-        />
-        <Avatar name="Alastair Rayner" size="small" />
+        <NotificationBell />
+        <Avatar name={user?.displayName ?? user?.username ?? ''} size="small" />
       </div>
     </header>
   )
@@ -160,6 +184,9 @@ export interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
+  const { user } = useCurrentUser()
+  const path = useRouterState({ select: (state) => state.location.pathname })
+  useLiveSync(Boolean(user))
   return (
     <div className={styles.shell}>
       <TopNav />
@@ -168,8 +195,13 @@ export function AppShell({ children }: AppShellProps) {
           <SideNav />
           <SideNavToggle />
         </div>
-        <main className={styles.content}>{children}</main>
+        <main className={styles.content}>
+          <ErrorBoundary resetKey={path}>{children}</ErrorBoundary>
+        </main>
       </div>
+      <CommandPalette />
+      <Toaster />
+      <OfflineBanner />
     </div>
   )
 }

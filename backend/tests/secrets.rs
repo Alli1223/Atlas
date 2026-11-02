@@ -464,12 +464,13 @@ async fn a_duplicate_provider_and_label_is_a_conflict() {
 #[tokio::test]
 async fn validation_updates_metadata_without_ever_returning_the_secret() {
     // This exercises the provider-agnostic decrypt → probe → persist plumbing, so it
-    // targets a provider whose probe is still the no-op (`gemini`): `github` now
-    // routes to a real validator that would reach the network.
-    let secret = "ya29.VALIDATIONsecret5555";
+    // targets a provider whose probe is still the no-op (`anthropic`: an Anthropic key can
+    // only be proved by a billed call): `github` and `gemini` now route to real validators
+    // that would reach the network.
+    let secret = "sk-ant-VALIDATIONsecret5555";
     let app = App::new().await;
     let admin = admin_past_the_gate(&app).await;
-    let id = store(&app, &admin, "gemini", "to-validate", secret).await;
+    let id = store(&app, &admin, "anthropic", "to-validate", secret).await;
 
     let reply = app
         .send(post(

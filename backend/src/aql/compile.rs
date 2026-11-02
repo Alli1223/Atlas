@@ -397,7 +397,7 @@ fn check_support(
         return Err(AqlError::at(
             field_span,
             format!(
-                "history search (WAS/CHANGED) is not supported on the {} field; only status, assignee, priority, reporter, resolution and type are history-indexed",
+                "history search (WAS/CHANGED) is not supported on the {} field; only status, assignee, priority, reporter, resolution, type and milestone are history-indexed",
                 field.as_str()
             ),
         ));
@@ -464,6 +464,10 @@ fn emit_membership(
             b.keyword(")");
         }
         Field::Labels => labels_membership(b, binds),
+        Field::Milestone => {
+            subquery_in(b, "cards.milestone_id", "id", "milestones", "name", binds);
+        }
+        Field::Component => component_membership(b, binds),
         _ => {
             return Err(AqlError::at(
                 field_span,
@@ -502,6 +506,12 @@ fn user_membership(b: &mut SqlBuilder, col: &'static str, binds: Vec<Bind>) {
     b.keyword(" IN (SELECT id FROM users WHERE username IN (");
     b.bind_list(binds.clone());
     b.keyword(") OR id IN (");
+    b.bind_list(binds);
+    b.keyword("))");
+}
+
+fn component_membership(b: &mut SqlBuilder, binds: Vec<Bind>) {
+    b.keyword("EXISTS (SELECT 1 FROM card_components cc JOIN components k ON k.id = cc.component_id WHERE cc.card_id = cards.id AND k.name IN (");
     b.bind_list(binds);
     b.keyword("))");
 }
@@ -648,6 +658,10 @@ fn compile_is_empty(field: Field, b: &mut SqlBuilder) {
         Field::Resolved => b.keyword("cards.resolved_at IS NULL"),
         Field::Started => b.keyword("cards.start_date IS NULL"),
         Field::Estimate => b.keyword("cards.estimate IS NULL"),
+        Field::Milestone => b.keyword("cards.milestone_id IS NULL"),
+        Field::Component => {
+            b.keyword("NOT EXISTS (SELECT 1 FROM card_components cc WHERE cc.card_id = cards.id)");
+        }
         Field::Created => b.keyword("cards.created_at IS NULL"),
         Field::Updated => b.keyword("cards.updated_at IS NULL"),
         // Project, StatusCategory, Text, Key have no meaningful emptiness; a
@@ -782,6 +796,7 @@ fn history_field_name(field: Field) -> &'static str {
         Field::Reporter => "reporter",
         Field::Resolution => "resolution",
         Field::Type => "type",
+        Field::Milestone => "milestone",
         // Status, plus any field check_support has already rejected history on
         // (unreachable), map to the status changelog name.
         _ => "status",
@@ -804,6 +819,7 @@ fn compile_set_function(
         "watchedcards" => watchedcards(field, call, b, ctx),
         "cardhistory" => cardhistory(field, call, b, ctx),
         "linkedcards" => linkedcards(field, call, b),
+        "customfield" => customfield(field, call, b),
         // Unreachable: is_set_function gated the dispatch.
         other => Err(AqlError::at(
             call.name_span,
@@ -924,6 +940,37 @@ fn linkedcards(field: Field, call: &FuncCall, b: &mut SqlBuilder) -> Result<(), 
     Ok(())
 }
 
+/// `key IN customField("Company", "Acme")` — cards whose custom field holds a value.
+///
+/// Custom fields are user-defined, so they cannot be variants of the closed [`Field`] set
+/// without making every query's vocabulary depend on the database. A set function keeps the
+/// grammar fixed and still makes every field queryable across projects — which is the reason
+/// the registry is global at all (docs/adr/0003). Matches a scalar value exactly
+/// (case-insensitively) and a list value by membership; with one argument it matches any card
+/// that has the field set.
+fn customfield(field: Field, call: &FuncCall, b: &mut SqlBuilder) -> Result<(), AqlError> {
+    require_card_field(field, call, "customField")?;
+    if call.args.is_empty() || call.args.len() > 2 {
+        return Err(AqlError::at(
+            call.span,
+            "customField() takes a field name and an optional value",
+        ));
+    }
+    let name = string_of(&call.args[0])?;
+    b.keyword("cards.id IN (SELECT v.card_id FROM card_field_values v JOIN custom_fields f ON f.id = v.field_id WHERE f.name = ");
+    b.bind(Bind::Text(name));
+    if let Some(value) = call.args.get(1) {
+        let value = string_of(value)?;
+        b.keyword(" AND (lower(CASE json_type(v.value) WHEN 'text' THEN json_extract(v.value, '$') ELSE v.value END) = lower(");
+        b.bind(Bind::Text(value.clone()));
+        b.keyword(") OR (json_type(v.value) = 'array' AND EXISTS (SELECT 1 FROM json_each(v.value) e WHERE lower(e.value) = lower(");
+        b.bind(Bind::Text(value));
+        b.keyword("))))");
+    }
+    b.keyword(")");
+    Ok(())
+}
+
 fn require_card_field(field: Field, call: &FuncCall, name: &str) -> Result<(), AqlError> {
     if field == Field::Key {
         Ok(())
@@ -998,7 +1045,8 @@ fn order_column(field: Field, span: super::ast::Span) -> Result<&'static str, Aq
         Field::Reporter => "(SELECT display_name FROM users WHERE id = cards.reporter_id)",
         Field::Creator => "(SELECT display_name FROM users WHERE id = cards.creator_id)",
         Field::Parent => "cards.parent_id",
-        Field::Description | Field::Text | Field::Labels => {
+        Field::Milestone => "(SELECT release_date FROM milestones WHERE id = cards.milestone_id)",
+        Field::Description | Field::Text | Field::Labels | Field::Component => {
             return Err(AqlError::at(
                 span,
                 format!("cannot order by {}", field.as_str()),
@@ -1039,6 +1087,18 @@ fn scalar_binds(field: Field, values: &[Value], ctx: &CompileCtx) -> Result<Vec<
 
 /// The text form of a value in a scalar position.
 fn scalar_text(field: Field, value: &Value, ctx: &CompileCtx) -> Result<String, AqlError> {
+    // `updated <= -7d`: a relative offset in a date position is an instant relative to now.
+    // Without this the literal text `-7d` was compared against the column, which no stored
+    // timestamp ever sorts below — so every such query silently matched nothing.
+    if field.is_date()
+        && let Some(at) = functions::relative_instant(value, ctx.now)
+    {
+        return Ok(match field {
+            // Calendar-date columns store `YYYY-MM-DD`.
+            Field::Due | Field::Started => at.date_naive().to_string(),
+            _ => crate::auth::to_sql_timestamp(at),
+        });
+    }
     let text = match value {
         Value::Str { text, .. } => text.clone(),
         Value::Num { raw, .. } => raw.clone(),
@@ -1060,6 +1120,11 @@ fn scalar_text(field: Field, value: &Value, ctx: &CompileCtx) -> Result<String, 
 
 /// Resolves a value used in a history modifier — always text.
 fn text_bind(value: &Value, ctx: &CompileCtx) -> Result<Bind, AqlError> {
+    // `CHANGED AFTER -7d`: history modifiers compare against `card_history.created_at`, so a
+    // relative offset is an instant, exactly as in `scalar_text`.
+    if let Some(at) = functions::relative_instant(value, ctx.now) {
+        return Ok(Bind::Text(crate::auth::to_sql_timestamp(at)));
+    }
     // History mod values are not key-shaped, so no uppercasing.
     let text = match value {
         Value::Str { text, .. } => text.clone(),

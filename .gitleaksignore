@@ -1,0 +1,6 @@
+# Reviewed gitleaks findings that are not secrets, by fingerprint (commit:file:rule:line).
+#
+# The `generic-api-key` rule matched a slash-joined list of HTTP security header names
+# ("CSP/HSTS/XFO/nosniff/COOP") in a TODO.md note. The line has since been reworded; the
+# fingerprint stays because that commit is still in the history the scan reads.
+f45b4586fd2982caeaf16033e5cfd5150b9698e9:TODO.md:generic-api-key:437

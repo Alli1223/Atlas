@@ -491,7 +491,7 @@ async fn merge_relinks_every_card_and_deletes_the_source() {
     // ...and no card lost its tag on the way. This is the orphan check: had the
     // source been deleted before the relink, the cascade would have taken these
     // rows and both cards would silently be carrying nothing.
-    assert!(card_tags(&app, &admin, &three).await.is_empty());
+    assert_eq!(card_tags(&app, &admin, &three).await, Vec::<String>::new());
 
     // The source is gone.
     let names = project_tags(&app, &admin, &project.key).await;
@@ -810,7 +810,7 @@ async fn deleting_a_tag_removes_its_card_tags_rows_and_only_those() {
     assert_eq!(card_tag_rows(&app).await, 1);
     // ...and left the other tag's alone.
     assert_eq!(card_tags(&app, &admin, &one).await, ["keeper"]);
-    assert!(card_tags(&app, &admin, &two).await.is_empty());
+    assert_eq!(card_tags(&app, &admin, &two).await, Vec::<String>::new());
 
     // The cards themselves are emphatically still here. A cascade that ran the
     // wrong way would be catastrophic and silent.
@@ -1163,7 +1163,7 @@ async fn a_card_cannot_be_given_another_projects_tag() {
         reply.raw_body
     );
 
-    assert!(card_tags(&app, &admin, &mine).await.is_empty());
+    assert_eq!(card_tags(&app, &admin, &mine).await, Vec::<String>::new());
     assert_eq!(card_tag_rows(&app).await, 0);
 
     app.db.close().await;

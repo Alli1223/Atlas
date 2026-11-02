@@ -885,7 +885,12 @@ async fn validate_reports_ok_and_returns_spans_for_errors() {
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
     assert_eq!(reply.json()["ok"], json!(true));
     assert!(reply.json()["query"].is_string());
-    assert!(!reply.json()["fields"].as_array().unwrap().is_empty());
+    assert_ne!(
+        reply.json()["fields"].as_array().unwrap().len(),
+        0,
+        "{}",
+        reply.raw_body
+    );
 
     // A bad one comes back with the column of the offending token. The `=` in
     // `summary = x` is at column 9 (1-based).
@@ -942,7 +947,10 @@ async fn filters_are_personal_and_a_bad_body_is_refused_at_save() {
     assert_eq!(reply.status, StatusCode::NOT_FOUND, "{}", reply.raw_body);
 
     // Bob's own filter list is empty; the admin's has one.
-    assert!(rows(&app.send(get("/api/v1/filters", Some(&bob))).await).is_empty());
+    assert_eq!(
+        rows(&app.send(get("/api/v1/filters", Some(&bob))).await),
+        Vec::<Value>::new()
+    );
     assert_eq!(
         rows(&app.send(get("/api/v1/filters", Some(&admin))).await).len(),
         1
@@ -966,4 +974,57 @@ async fn filters_are_personal_and_a_bad_body_is_refused_at_save() {
         ))
         .await;
     assert_eq!(reply.status, StatusCode::NO_CONTENT, "{}", reply.raw_body);
+}
+
+#[tokio::test]
+async fn relative_offsets_in_date_comparisons_resolve_against_now() {
+    // `updated <= -7d` used to bind the literal text `-7d`, which no timestamp sorts below,
+    // so every relative-date comparison silently matched nothing — including the seeded
+    // job-search rule's whole query.
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    let fx = project(&app, &admin, "REL").await;
+    let old = card(
+        &app,
+        &admin,
+        &fx,
+        json!({ "summary": "Old", "dueDate": "2020-01-01" }),
+    )
+    .await;
+    let new = card(
+        &app,
+        &admin,
+        &fx,
+        json!({ "summary": "New", "dueDate": "2999-01-01" }),
+    )
+    .await;
+    let week_ago = (atlas::test_support::now() - chrono::Duration::days(8)).to_rfc3339();
+    sqlx::query("UPDATE cards SET updated_at = ? WHERE key = ?")
+        .bind(&week_ago)
+        .bind(&old)
+        .execute(app.db.writer())
+        .await
+        .expect("age the card");
+
+    assert_eq!(
+        search_keys(&app, &admin, "updated <= -7d").await,
+        vec![old.clone()]
+    );
+    assert_eq!(
+        search_keys(&app, &admin, "updated > -1d").await,
+        vec![new.clone()]
+    );
+    assert_eq!(
+        search_keys(&app, &admin, "due < +1w").await,
+        vec![old.clone()]
+    );
+    assert_eq!(
+        search_keys(&app, &admin, r#"due > "2025-01-01""#).await,
+        vec![new.clone()]
+    );
+    // History modifiers too: every card's status was set at creation, never changed.
+    assert_eq!(
+        search_keys(&app, &admin, "summary ~ Old AND updated <= -1w").await,
+        vec![old]
+    );
 }

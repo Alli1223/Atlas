@@ -30,6 +30,9 @@ tokio = { version = "1.52.4", features = ["full"] }
 # direct name for one already there.
 futures-util = "0.3.32"
 tower = "0.5.3"
+# `ReaderStream`, to stream an attachment off disk rather than reading it into memory. Already
+# in the tree at this version via tower-http's `fs` feature — no new crate to compile.
+tokio-util = { version = "0.7.18", features = ["io"] }
 tower-http = { version = "0.7.0", features = [
   "trace",
   "cors",
@@ -75,6 +78,9 @@ hex = "0.4"
 # Constant-time equality for anything derived from a secret.
 subtle = "2"
 base64 = "0.23.0"
+# Backups: the uploads tree as one .tar.gz beside the `VACUUM INTO` copy of the database.
+tar = "0.4"
+flate2 = "1"
 # Secrets vault (Phase 11). XChaCha20-Poly1305 AEAD: the 192-bit nonce is safe to
 # pick at random forever, so no nonce-reuse bookkeeping. aead 0.6 API — see
 # docs/research/rust-stack.md § encryption and corrections.md. `getrandom` gates
@@ -99,6 +105,20 @@ reqwest = { version = "0.13", default-features = false, features = [
   "rustls",
   "http2",
   "charset",
+] }
+# Automation's regex condition (Phase 15). Already in the tree at this version (via
+# tracing-subscriber's env-filter); linear-time matching, so a user's pattern cannot be a ReDoS.
+regex = "1.13.1"
+# Outbound email for notifications (Phase 17). rustls with aws-lc-rs and the platform
+# verifier — the same TLS stack reqwest already pulls in, so no OpenSSL and no second crypto
+# provider. Only the SMTP transport and message builder are enabled.
+lettre = { version = "0.11.23", default-features = false, features = [
+  "builder",
+  "smtp-transport",
+  "tokio1-rustls",
+  "aws-lc-rs",
+  "rustls-platform-verifier",
+  "hostname",
 ] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }

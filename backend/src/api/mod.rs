@@ -2,20 +2,29 @@
 
 pub mod admin;
 pub mod agent_sessions;
+pub mod attachments;
 pub mod auth;
+pub mod automation;
 pub mod board;
 pub mod cards;
+pub mod collab;
 pub mod comments;
 pub mod credentials;
+pub mod custom_fields;
 pub mod cycles;
+pub mod generate;
 pub mod github;
+pub mod live;
 pub mod members;
 pub mod middleware;
+pub mod notifications;
 pub mod project_config;
 pub mod projects;
+pub mod reports;
 pub mod search;
 pub mod serde_ext;
 pub mod tags;
+pub mod transfer;
 pub mod users;
 pub mod webhooks;
 pub mod workflow;
@@ -81,6 +90,10 @@ pub struct AppState {
     /// `agent::orchestrator::CancelRegistry`'s own doc for why this lives here rather than
     /// inside the orchestrator module itself.
     pub cancel_registry: CancelRegistry,
+    /// The live hub every WebSocket subscribes to — see [`crate::activity::Hub`].
+    pub hub: crate::activity::Hub,
+    /// Each executing run's recent output, for a viewer who opens it mid-run.
+    pub agent_live: crate::agent::orchestrator::LiveBuffers,
 }
 
 impl fmt::Debug for AppState {
@@ -95,6 +108,8 @@ impl fmt::Debug for AppState {
             .field("agent_runner", &"Arc<dyn AgentRunner>")
             .field("workspace_preparer", &"Arc<dyn WorkspacePreparer>")
             .field("cancel_registry", &"CancelRegistry")
+            .field("hub", &self.hub)
+            .field("agent_live", &"LiveBuffers")
             .finish()
     }
 }
@@ -125,6 +140,8 @@ impl AppState {
             agent_runner,
             workspace_preparer,
             cancel_registry: CancelRegistry::default(),
+            hub: crate::activity::Hub::default(),
+            agent_live: crate::agent::orchestrator::LiveBuffers::default(),
         }
     }
 }
@@ -148,6 +165,14 @@ impl AppState {
         (name = "cards", description = "Cards, the board, the hierarchy, and the changelog"),
         (name = "boards", description = "Board data (columns, mini-map rollups, swimlanes) and saved board config"),
         (name = "comments", description = "Comments on cards"),
+        (name = "collaboration", description = "Watchers, worklogs, card and web links, components and milestones"),
+        (name = "attachments", description = "Files on cards, versioned by name, and user avatars"),
+        (name = "custom-fields", description = "The global custom field registry, per-project layouts, and card values"),
+        (name = "notifications", description = "The caller's bell and notification preferences"),
+        (name = "live", description = "The WebSocket channel: board sync, notifications, agent output"),
+        (name = "reports", description = "Reports (cumulative flow, burndown, velocity, …), gadget aggregates, and dashboards"),
+        (name = "generate", description = "Gemini: cover art, avatars, card covers, reference images, drafts and natural-language queries"),
+        (name = "automation", description = "Rules (one trigger, conditions, actions), their audit log, dry runs and webhooks"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
         (name = "cycles", description = "Cycles (sprints/iterations): their lifecycle, and which cards belong to them"),
@@ -240,6 +265,15 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(cards::routes())
         .merge(board::routes())
         .merge(comments::routes())
+        .merge(collab::routes())
+        .merge(attachments::routes())
+        .merge(custom_fields::routes())
+        .merge(notifications::routes())
+        .merge(live::routes())
+        .merge(automation::routes())
+        .merge(reports::routes())
+        .merge(generate::routes())
+        .merge(transfer::routes())
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())
@@ -282,6 +316,9 @@ pub fn router(state: AppState) -> Router {
         // The GitHub webhook receiver: top-level and unauthenticated (HMAC is its gate), so
         // it lives outside the `/api/v1` nest and is allowlisted in `UNGATED_PATHS`.
         .merge(webhooks::routes())
+        // Automation's incoming webhooks: public like GitHub's, gated by a secret token in the
+        // path rather than a session. Allowlisted in `UNGATED_PATHS`.
+        .merge(automation::hook_routes())
         .nest(API_V1_PREFIX, api_v1(&state))
         .split_for_parts();
 

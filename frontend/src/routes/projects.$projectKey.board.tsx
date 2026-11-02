@@ -10,7 +10,6 @@ import {
   boardQueryOptions,
   combineFilters,
   QuickFilters,
-  Toaster,
   useBoard,
   useBoardReferences,
   useCard,
@@ -19,6 +18,8 @@ import {
 } from '@/features/board'
 import { CardDetailModal } from '@/features/card-detail'
 import { useProject } from '@/features/projects'
+
+import { ProjectTabs } from '@/features/project-tools'
 
 import styles from './projects.$projectKey.board.module.css'
 
@@ -138,6 +139,7 @@ function BoardRoute() {
 
   return (
     <div className={styles.page}>
+      <ProjectTabs projectKey={projectKey} />
       <header className={styles.header}>
         <div className={styles.headingRow}>
           <BoardBreadcrumb
@@ -206,7 +208,6 @@ function BoardRoute() {
         <CardDetailModal cardKey={search.card} onClose={closeCard} />
       )}
 
-      <Toaster />
     </div>
   )
 }

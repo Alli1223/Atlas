@@ -42,6 +42,10 @@ pub enum AppError {
     #[error("bad request: {0}")]
     BadRequest(String),
 
+    /// Too soon after the last one (a rate limit). 429.
+    #[error("too many requests: {0}")]
+    TooManyRequests(String),
+
     /// Anything unexpected. Logged in full, reported opaquely. 500.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -62,6 +66,7 @@ impl AppError {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Forbidden => StatusCode::FORBIDDEN,
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -78,6 +83,7 @@ impl AppError {
             Self::Unauthorized => "urn:atlas:error:unauthorized",
             Self::Forbidden => "urn:atlas:error:forbidden",
             Self::BadRequest(_) => "urn:atlas:error:bad-request",
+            Self::TooManyRequests(_) => "urn:atlas:error:too-many-requests",
             Self::Internal(_) => "urn:atlas:error:internal",
         }
     }
@@ -91,6 +97,7 @@ impl AppError {
             Self::Unauthorized => "Unauthorized",
             Self::Forbidden => "Forbidden",
             Self::BadRequest(_) => "Bad Request",
+            Self::TooManyRequests(_) => "Too Many Requests",
             Self::Internal(_) => "Internal Server Error",
         }
     }
@@ -100,7 +107,10 @@ impl AppError {
     /// `Internal` deliberately discards the cause: it has already been logged.
     fn detail(&self) -> String {
         match self {
-            Self::Validation(msg) | Self::Conflict(msg) | Self::BadRequest(msg) => msg.clone(),
+            Self::Validation(msg)
+            | Self::Conflict(msg)
+            | Self::BadRequest(msg)
+            | Self::TooManyRequests(msg) => msg.clone(),
             Self::NotFound => "The requested resource does not exist.".to_owned(),
             Self::Unauthorized => "Authentication is required to access this resource.".to_owned(),
             Self::Forbidden => "You do not have permission to perform this action.".to_owned(),

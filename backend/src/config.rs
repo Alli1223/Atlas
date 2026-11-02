@@ -155,6 +155,49 @@ pub struct Config {
     /// fallback exists.
     #[serde(default)]
     pub public_url: Option<String>,
+
+    /// Largest accepted upload (an attachment version), in MB. `ATLAS_MAX_UPLOAD_MB`.
+    ///
+    /// Streamed to disk and counted as it arrives, so this bounds disk use per upload rather
+    /// than memory. JSON routes are unaffected: axum's own 2 MB extractor limit still applies
+    /// to every `Json` body.
+    #[serde(default = "default_max_upload_mb")]
+    pub max_upload_mb: u64,
+
+    /// Which peers may set `X-Forwarded-For`. `ATLAS_TRUSTED_PROXIES`.
+    ///
+    /// `*` (the default) trusts any peer — right for the documented deploy behind one reverse
+    /// proxy, and what Atlas always did. A comma-separated list of IPs restricts it to those
+    /// peers, so a client that reaches Atlas directly cannot pick its own address for the
+    /// per-IP login lockout. `none` ignores the header entirely.
+    #[serde(default = "default_trusted_proxies")]
+    pub trusted_proxies: String,
+
+    /// How many Claude Code runs may execute at once; the rest queue.
+    /// `ATLAS_AGENT_MAX_CONCURRENT`.
+    #[serde(default = "default_agent_max_concurrent")]
+    pub agent_max_concurrent: usize,
+
+    /// Hours between automatic backups; `0` disables them. `ATLAS_BACKUP_INTERVAL_HOURS`.
+    #[serde(default = "default_backup_interval_hours")]
+    pub backup_interval_hours: u64,
+
+    /// How many automatic backups to keep. `ATLAS_BACKUP_KEEP`.
+    #[serde(default = "default_backup_keep")]
+    pub backup_keep: usize,
+
+    /// The Gemini image model. `ATLAS_GEMINI_IMAGE_MODEL`. Ids churn quickly in this family,
+    /// so this is configuration, not code (docs/research/gemini-api.md).
+    #[serde(default = "default_gemini_image_model")]
+    pub gemini_image_model: String,
+
+    /// The Gemini text model. `ATLAS_GEMINI_TEXT_MODEL`.
+    #[serde(default = "default_gemini_text_model")]
+    pub gemini_text_model: String,
+
+    /// Override for Gemini's API host — for tests and proxies. `ATLAS_GEMINI_BASE_URL`.
+    #[serde(default)]
+    pub gemini_base_url: Option<String>,
 }
 
 fn default_bind_addr() -> SocketAddr {
@@ -189,6 +232,35 @@ fn default_reader_pool_size() -> u32 {
     8
 }
 
+fn default_max_upload_mb() -> u64 {
+    100
+}
+
+fn default_trusted_proxies() -> String {
+    "*".to_owned()
+}
+
+fn default_agent_max_concurrent() -> usize {
+    2
+}
+
+fn default_backup_interval_hours() -> u64 {
+    24
+}
+
+fn default_backup_keep() -> usize {
+    7
+}
+
+fn default_gemini_image_model() -> String {
+    // Nano Banana 2. Not gemini-2.5-flash-image: shut down 2026-10-02 (corrections.md #2).
+    "gemini-3.1-flash-image-preview".to_owned()
+}
+
+fn default_gemini_text_model() -> String {
+    "gemini-3.1-flash-lite".to_owned()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -205,6 +277,14 @@ impl Default for Config {
             reader_pool_size: default_reader_pool_size(),
             static_dir: None,
             public_url: None,
+            max_upload_mb: default_max_upload_mb(),
+            trusted_proxies: default_trusted_proxies(),
+            agent_max_concurrent: default_agent_max_concurrent(),
+            backup_interval_hours: default_backup_interval_hours(),
+            backup_keep: default_backup_keep(),
+            gemini_image_model: default_gemini_image_model(),
+            gemini_text_model: default_gemini_text_model(),
+            gemini_base_url: None,
         }
     }
 }
@@ -259,6 +339,18 @@ impl Config {
             )));
         }
 
+        if self.max_upload_mb == 0 {
+            return Err(ConfigError(format!(
+                "{ENV_PREFIX}MAX_UPLOAD_MB must be at least 1 (got 0)."
+            )));
+        }
+
+        if self.agent_max_concurrent == 0 {
+            return Err(ConfigError(format!(
+                "{ENV_PREFIX}AGENT_MAX_CONCURRENT must be at least 1 (got 0)."
+            )));
+        }
+
         if self.reader_pool_size == 0 {
             return Err(ConfigError(format!(
                 "{ENV_PREFIX}READER_POOL_SIZE must be at least 1 (got 0)."
@@ -288,6 +380,16 @@ impl Config {
     /// Whether CORS is configured to allow any origin.
     pub fn cors_allows_any_origin(&self) -> bool {
         self.cors_origins() == ["*"]
+    }
+
+    /// [`Self::max_upload_mb`] in bytes.
+    pub fn max_upload_bytes(&self) -> u64 {
+        self.max_upload_mb.saturating_mul(1024 * 1024)
+    }
+
+    /// Where backups are written: `{data_dir}/backups`.
+    pub fn backup_dir(&self) -> PathBuf {
+        self.data_dir.join("backups")
     }
 
     /// Creates the directories Atlas writes to.

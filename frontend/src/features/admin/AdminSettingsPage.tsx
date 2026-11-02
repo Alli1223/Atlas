@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button, Lozenge, Spinner } from '@/components/ui'
 import { ICON } from '@/lib/icon'
 
+import { BackupsCard } from './BackupsCard'
 import styles from './AdminSettingsPage.module.css'
 import { useApplyUpdate, useSystemStats, useUpdateStatus } from './queries'
 
@@ -235,6 +236,7 @@ export function AdminSettingsPage() {
 
       <SystemStatsCard />
       <UpdatesCard />
+      <BackupsCard />
     </div>
   )
 }

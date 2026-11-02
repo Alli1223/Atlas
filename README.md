@@ -191,6 +191,8 @@ atlas/
 
 ## Documentation
 
+- **[`docs/guide/`](docs/guide/)** — installing and running Atlas, backups and restore,
+  integrations, the AQL reference and keyboard shortcuts.
 - **[`TODO.md`](TODO.md)** — the full implementation plan, 20 phases, with the architecture
   decisions that dominate everything else and an explicit list of what was cut and why.
 - **[`docs/adr/`](docs/adr/)** — architecture decision records: the choices that were expensive

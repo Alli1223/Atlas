@@ -9,30 +9,25 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as StyleguideRouteImport } from './routes/styleguide'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as ChangePasswordRouteImport } from './routes/change-password'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
-import { Route as CardsKeyRouteImport } from './routes/cards.$key'
+import { Route as ChangePasswordRouteImport } from './routes/change-password'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as SearchRouteImport } from './routes/search'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as StyleguideRouteImport } from './routes/styleguide'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
-import { Route as ProjectsProjectKeyCyclesRouteImport } from './routes/projects.$projectKey.cycles'
+import { Route as CardsKeyRouteImport } from './routes/cards.$key'
+import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
+import { Route as ProjectsProjectKeyAutomationRouteImport } from './routes/projects.$projectKey.automation'
 import { Route as ProjectsProjectKeyBoardRouteImport } from './routes/projects.$projectKey.board'
+import { Route as ProjectsProjectKeyCyclesRouteImport } from './routes/projects.$projectKey.cycles'
+import { Route as ProjectsProjectKeyImportRouteImport } from './routes/projects.$projectKey.import'
+import { Route as ProjectsProjectKeyReportsRouteImport } from './routes/projects.$projectKey.reports'
+import { Route as ProjectsProjectKeyTrashRouteImport } from './routes/projects.$projectKey.trash'
 
-const StyleguideRoute = StyleguideRouteImport.update({
-  id: '/styleguide',
-  path: '/styleguide',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChangePasswordRoute = ChangePasswordRouteImport.update({
@@ -40,14 +35,29 @@ const ChangePasswordRoute = ChangePasswordRouteImport.update({
   path: '/change-password',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
-  id: '/projects/',
-  path: '/projects/',
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StyleguideRoute = StyleguideRouteImport.update({
+  id: '/styleguide',
+  path: '/styleguide',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/admin/settings',
+  path: '/admin/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CardsKeyRoute = CardsKeyRouteImport.update({
@@ -55,9 +65,20 @@ const CardsKeyRoute = CardsKeyRouteImport.update({
   path: '/cards/$key',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminSettingsRoute = AdminSettingsRouteImport.update({
-  id: '/admin/settings',
-  path: '/admin/settings',
+const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
+  id: '/projects/',
+  path: '/projects/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsProjectKeyAutomationRoute =
+  ProjectsProjectKeyAutomationRouteImport.update({
+    id: '/projects/$projectKey/automation',
+    path: '/projects/$projectKey/automation',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ProjectsProjectKeyBoardRoute = ProjectsProjectKeyBoardRouteImport.update({
+  id: '/projects/$projectKey/board',
+  path: '/projects/$projectKey/board',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsProjectKeyCyclesRoute =
@@ -66,9 +87,21 @@ const ProjectsProjectKeyCyclesRoute =
     path: '/projects/$projectKey/cycles',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ProjectsProjectKeyBoardRoute = ProjectsProjectKeyBoardRouteImport.update({
-  id: '/projects/$projectKey/board',
-  path: '/projects/$projectKey/board',
+const ProjectsProjectKeyImportRoute =
+  ProjectsProjectKeyImportRouteImport.update({
+    id: '/projects/$projectKey/import',
+    path: '/projects/$projectKey/import',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ProjectsProjectKeyReportsRoute =
+  ProjectsProjectKeyReportsRouteImport.update({
+    id: '/projects/$projectKey/reports',
+    path: '/projects/$projectKey/reports',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ProjectsProjectKeyTrashRoute = ProjectsProjectKeyTrashRouteImport.update({
+  id: '/projects/$projectKey/trash',
+  path: '/projects/$projectKey/trash',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -76,38 +109,53 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/change-password': typeof ChangePasswordRoute
   '/login': typeof LoginRoute
+  '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/styleguide': typeof StyleguideRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/cards/$key': typeof CardsKeyRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/projects/$projectKey/automation': typeof ProjectsProjectKeyAutomationRoute
   '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
   '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
+  '/projects/$projectKey/import': typeof ProjectsProjectKeyImportRoute
+  '/projects/$projectKey/reports': typeof ProjectsProjectKeyReportsRoute
+  '/projects/$projectKey/trash': typeof ProjectsProjectKeyTrashRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/change-password': typeof ChangePasswordRoute
   '/login': typeof LoginRoute
+  '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/styleguide': typeof StyleguideRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/cards/$key': typeof CardsKeyRoute
   '/projects': typeof ProjectsIndexRoute
+  '/projects/$projectKey/automation': typeof ProjectsProjectKeyAutomationRoute
   '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
   '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
+  '/projects/$projectKey/import': typeof ProjectsProjectKeyImportRoute
+  '/projects/$projectKey/reports': typeof ProjectsProjectKeyReportsRoute
+  '/projects/$projectKey/trash': typeof ProjectsProjectKeyTrashRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/change-password': typeof ChangePasswordRoute
   '/login': typeof LoginRoute
+  '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/styleguide': typeof StyleguideRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/cards/$key': typeof CardsKeyRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/projects/$projectKey/automation': typeof ProjectsProjectKeyAutomationRoute
   '/projects/$projectKey/board': typeof ProjectsProjectKeyBoardRoute
   '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
+  '/projects/$projectKey/import': typeof ProjectsProjectKeyImportRoute
+  '/projects/$projectKey/reports': typeof ProjectsProjectKeyReportsRoute
+  '/projects/$projectKey/trash': typeof ProjectsProjectKeyTrashRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -115,73 +163,79 @@ export interface FileRouteTypes {
     | '/'
     | '/change-password'
     | '/login'
+    | '/search'
     | '/settings'
     | '/styleguide'
     | '/admin/settings'
     | '/cards/$key'
     | '/projects/'
+    | '/projects/$projectKey/automation'
     | '/projects/$projectKey/board'
     | '/projects/$projectKey/cycles'
+    | '/projects/$projectKey/import'
+    | '/projects/$projectKey/reports'
+    | '/projects/$projectKey/trash'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/change-password'
     | '/login'
+    | '/search'
     | '/settings'
     | '/styleguide'
     | '/admin/settings'
     | '/cards/$key'
     | '/projects'
+    | '/projects/$projectKey/automation'
     | '/projects/$projectKey/board'
     | '/projects/$projectKey/cycles'
+    | '/projects/$projectKey/import'
+    | '/projects/$projectKey/reports'
+    | '/projects/$projectKey/trash'
   id:
     | '__root__'
     | '/'
     | '/change-password'
     | '/login'
+    | '/search'
     | '/settings'
     | '/styleguide'
     | '/admin/settings'
     | '/cards/$key'
     | '/projects/'
+    | '/projects/$projectKey/automation'
     | '/projects/$projectKey/board'
     | '/projects/$projectKey/cycles'
+    | '/projects/$projectKey/import'
+    | '/projects/$projectKey/reports'
+    | '/projects/$projectKey/trash'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChangePasswordRoute: typeof ChangePasswordRoute
   LoginRoute: typeof LoginRoute
+  SearchRoute: typeof SearchRoute
   SettingsRoute: typeof SettingsRoute
   StyleguideRoute: typeof StyleguideRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   CardsKeyRoute: typeof CardsKeyRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
+  ProjectsProjectKeyAutomationRoute: typeof ProjectsProjectKeyAutomationRoute
   ProjectsProjectKeyBoardRoute: typeof ProjectsProjectKeyBoardRoute
   ProjectsProjectKeyCyclesRoute: typeof ProjectsProjectKeyCyclesRoute
+  ProjectsProjectKeyImportRoute: typeof ProjectsProjectKeyImportRoute
+  ProjectsProjectKeyReportsRoute: typeof ProjectsProjectKeyReportsRoute
+  ProjectsProjectKeyTrashRoute: typeof ProjectsProjectKeyTrashRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/styleguide': {
-      id: '/styleguide'
-      path: '/styleguide'
-      fullPath: '/styleguide'
-      preLoaderRoute: typeof StyleguideRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/change-password': {
@@ -191,25 +245,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChangePasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/projects/': {
-      id: '/projects/'
-      path: '/projects'
-      fullPath: '/projects/'
-      preLoaderRoute: typeof ProjectsIndexRouteImport
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/cards/$key': {
-      id: '/cards/$key'
-      path: '/cards/$key'
-      fullPath: '/cards/$key'
-      preLoaderRoute: typeof CardsKeyRouteImport
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/styleguide': {
+      id: '/styleguide'
+      path: '/styleguide'
+      fullPath: '/styleguide'
+      preLoaderRoute: typeof StyleguideRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/settings': {
@@ -219,11 +280,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/projects/$projectKey/cycles': {
-      id: '/projects/$projectKey/cycles'
-      path: '/projects/$projectKey/cycles'
-      fullPath: '/projects/$projectKey/cycles'
-      preLoaderRoute: typeof ProjectsProjectKeyCyclesRouteImport
+    '/cards/$key': {
+      id: '/cards/$key'
+      path: '/cards/$key'
+      fullPath: '/cards/$key'
+      preLoaderRoute: typeof CardsKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/': {
+      id: '/projects/'
+      path: '/projects'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof ProjectsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$projectKey/automation': {
+      id: '/projects/$projectKey/automation'
+      path: '/projects/$projectKey/automation'
+      fullPath: '/projects/$projectKey/automation'
+      preLoaderRoute: typeof ProjectsProjectKeyAutomationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects/$projectKey/board': {
@@ -233,6 +308,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectKeyBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/projects/$projectKey/cycles': {
+      id: '/projects/$projectKey/cycles'
+      path: '/projects/$projectKey/cycles'
+      fullPath: '/projects/$projectKey/cycles'
+      preLoaderRoute: typeof ProjectsProjectKeyCyclesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$projectKey/import': {
+      id: '/projects/$projectKey/import'
+      path: '/projects/$projectKey/import'
+      fullPath: '/projects/$projectKey/import'
+      preLoaderRoute: typeof ProjectsProjectKeyImportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$projectKey/reports': {
+      id: '/projects/$projectKey/reports'
+      path: '/projects/$projectKey/reports'
+      fullPath: '/projects/$projectKey/reports'
+      preLoaderRoute: typeof ProjectsProjectKeyReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$projectKey/trash': {
+      id: '/projects/$projectKey/trash'
+      path: '/projects/$projectKey/trash'
+      fullPath: '/projects/$projectKey/trash'
+      preLoaderRoute: typeof ProjectsProjectKeyTrashRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -240,13 +343,18 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChangePasswordRoute: ChangePasswordRoute,
   LoginRoute: LoginRoute,
+  SearchRoute: SearchRoute,
   SettingsRoute: SettingsRoute,
   StyleguideRoute: StyleguideRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   CardsKeyRoute: CardsKeyRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
+  ProjectsProjectKeyAutomationRoute: ProjectsProjectKeyAutomationRoute,
   ProjectsProjectKeyBoardRoute: ProjectsProjectKeyBoardRoute,
   ProjectsProjectKeyCyclesRoute: ProjectsProjectKeyCyclesRoute,
+  ProjectsProjectKeyImportRoute: ProjectsProjectKeyImportRoute,
+  ProjectsProjectKeyReportsRoute: ProjectsProjectKeyReportsRoute,
+  ProjectsProjectKeyTrashRoute: ProjectsProjectKeyTrashRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

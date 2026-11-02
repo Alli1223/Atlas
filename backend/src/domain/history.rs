@@ -78,6 +78,8 @@ pub enum Field {
     StartDate,
     /// The estimate.
     Estimate,
+    /// The milestone the card is scheduled for.
+    Milestone,
     /// The board sort key.
     Rank,
     /// Archival.
@@ -105,6 +107,7 @@ impl Field {
             Self::DueDate => "due_date",
             Self::StartDate => "start_date",
             Self::Estimate => "estimate",
+            Self::Milestone => "milestone",
             Self::Rank => "rank",
             Self::Archived => "archived",
             Self::Deleted => "deleted",
@@ -197,6 +200,9 @@ pub struct HistoryEntry {
     pub to_value: Option<String>,
     /// The new value as a human saw it, at the time.
     pub to_display: Option<String>,
+    /// What made the change when it was not the author by hand: `automation:<rule>:<depth>`
+    /// or `agent:<session>`. `None` = a person, directly.
+    pub actor: Option<String>,
 }
 
 /// Appends changes to a card's history, inside the caller's transaction.
@@ -221,8 +227,8 @@ pub async fn record(
     for change in changes {
         sqlx::query(
             "INSERT INTO card_history (id, card_id, author_id, created_at, field, \
-             from_value, from_display, to_value, to_display) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             from_value, from_display, to_value, to_display, actor) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(Uuid::now_v7().to_string())
         .bind(card_id)
@@ -233,6 +239,7 @@ pub async fn record(
         .bind(&change.from_display)
         .bind(&change.to_value)
         .bind(&change.to_display)
+        .bind(crate::activity::current_actor())
         .execute(&mut *tx)
         .await?;
     }
@@ -240,11 +247,46 @@ pub async fn record(
     Ok(())
 }
 
+/// Appends one custom-field change to a card's history.
+///
+/// Custom fields are not in the closed [`Field`] set — they are user-defined — so their
+/// changelog name is `cf:<field id>`: stable across a rename of the field, exactly as
+/// `from_value`/`to_value` hold ids rather than names for the built-in reference fields. The
+/// display columns carry the human-readable value at the time.
+pub async fn record_custom(
+    tx: &mut sqlx::SqliteConnection,
+    card_id: &str,
+    author_id: Option<&str>,
+    field_id: &str,
+    from: (Option<String>, Option<String>),
+    to: (Option<String>, Option<String>),
+    now: DateTime<Utc>,
+) -> AppResult<()> {
+    sqlx::query(
+        "INSERT INTO card_history (id, card_id, author_id, created_at, field, \
+         from_value, from_display, to_value, to_display, actor) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::now_v7().to_string())
+    .bind(card_id)
+    .bind(author_id)
+    .bind(to_sql_timestamp(now))
+    .bind(format!("cf:{field_id}"))
+    .bind(from.0)
+    .bind(from.1)
+    .bind(to.0)
+    .bind(to.1)
+    .bind(crate::activity::current_actor())
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
 /// A card's history, oldest first.
 pub async fn list(db: &Db, card_id: &str) -> AppResult<Vec<HistoryEntry>> {
     Ok(sqlx::query_as::<_, HistoryEntry>(
         "SELECT id, card_id, author_id, created_at, field, from_value, from_display, \
-         to_value, to_display FROM card_history \
+         to_value, to_display, actor FROM card_history \
          WHERE card_id = ? ORDER BY created_at, id",
     )
     .bind(card_id)
@@ -276,6 +318,7 @@ mod tests {
             Field::DueDate,
             Field::StartDate,
             Field::Estimate,
+            Field::Milestone,
             Field::Rank,
             Field::Archived,
             Field::Deleted,

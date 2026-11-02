@@ -22,6 +22,14 @@
 //! - [`cycle_snapshot`] — daily point-in-time snapshots of an active cycle's in-scope cards,
 //!   what a burndown chart and Phase 16's reports are computed from. Driven by
 //!   [`crate::scheduler`].
+//! - [`links`] — card-to-card links (with their materialised inverse), remote links, and
+//!   watchers.
+//! - [`worklog`] — time logged against a card, and the `2w 3d 4h 30m` duration grammar.
+//! - [`planning`] — components (a project's areas) and milestones (Jira's versions,
+//!   generalised).
+//! - [`attachment`] — files on a card, versioned by name. Bytes live in [`crate::storage`].
+//! - [`custom_field`] — the global field registry, per-project layouts, and typed values.
+//! - [`snapshot`] — `daily_snapshot`, one row per card per day: what reports group over.
 //! - [`tag`] — free-text labels, and the presets each template seeds.
 //! - [`template`] — the four project templates' seed data.
 //! - [`workflow`] — the workflow engine: transitions and their conditions,
@@ -50,20 +58,31 @@
 
 pub mod agent_session;
 pub mod agent_session_transcript;
+pub mod agent_settings;
+pub mod attachment;
 pub mod board;
+pub mod bulk;
+pub mod bundle;
 pub mod card;
+pub mod card_template;
 pub mod comment;
 pub mod config;
+pub mod csv_import;
+pub mod custom_field;
 pub mod cycle;
 pub mod cycle_snapshot;
 pub mod filter;
 pub mod hierarchy;
 pub mod history;
+pub mod links;
 pub mod member;
+pub mod planning;
 pub mod project;
+pub mod snapshot;
 pub mod tag;
 pub mod template;
 pub mod workflow;
+pub mod worklog;
 
 use std::fmt;
 use std::str::FromStr;

@@ -33,6 +33,18 @@ function ToastRow({ toast }: { toast: Toast }) {
         <Icon {...ICON} aria-hidden="true" />
       </span>
       <span className={styles.message}>{toast.message}</span>
+      {toast.action && (
+        <button
+          type="button"
+          className={styles.action}
+          onClick={() => {
+            toast.action?.run()
+            dismiss(toast.id)
+          }}
+        >
+          {toast.action.label}
+        </button>
+      )}
       <button
         type="button"
         className={styles.dismiss}

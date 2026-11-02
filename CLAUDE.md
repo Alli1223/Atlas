@@ -30,6 +30,9 @@ and move without warning. They have been out of step in *both* directions:
 - Both on **1.98.0** (from 2026-08-18): the new `clippy::unused_async_trait_impl` turned three
   pre-existing `FromRequestParts` extractors red, breaking every PR's CI at the lib step until a
   scoped `#[allow]` (with the reason) was added. `stable` advancing broke code that was green.
+- **1.99.x** (by 2026-11): the new `clippy::assert_is_empty` flagged twelve pre-existing
+  `assert!(x.is_empty())` test assertions. Fixed in place (`assert_eq!(x, Vec::<T>::new())`, so a
+  failure prints the value) rather than allowed — there was nothing structural about them.
 
 So a clean local `cargo clippy -D warnings` does not prove CI will pass, and green-on-`main`
 today does not mean green tomorrow. Prefer fixing a lint over `#[allow]`; use `#[allow]` (with a
