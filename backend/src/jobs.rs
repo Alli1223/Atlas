@@ -147,6 +147,56 @@ pub fn all(state: &AppState) -> Vec<Job> {
                 }
             },
         ),
+    ]
+    .into_iter()
+    .chain(maintenance(state))
+    .collect()
+}
+
+/// Housekeeping: backups, credential checks, the session table.
+fn maintenance(state: &AppState) -> Vec<Job> {
+    vec![
+        job(
+            "backup",
+            // Checked hourly; a backup is taken only when the newest is older than
+            // ATLAS_BACKUP_INTERVAL_HOURS, so restarts do not pile up extra copies.
+            Duration::from_hours(1),
+            state,
+            |state| async move {
+                let now = crate::auth::now();
+                match crate::backup::due(&state.config, now) {
+                    Ok(true) => {
+                        if let Err(err) = crate::backup::run(&state.db, &state.config, now).await {
+                            tracing::error!(error = %err, "scheduled backup failed");
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(err) => tracing::warn!(error = %err, "could not list backups"),
+                }
+            },
+        ),
+        job(
+            "credential-revalidation",
+            Duration::from_hours(6),
+            state,
+            |state| async move {
+                let Some(vault) = state.vault.clone() else {
+                    return;
+                };
+                match crate::secrets::revalidate::run(&state.db, &vault, crate::auth::now()).await {
+                    Ok(changes) => {
+                        if let Err(err) = crate::secrets::revalidate::notify_admins(
+                            &state.db, &state.hub, &changes,
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %err, "credential notices failed");
+                        }
+                    }
+                    Err(err) => tracing::warn!(error = %err, "credential revalidation failed"),
+                }
+            },
+        ),
         job(
             "session-purge",
             Duration::from_hours(6),

@@ -382,6 +382,17 @@ pub struct RepoSummary {
     pub private: bool,
 }
 
+/// What [`GithubClient::probe_repo`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RepoProbe {
+    /// Reachable; GitHub's current name for it (which a rename changes) is in here.
+    Found(RepoSummary),
+    /// The token was rejected.
+    Unauthorized,
+    /// Deleted, or the token can no longer see it.
+    NotFound,
+}
+
 /// A pull request, reduced to what a card shows.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -596,6 +607,37 @@ impl GithubClient {
             can_push: r.permissions.is_some_and(|p| p.push),
             private: r.private,
         })
+    }
+
+    /// Checks a linked repo is still reachable, telling a broken link (`401`/`403`: the token;
+    /// `404`: the repo is gone or the token lost access) apart from a transient failure,
+    /// which is an `Err` so it is never recorded as a broken link.
+    pub async fn probe_repo(&self, repo: &RepoRef) -> AppResult<RepoProbe> {
+        let path = format!("/repos/{}/{}", repo.owner, repo.repo);
+        let resp = self
+            .execute(self.request(reqwest::Method::GET, &path))
+            .await?;
+        match resp.status() {
+            status if status.is_success() => {
+                let r: wire::Repo = resp.json().await.map_err(AppError::internal)?;
+                Ok(RepoProbe::Found(RepoSummary {
+                    id: r.id,
+                    full_name: r.full_name,
+                    default_branch: r.default_branch,
+                    can_push: r.permissions.is_some_and(|p| p.push),
+                    private: r.private,
+                }))
+            }
+            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
+                Ok(RepoProbe::Unauthorized)
+            }
+            reqwest::StatusCode::NOT_FOUND => Ok(RepoProbe::NotFound),
+            status => Err(AppError::internal(anyhow::anyhow!(
+                "GitHub returned {status} probing {}/{}",
+                repo.owner,
+                repo.repo
+            ))),
+        }
     }
 
     /// The commit SHA at the tip of `branch` — the base a new branch forks from.

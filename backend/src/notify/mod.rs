@@ -62,17 +62,20 @@ pub enum Kind {
     Updated,
     /// A Claude Code run you started finished, failed or needs you.
     Agent,
+    /// Instance administration: a credential failed its scheduled check, a backup failed.
+    System,
 }
 
 impl Kind {
     /// Every kind.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Assigned,
         Self::Mentioned,
         Self::Commented,
         Self::Transitioned,
         Self::Updated,
         Self::Agent,
+        Self::System,
     ];
 
     /// The stored spelling.
@@ -84,6 +87,7 @@ impl Kind {
             Self::Transitioned => "transitioned",
             Self::Updated => "updated",
             Self::Agent => "agent",
+            Self::System => "system",
         }
     }
 

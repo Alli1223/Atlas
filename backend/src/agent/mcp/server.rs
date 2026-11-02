@@ -157,9 +157,10 @@ fn app_error_to_tool_error(id: &Value, err: AppError) -> Value {
         AppError::Internal(err) => internal_tool_error(id, &err),
         AppError::Forbidden => tool_error(id, "not permitted: the run's user cannot do this"),
         AppError::NotFound => tool_error(id, "not found"),
-        AppError::BadRequest(msg) | AppError::Validation(msg) | AppError::Conflict(msg) => {
-            tool_error(id, &msg)
-        }
+        AppError::BadRequest(msg)
+        | AppError::Validation(msg)
+        | AppError::Conflict(msg)
+        | AppError::TooManyRequests(msg) => tool_error(id, &msg),
         AppError::Unauthorized => tool_error(id, "unauthorised"),
     }
 }

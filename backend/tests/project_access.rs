@@ -1427,6 +1427,9 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "GET /api/v1/admin/system",
     "GET /api/v1/admin/updates",
     "POST /api/v1/admin/updates/apply",
+    "GET /api/v1/admin/backups",
+    "POST /api/v1/admin/backups",
+    "GET /api/v1/admin/backups/{name}/{part}",
     // Bulk names its cards in the body and checks each; CSV export runs AQL under the
     // caller's access, like /search; importing a bundle creates the caller's own project.
     "POST /api/v1/bulk",

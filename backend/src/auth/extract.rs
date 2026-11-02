@@ -7,6 +7,7 @@ use axum::extract::{ConnectInfo, FromRequestParts, OptionalFromRequestParts};
 use axum::http::header;
 use axum::http::request::Parts;
 
+use crate::api::middleware::TrustedProxies;
 use crate::auth::events::Client;
 use crate::auth::role::Role;
 use crate::auth::session::Session;
@@ -175,9 +176,10 @@ where
 /// attacker nothing they did not already have, because the **per-username**
 /// counter is what actually protects an account and no header can touch it.
 ///
-/// The honest fix is a trusted-proxy setting, so `X-Forwarded-For` is believed
-/// only from a configured hop. That is a config change, and config is Phase 20's
-/// security pass (`TODO.md`) — this comment is the marker for it.
+/// The honest fix is the trusted-proxy setting (`ATLAS_TRUSTED_PROXIES`, read here via
+/// the [`TrustedProxies`] request extension): `*` keeps the behaviour above, `none`
+/// ignores the headers, and a list of addresses believes them only from those peers and
+/// skips those hops when reading the chain.
 ///
 /// [`ConnectInfo`] is only present when the server was started with
 /// `into_make_service_with_connect_info`. When it is absent and no proxy header
@@ -219,34 +221,59 @@ const MAX_USER_AGENT: usize = 512;
 const MAX_IP: usize = 64;
 
 fn client_ip(parts: &Parts) -> Option<String> {
-    let forwarded = parts
-        .headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        // "client, proxy1, proxy2" — the first hop is the client.
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-
-    if let Some(ip) = forwarded {
-        return Some(truncate(ip, MAX_IP));
-    }
-
-    let real_ip = parts
-        .headers
-        .get("x-real-ip")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-
-    if let Some(ip) = real_ip {
-        return Some(truncate(ip, MAX_IP));
-    }
-
-    parts
+    let peer = parts
         .extensions
         .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(addr)| addr.ip().to_string())
+        .map(|ConnectInfo(addr)| addr.ip());
+    // No setting in the request (a test router, say) means the historical behaviour: trust.
+    let trusted = parts
+        .extensions
+        .get::<TrustedProxies>()
+        .cloned()
+        .unwrap_or(TrustedProxies::Any);
+
+    if trusted.trusts(peer) {
+        let forwarded = parts
+            .headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| {
+                let hops: Vec<&str> = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|hop| !hop.is_empty())
+                    .collect();
+                match trusted {
+                    // "client, proxy1, proxy2" — with no list, the first hop is the client.
+                    TrustedProxies::Any => hops.first().copied(),
+                    // With a list, walk back from the nearest hop past our own proxies: the
+                    // first address we do not operate is the client. Anything to its left
+                    // was written by the client and could say anything.
+                    _ => hops
+                        .iter()
+                        .rev()
+                        .find(|hop| !trusted.is_proxy(hop))
+                        .copied(),
+                }
+            });
+
+        if let Some(ip) = forwarded {
+            return Some(truncate(ip, MAX_IP));
+        }
+
+        let real_ip = parts
+            .headers
+            .get("x-real-ip")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        if let Some(ip) = real_ip {
+            return Some(truncate(ip, MAX_IP));
+        }
+    }
+
+    peer.map(|ip| ip.to_string())
 }
 
 /// Truncates on a character boundary, so a multi-byte header cannot panic here.
@@ -388,6 +415,41 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, AppError::Unauthorized));
+    }
+
+    #[tokio::test]
+    async fn a_trusted_proxy_list_believes_only_its_own_hops() {
+        let peer: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+        let build = |extension: TrustedProxies, peer: SocketAddr| {
+            let mut parts =
+                request_parts(|b| b.header("x-forwarded-for", "6.6.6.6, 203.0.113.7, 127.0.0.1"));
+            parts.extensions.insert(ConnectInfo(peer));
+            parts.extensions.insert(extension);
+            parts
+        };
+        let list = TrustedProxies::parse("127.0.0.1");
+
+        // From our proxy: the nearest hop we do not operate is the client; the forged
+        // left-most entry is ignored.
+        let mut parts = build(list.clone(), peer);
+        let ClientInfo(client) = ClientInfo::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
+        assert_eq!(client.ip, Some("203.0.113.7".to_owned()));
+
+        // Straight from the internet: the header is not believed at all.
+        let mut parts = build(list, "198.51.100.4:1".parse().unwrap());
+        let ClientInfo(client) = ClientInfo::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
+        assert_eq!(client.ip, Some("198.51.100.4".to_owned()));
+
+        // `none`: never.
+        let mut parts = build(TrustedProxies::None, peer);
+        let ClientInfo(client) = ClientInfo::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
+        assert_eq!(client.ip, Some("127.0.0.1".to_owned()));
     }
 
     #[tokio::test]

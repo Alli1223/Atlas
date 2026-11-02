@@ -38,6 +38,7 @@
 pub mod backfill;
 pub mod branch;
 pub mod client;
+pub mod health;
 pub mod poll;
 pub mod smart_commit;
 pub mod store;

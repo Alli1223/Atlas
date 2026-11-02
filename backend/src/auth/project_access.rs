@@ -1200,6 +1200,14 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         Scope::Card(ProjectRole::Member),
     ),
     (Method::POST, "/api/v1/generate/text", Scope::Unscoped),
+    // --- backups: instance administration, RequireAdmin in the handler ---
+    (Method::GET, "/api/v1/admin/backups", Scope::Unscoped),
+    (Method::POST, "/api/v1/admin/backups", Scope::Unscoped),
+    (
+        Method::GET,
+        "/api/v1/admin/backups/{name}/{part}",
+        Scope::Unscoped,
+    ),
     // --- bulk, import/export, card templates, trash: bulk names its cards in the body and
     // checks each (Member), like /search; CSV export runs AQL under the caller's own access.
     // Importing into a project is card work (Member); exporting is a read (Viewer); copying a

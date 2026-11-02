@@ -36,6 +36,7 @@
 //! built by formatting.
 
 pub mod crypto;
+pub mod revalidate;
 pub mod vault;
 
 use std::fmt;

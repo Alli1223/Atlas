@@ -30,7 +30,8 @@ use super::RepoRef;
 macro_rules! project_repo_columns {
     () => {
         "id, project_id, credential_id, owner, repo, repo_id, default_branch, \
-         branch_prefix, webhook_id, created_at, updated_at"
+         branch_prefix, webhook_id, created_at, updated_at, sync_status, sync_detail, \
+         sync_checked_at"
     };
 }
 
@@ -60,6 +61,13 @@ pub struct ProjectRepo {
     pub created_at: DateTime<Utc>,
     /// When it last changed.
     pub updated_at: DateTime<Utc>,
+    /// The last health check's verdict: `unchecked`, `ok`, `no_credential`, `auth_failed`,
+    /// `not_found` or `error`.
+    pub sync_status: String,
+    /// What the check found, in words (including a followed rename).
+    pub sync_detail: Option<String>,
+    /// When the last check ran.
+    pub sync_checked_at: Option<DateTime<Utc>>,
 }
 
 impl ProjectRepo {
@@ -137,7 +145,10 @@ pub async fn upsert_project_repo(
             repo_id        = excluded.repo_id, \
             default_branch = excluded.default_branch, \
             branch_prefix  = excluded.branch_prefix, \
-            updated_at     = excluded.updated_at",
+            updated_at     = excluded.updated_at, \
+            sync_status    = 'ok', \
+            sync_detail    = NULL, \
+            sync_checked_at = excluded.updated_at",
     )
     .bind(Uuid::now_v7().to_string())
     .bind(new.project_id)
@@ -157,6 +168,56 @@ pub async fn upsert_project_repo(
         .ok_or_else(|| {
             AppError::internal(anyhow::anyhow!("the project_repo just upserted is missing"))
         })
+}
+
+/// Every linked repo.
+pub async fn list_project_repos(db: &Db) -> AppResult<Vec<ProjectRepo>> {
+    Ok(sqlx::query_as::<_, ProjectRepo>(concat!(
+        "SELECT ",
+        project_repo_columns!(),
+        " FROM project_repos ORDER BY created_at"
+    ))
+    .fetch_all(db.reader())
+    .await?)
+}
+
+/// Records a health check's verdict.
+pub async fn set_sync_status(
+    db: &Db,
+    id: &str,
+    status: &str,
+    detail: Option<&str>,
+    now: DateTime<Utc>,
+) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE project_repos SET sync_status = ?, sync_detail = ?, sync_checked_at = ? \
+         WHERE id = ?",
+    )
+    .bind(status)
+    .bind(detail)
+    .bind(to_sql_timestamp(now))
+    .bind(id)
+    .execute(db.writer())
+    .await?;
+    Ok(())
+}
+
+/// Follows a rename GitHub reported for the same immutable `repo_id`.
+pub async fn follow_rename(
+    db: &Db,
+    id: &str,
+    owner: &str,
+    repo: &str,
+    now: DateTime<Utc>,
+) -> AppResult<()> {
+    sqlx::query("UPDATE project_repos SET owner = ?, repo = ?, updated_at = ? WHERE id = ?")
+        .bind(owner)
+        .bind(repo)
+        .bind(to_sql_timestamp(now))
+        .bind(id)
+        .execute(db.writer())
+        .await?;
+    Ok(())
 }
 
 /// Every linked repo with no installed webhook — the candidates

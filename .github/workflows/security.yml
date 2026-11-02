@@ -1,0 +1,69 @@
+name: Security
+
+# Dependency audits and a secret scan (`TODO.md` Phase 20). A separate workflow from CI on
+# purpose: a new RustSec or npm advisory lands on its own schedule, not with anybody's change,
+# so it runs weekly as well as on every push and PR — and it reports as its own check, so an
+# advisory in a transitive dependency is visible without being mistaken for a broken build.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      # Fails on any RustSec vulnerability in Cargo.lock. An advisory with no fixed release
+      # is recorded in .cargo/audit.toml with a reason, never silenced wholesale.
+      - name: Audit
+        run: cargo audit
+
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # Production dependencies only, at high severity and above: the dev toolchain never
+      # ships, and the built bundle is all a browser ever runs.
+      - name: Audit
+        run: npm audit --omit=dev --audit-level=high
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The whole history: a secret committed and then deleted is still published.
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml

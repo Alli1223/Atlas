@@ -83,6 +83,13 @@ pub struct ProjectRepoDto {
     pub linked_at: DateTime<Utc>,
     /// When it last changed.
     pub updated_at: DateTime<Utc>,
+    /// The last health check: `unchecked`, `ok`, `no_credential`, `auth_failed`,
+    /// `not_found` or `error`. Anything but `ok`/`unchecked` is a broken link to show.
+    pub sync_status: String,
+    /// What the check found, in words.
+    pub sync_detail: Option<String>,
+    /// When it last ran.
+    pub sync_checked_at: Option<DateTime<Utc>>,
 }
 
 impl ProjectRepoDto {
@@ -98,6 +105,9 @@ impl ProjectRepoDto {
             webhook_configured: r.webhook_id.is_some(),
             linked_at: r.created_at,
             updated_at: r.updated_at,
+            sync_status: r.sync_status.clone(),
+            sync_detail: r.sync_detail.clone(),
+            sync_checked_at: r.sync_checked_at,
         }
     }
 }

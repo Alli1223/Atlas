@@ -47,11 +47,48 @@ fn run() -> anyhow::Result<()> {
     let config = Config::load()?;
     telemetry::init(&config)?;
 
+    // `atlas backup` takes one now (safe beside a running server: `VACUUM INTO` reads one
+    // consistent snapshot); `atlas restore <name>` replaces the database and uploads, and
+    // refuses while a server holds the database. `atlas backups` lists them.
+    match std::env::args().nth(1).as_deref() {
+        Some("backup") => {
+            return runtime()?.block_on(async {
+                config.ensure_dirs()?;
+                let db = Db::connect(&config).await?;
+                db::migrate::run(&db).await?;
+                let info = atlas::backup::run(&db, &config, chrono::Utc::now())
+                    .await
+                    .map_err(|err| anyhow::anyhow!("backup failed: {err}"))?;
+                db.close().await;
+                println!("{}", info.name);
+                Ok(())
+            });
+        }
+        Some("backups") => {
+            for backup in atlas::backup::list(&config)
+                .map_err(|err| anyhow::anyhow!("listing backups failed: {err}"))?
+            {
+                println!("{}\t{} bytes", backup.name, backup.database_bytes);
+            }
+            return Ok(());
+        }
+        Some("restore") => {
+            let name = std::env::args()
+                .nth(2)
+                .context("usage: atlas restore <backup name> (see `atlas backups`)")?;
+            return runtime()?.block_on(atlas::backup::restore(&config, &name));
+        }
+        _ => {}
+    }
+
+    runtime()?.block_on(serve(config))
+}
+
+fn runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .context("failed to start the tokio runtime")?
-        .block_on(serve(config))
+        .context("failed to start the tokio runtime")
 }
 
 async fn serve(config: Config) -> anyhow::Result<()> {
@@ -107,7 +144,8 @@ async fn serve(config: Config) -> anyhow::Result<()> {
         tracing::warn!(error = %err, "failed to sweep stale agent runs");
     }
     let mut jobs = atlas::jobs::all(&state);
-    jobs.push(atlas::integrations::github::poll::job(state));
+    jobs.push(atlas::integrations::github::poll::job(state.clone()));
+    jobs.push(atlas::integrations::github::health::job(state));
     jobs.push(cycle_snapshot_job(db.clone()));
     let scheduler = scheduler::spawn(jobs);
 

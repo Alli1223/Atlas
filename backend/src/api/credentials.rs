@@ -217,6 +217,7 @@ async fn delete_credential(
         (status = 401, description = "Not signed in", body = Problem),
         (status = 403, description = "Not an admin", body = Problem),
         (status = 404, description = "No such credential", body = Problem),
+        (status = 429, description = "Probed less than 30 seconds ago", body = Problem),
         (status = 500, description = "The secrets vault is not configured, or the secret could not be decrypted", body = Problem),
     )
 )]
@@ -236,6 +237,8 @@ async fn validate_credential(
     // handed to the probe by reference, and is dropped (and zeroed) at the end of
     // this function without ever being serialised.
     let secret = vault.open(&credential)?;
+    // The limit guards the outbound probe, so it is checked just before it.
+    secrets::revalidate::check_rate(&credential, now)?;
     let outcome = default_validator(credential.provider)
         .validate(&secret)
         .await?;
