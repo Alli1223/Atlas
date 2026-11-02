@@ -24,6 +24,7 @@ import styles from './AppShell.module.css'
 import { ErrorBoundary } from './ErrorBoundary'
 import { OfflineBanner } from './OfflineBanner'
 import { ThemeToggle } from './ThemeToggle'
+import { ProviderUsage } from '@/features/automation/ProviderUsage'
 
 /** `to` omitted = the destination is not built yet; render an inert row rather than a
  *  link to '/', which would light up as the current page and lie to the user. */
@@ -102,6 +103,7 @@ function TopNav() {
       <div className={styles.topnavSpacer} />
 
       <div className={styles.topnavActions}>
+        <ProviderUsage />
         <ThemeToggle />
         <NotificationBell />
         <Avatar name={user?.displayName ?? user?.username ?? ''} size="small" />

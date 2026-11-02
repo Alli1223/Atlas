@@ -1,4 +1,4 @@
--- Atlas schema, migration 0020: reports and dashboards.
+-- Atlas schema, migration 0026: reports and dashboards.
 --
 -- STRICT, matching 0001-0019.
 --

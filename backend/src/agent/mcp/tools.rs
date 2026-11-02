@@ -89,6 +89,13 @@ impl ToolContext {
 pub fn catalogue() -> Value {
     json!([
         {
+            "name": "atlas_block_card",
+            "description": "Record another ticket in this project as a blocker and move this ticket into Blocked. Include the blocker ticket key and a specific reason.",
+            "inputSchema": { "type": "object", "properties": {
+                "blocked_by": { "type": "string" }, "reason": { "type": "string" }
+            }, "required": ["blocked_by", "reason"] }
+        },
+        {
             "name": "atlas_get_card",
             "description": "Read the card this session is working on: its key, summary, description, and current status.",
             "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
@@ -176,6 +183,23 @@ pub async fn call(ctx: &ToolContext, name: &str, args: &Value) -> AppResult<Valu
     crate::activity::with_actor(actor, async {
         match name {
             "atlas_get_card" => get_card(ctx).await,
+            "atlas_block_card" => {
+                ctx.require(ProjectRole::Member).await?;
+                let key = args
+                    .get("blocked_by")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        AppError::BadRequest("blocked_by ticket key is required".to_owned())
+                    })?;
+                let reason = args
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| AppError::BadRequest("reason is required".to_owned()))?;
+                let card = reload(ctx).await?;
+                crate::domain::automation::block(&ctx.db, &card, key, reason, &ctx.actor.id)
+                    .await?;
+                Ok(text(format!("{} is blocked by {key}.", card.key)))
+            }
             "atlas_list_transitions" => list_transitions(ctx).await,
             "atlas_move_card" => move_card(ctx, args).await,
             "atlas_set_status" => {

@@ -327,9 +327,10 @@ Every flag below is verified against the local CLI (v2.1.211) — see `docs/rese
 - [x] ⭐ **Atlas MCP server** via `--mcp-config` (verified end-to-end): expose `atlas_move_card`, `atlas_comment_card`, `atlas_create_card`, `atlas_get_card`, `atlas_set_status`, `atlas_add_tag` — this is how the agent **moves its own card when the task completes** (requested)
 - [x] Card → task binding: "Run with Claude" on a card sends summary + description + acceptance criteria as the prompt — _`POST /cards/{key}/agent-sessions` (`api::agent_sessions`) builds the prompt from the card's summary + description (no acceptance-criteria field exists in the domain model to send), calls `agent::orchestrator::start` — the new glue wiring `workspace::WorkspacePreparer` (a trait now, mirroring `AgentRunner`, precisely so this is testable without a real GitHub clone) → `AgentRunner::spawn` → `domain::agent_session::insert`, then drains the run to its terminal event in a detached task and calls `agent_session::finish`. `GET /cards/{key}/agent-sessions` and `GET /agent-sessions/{id}` read it back. Fixed allowed-tools/turn/budget defaults for now — the permission-mode bullet below is what makes them configurable. **Now has a frontend too**: a "Claude Code" panel on card-detail (`AgentSessions.tsx`, sidebar, next to the GitHub Development panel) with a "Run with Claude" button, a Cancel button on a running session, and the session list (status, cost, turns, result/error text), polling every 3s while the newest run is still `running` — see the session-history bullet below for what this basic list does not yet cover. Cancelling: `POST /agent-sessions/{id}/cancel`, backed by a new in-memory `agent::orchestrator::CancelRegistry` (keyed by session id, held on `AppState`) that finally gives an API request a way to reach the `RunHandle` a detached drain task owns — `RunHandle::cancel` itself has existed since the runner core landed, this is what was missing. A deliberate cancel always wins the race against a natural finish; the registry does not survive a restart (nothing does yet, see the transcript-persistence bullet)_
 - [x] On completion: post transcript summary as a comment, move card to the configured destination column, attach the branch/PR
+  - MVP implemented on `feat/18-mvp-backlog` for the self-development project: summary comments, per-project completion category, GitHub branch/PR publication, and local branch preservation for the self-development checkout. Already-committed agent changes are published too; reruns use distinct branches. The checkout is reserved until publication finishes, and transitions reload the current card under the write lock. Project settings exposes the category; the frontend refreshes card/board/comment caches when a run finishes.
   - > **Flagged for confirmation:** the request says "move the card to the backlog" on completion. Backlog is an unusual destination for *finished* work — In Review or Done is the conventional target. Built as a **per-project configurable destination**, defaulting to In Review, with backlog selectable.
 - [x] Permission mode per project (`default` / `acceptEdits` / `plan` / `bypassPermissions`), `--allowedTools`/`--disallowedTools` 🔒 — default to the *least* permissive that works, and make `bypassPermissions` a deliberate opt-in with a warning — _per-project agent settings via the API; no settings screen yet_
-- [x] Concurrency cap; queue when saturated
+- [ ] Concurrency cap; queue when saturated — _MVP guards the shared checkout per project: a second run gets 409 until execution and publication finish. A global cap and durable queue are still pending._
 - [x] Session history per card; re-run; diff review before PR — _a basic history list now exists on card-detail (see the card → task binding bullet above: status, cost, turns, result/error text, most recent first). Re-run and diff-review-before-PR are not started_
 
 ---
@@ -449,6 +450,29 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 
 ---
 
+## MVP — host self-development
+
+As of 2026-10-12, the native host service runs Atlas at
+`https://atlas.alastairrayner.co.uk`. The `ATLAS` development board contains all 131
+unchecked phase checklist items, with phase tags and source notes. The import is repeatable
+and preserves manual edits and status. The existing account and Test project are retained.
+
+Card-detail supports Codex, Claude, and Antigravity selection, cancellation, live console
+output (including stderr), readable tools/commands, input-request comments, and result/error history. All three installed CLIs passed isolated real file-writing
+smoke tests. The host setup and sequential backlog worker are documented in
+[`docs/mvp-host-setup.md`](docs/mvp-host-setup.md). Review/merge and application deployment
+remain explicit steps. Restarted runs become Failed rather than remaining Running forever;
+output is persisted as it arrives. Automatic resume and WebSocket transport remain pending.
+
+The project board also has an Auto coordinator: a chosen CLI plans ready work, assigns a
+worker provider, and records its reasoning. Workers run sequentially and move through
+In Progress, In Review, or Blocked with explicit blocker references. Fixed batches and
+work-until-no-ready-tickets are supported; review/merge/deployment remain manual.
+The Auto activity timeline records provider assignments and outcomes, with expandable live
+worker consoles. The header shows per-provider active agents and personal 24-hour CLI usage
+(tokens and reported cost), including coordinator calls and historical worker transcripts.
+Subscription quotas, billing balances, per-model dashboards, and live token estimates remain pending.
+
 ## Progress
 
 | Phase | Branch | Status |
@@ -466,8 +490,8 @@ Jira features that are enterprise cruft at this scale. Each is a considered deci
 | 9 Card detail | `feat/07-frontend-boards` | ✅ |
 | 10 Cycles | `feat/10-cycles`, `feat/10-cycles-ui` | 🚧 lifecycle, scope, carry-over, snapshots (daily + commitment/completion), burndown/velocity/cycle reports and a direct time-logging path are done. Remaining: a drag-to-cycle backlog board |
 | 11 Secrets | `feat/11-secrets` | ✅ (#12) |
-| 12 GitHub | `feat/12-github` | ✅ including repo link health: revoked token / deleted repo / lost credential recorded hourly and shown on the card; renames followed by repo id |
-| 13 Claude agent | `feat/13-claude-agent` | 🚧 runner, queue + concurrency cap, per-project permission mode / tools / billing choice, completion actions, MCP tools, live buffers, re-run, diff, cost capture — all in the API. Remaining: the live-session streaming UI and an agent-settings screen |
+| 12 GitHub | `feat/12-github` | ✅ vault→PAT, repo linking (+ picker), branch/PR creation, mergeable+reviews, dev panel (live commits/CI), rate-limit handling, webhooks (receiver, installable, replay guard, push/PR/check_suite), poll fallback via `scheduler`, backfill on link, and repo link health: revoked token / deleted repo / lost credential recorded hourly and shown on the card; renames followed by repo id |
+| 13 Claude agent | `feat/13-claude-agent` | 🚧 runner core, workspaces, session + transcript persistence, queue + concurrency guard, per-project permission mode / tools / billing choice, completion actions, Atlas MCP tools, live buffers, re-run, diff, cost capture, plus host-CLI runs (Codex/Claude/Antigravity) for self-development and the Auto board coordinator — all in the API, with a card-detail frontend panel. Remaining: the live-session streaming UI, a global durable concurrency queue, and a dedicated agent-settings screen |
 | 14 Gemini | `feat/14-gemini` | ✅ API complete (images with style presets, covers/avatars, card references, text drafts, NL→AQL, cost tracking). Remaining: a pick-from-grid UI |
 | 15 Automation | `feat/15-automation` | ✅ engine, smart values, guardrails, audit trace, seeded rules; UI = rule list, JSON editor, dry run, audit log |
 | 16 Reports | `feat/16-reports` | 🚧 daily snapshot + every report in the API; project Reports page (CFD, created vs resolved, age, cycle time, velocity). Remaining: dashboard/gadget UI and a cost chart page |

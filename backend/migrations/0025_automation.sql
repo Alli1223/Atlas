@@ -1,4 +1,4 @@
--- Atlas schema, migration 0019: automation rules and their audit log.
+-- Atlas schema, migration 0025: automation rules and their audit log.
 --
 -- STRICT, matching 0001-0018.
 --

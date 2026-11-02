@@ -113,6 +113,15 @@ pub struct Config {
     #[serde(default = "default_workspace_quota_mb")]
     pub workspace_quota_mb: u64,
 
+    /// Optional local Git repository for the Atlas self-development project.
+    /// Set by the host administrator, never accepted from an HTTP request.
+    #[serde(default)]
+    pub local_repository: Option<PathBuf>,
+
+    /// Project key permitted to use `local_repository`. Defaults to ATLAS.
+    #[serde(default = "default_local_project_key")]
+    pub local_project_key: String,
+
     /// `tracing` filter directives. `ATLAS_LOG_LEVEL`. `RUST_LOG` overrides this.
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -220,6 +229,10 @@ fn default_workspace_quota_mb() -> u64 {
     10_000
 }
 
+fn default_local_project_key() -> String {
+    "ATLAS".to_owned()
+}
+
 fn default_log_level() -> String {
     "info,atlas=debug,tower_http=info,sqlx=warn".to_owned()
 }
@@ -269,6 +282,8 @@ impl Default for Config {
             data_dir: default_data_dir(),
             workspace_dir: default_workspace_dir(),
             workspace_quota_mb: default_workspace_quota_mb(),
+            local_repository: None,
+            local_project_key: default_local_project_key(),
             log_level: default_log_level(),
             log_format: None,
             env: AppEnv::default(),

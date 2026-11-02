@@ -1,12 +1,17 @@
 import { Bot, X } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 
-import { Banner, Button, Lozenge, type LozengeAppearance, Spinner } from '@/components/ui'
+import { Banner, Button, Lozenge, type LozengeAppearance, Select, Spinner } from '@/components/ui'
 import { ICON, ICON_SMALL } from '@/lib/icon'
 
-import type { AgentSession, AgentSessionStatus, Card } from './api'
+import type { AgentProvider, AgentSession, AgentSessionStatus, Card } from './api'
+import { fetchAgentTranscript } from './api'
 import styles from './AgentSessions.module.css'
+import { CardAutomation } from '@/features/automation/CardAutomation'
 import { formatDateTime } from './format'
-import { useCancelAgentSession, useCardAgentSessions, useStartAgentSession } from './queries'
+import { consoleEntry } from './agent-console'
+import { cardKeys, useCancelAgentSession, useCardAgentSessions, useStartAgentSession } from './queries'
 
 const STATUS_APPEARANCE: Record<AgentSessionStatus, LozengeAppearance> = {
   running: 'inprogress',
@@ -26,6 +31,10 @@ const STATUS_LABEL: Record<AgentSessionStatus, string> = {
   cancelled: 'Cancelled',
 }
 
+const PROVIDER_LABEL: Record<AgentProvider, string> = {
+  claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity',
+}
+
 /**
  * "Run with Claude": starts a Claude Code session against the card (prompt = summary +
  * description, built server-side) and shows the card's session history.
@@ -37,6 +46,7 @@ const STATUS_LABEL: Record<AgentSessionStatus, string> = {
  * something this panel needs to pre-check.
  */
 export function AgentSessions({ card }: { card: Card }) {
+  const [provider, setProvider] = useState<AgentProvider>('claude')
   const sessions = useCardAgentSessions(card.key)
   const start = useStartAgentSession(card.key)
   const cancel = useCancelAgentSession(card.key)
@@ -47,19 +57,23 @@ export function AgentSessions({ card }: { card: Card }) {
   return (
     <section className={styles.agentSessions} aria-labelledby={`agent-${card.key}`}>
       <span id={`agent-${card.key}`} className={styles.label}>
-        Claude Code
+        Coding agent
       </span>
 
+      <CardAutomation cardKey={card.key} />
       <div className={styles.body}>
+        <Select label="Agent" value={provider} disabled={isRunning || start.isPending}
+          options={Object.entries(PROVIDER_LABEL).map(([value, label]) => ({value, label}))}
+          onChange={(event) => setProvider(event.target.value as AgentProvider)} />
         <Button
           appearance="default"
           size="compact"
           iconBefore={<Bot {...ICON} aria-hidden="true" />}
           isLoading={start.isPending}
           disabled={isRunning}
-          onClick={() => start.mutate()}
+          onClick={() => start.mutate(provider)}
         >
-          Run with Claude
+          Run with {PROVIDER_LABEL[provider]}
         </Button>
 
         {start.isError && (
@@ -73,7 +87,9 @@ export function AgentSessions({ card }: { card: Card }) {
           </Banner>
         )}
 
-        {sessions.isPending ? (
+        {sessions.isError ? (
+          <Banner appearance="error">Could not load agent sessions.</Banner>
+        ) : sessions.isPending ? (
           <Spinner label="Loading sessions" />
         ) : sessions.data && sessions.data.length > 0 ? (
           <ul className={styles.sessions}>
@@ -81,6 +97,7 @@ export function AgentSessions({ card }: { card: Card }) {
               <SessionRow
                 key={session.id}
                 session={session}
+                cardKey={card.key}
                 onCancel={() => cancel.mutate(session.id)}
                 isCancelling={cancel.isPending && cancel.variables === session.id}
               />
@@ -96,10 +113,12 @@ export function AgentSessions({ card }: { card: Card }) {
 
 function SessionRow({
   session,
+  cardKey,
   onCancel,
   isCancelling,
 }: {
   session: AgentSession
+  cardKey: string
   onCancel: () => void
   isCancelling: boolean
 }) {
@@ -109,6 +128,7 @@ function SessionRow({
         <Lozenge appearance={STATUS_APPEARANCE[session.status]} isBold>
           {STATUS_LABEL[session.status]}
         </Lozenge>
+        <span className={styles.meta}>{PROVIDER_LABEL[session.provider as AgentProvider] ?? 'Claude'}</span>
         <span className={styles.started} title={formatDateTime(session.startedAt)}>
           {formatDateTime(session.startedAt)}
         </span>
@@ -134,6 +154,60 @@ function SessionRow({
       )}
       {session.errorMessage && <p className={styles.error}>{session.errorMessage}</p>}
       {session.resultText && <p className={styles.result}>{session.resultText}</p>}
+      <SessionTranscript session={session} cardKey={cardKey} />
     </li>
+  )
+}
+
+function SessionTranscript({ session, cardKey }: { session: AgentSession; cardKey: string }) {
+  const queryClient = useQueryClient()
+  const running = session.status === 'running'
+  const [expanded, setExpanded] = useState(false)
+  const [raw, setRaw] = useState(false)
+  const [follow, setFollow] = useState(true)
+  const consoleRef = useRef<HTMLPreElement>(null)
+  const open = running || expanded
+  const transcript = useQuery({
+    queryKey: ['agent-transcript', session.id],
+    queryFn: () => fetchAgentTranscript(session.id),
+    enabled: open,
+    refetchInterval: running ? 1500 : false,
+    staleTime: 0,
+  })
+  useEffect(() => {
+    if (!running) void queryClient.invalidateQueries({ queryKey: ['agent-transcript', session.id] })
+  }, [running, session.id, queryClient])
+  useEffect(() => {
+    const console = consoleRef.current
+    if (running && follow && console) console.scrollTop = console.scrollHeight
+  }, [running, follow, open, raw, transcript.dataUpdatedAt])
+  const entries = transcript.data?.map(entry => consoleEntry(entry.line)) ?? []
+  const requests = entries.filter(entry => entry.attention)
+  const requestCount = requests.length
+  useEffect(() => {
+    if (requestCount > 0) void queryClient.invalidateQueries({ queryKey: cardKeys.comments(cardKey) })
+  }, [requestCount, queryClient, cardKey])
+  return (
+    <details open={open} onToggle={(event) => { if (!running) setExpanded(event.currentTarget.open) }}>
+      <summary>{running ? 'Live console output' : 'View transcript'}</summary>
+      {requests.length > 0 && <Banner appearance="warning">
+        <strong>Agent needs attention</strong>
+        {requests.map((request, index) => <pre className={styles.request} key={index}>{request.text}</pre>)}
+        <p>This CLI runs without interactive input. For a question, add your answer to the ticket description,
+          then rerun after completion. Cancel first if it is still running. Review denied permissions before rerunning.</p>
+      </Banner>}
+      {open && <>
+        <p className={styles.meta}>{running ? 'Updates every 1.5 seconds while this ticket is open.' : 'Recorded console output.'}</p>
+        {running && <label className={styles.meta}><input type="checkbox" checked={follow} onChange={event => setFollow(event.target.checked)} /> Follow output</label>}
+        <label className={styles.meta}><input type="checkbox" checked={raw} onChange={event => setRaw(event.target.checked)} /> Show raw events</label>
+        {transcript.isError ? <Banner appearance="error">Could not load the transcript. Retrying while the run is active.</Banner>
+          : transcript.isPending ? <Spinner label="Loading transcript" />
+          : <pre className={styles.transcript} aria-label="Agent console" tabIndex={0} ref={consoleRef}
+            onScroll={event => { if (running) setFollow(event.currentTarget.scrollHeight - event.currentTarget.scrollTop - event.currentTarget.clientHeight < 32) }}>{
+            (raw ? transcript.data.map(entry => entry.line) : entries.map(entry => entry.text).filter(Boolean)).join('\n\n')
+            || (running ? 'Waiting for agent output…' : 'No transcript recorded.')
+          }</pre>}
+      </>}
+    </details>
   )
 }

@@ -127,6 +127,8 @@ impl<'r> Decode<'r, Sqlite> for AgentSessionStatus {
 #[derive(Debug, Clone, FromRow, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSession {
+    /// The CLI used for this run: claude, codex or antigravity.
+    pub provider: String,
     /// UUID v7, as text.
     pub id: String,
     pub card_id: String,
@@ -184,7 +186,7 @@ pub struct SessionOutcome<'a> {
 
 macro_rules! agent_session_columns {
     () => {
-        "id, card_id, claude_session_id, status, prompt, result_text, total_cost_usd, \
+        "provider, id, card_id, claude_session_id, status, prompt, result_text, total_cost_usd, \
          num_turns, error_message, started_by, started_at, ended_at, created_at, updated_at, \
          queued, usage, duration_ms, branch, rerun_of"
     };
@@ -356,6 +358,26 @@ pub async fn list_for_card(db: &Db, card_id: &str) -> AppResult<Vec<AgentSession
     .await?)
 }
 
+/// Recover abandoned runs once, before the server starts accepting requests.
+/// Atlas runs as one instance; no subprocess handle survives a server restart.
+pub async fn recover_interrupted(db: &Db, now: DateTime<Utc>) -> AppResult<u64> {
+    let mut tx = db.begin_write().await?;
+    let timestamp = to_sql_timestamp(now);
+    let result = sqlx::query(
+        "UPDATE agent_sessions SET status = 'failed', error_message = \
+         'Atlas restarted while this run was active. Review its workspace and rerun the ticket.', \
+         ended_at = ?, updated_at = ? WHERE status = 'running'",
+    )
+    .bind(&timestamp)
+    .bind(&timestamp)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM agent_capabilities WHERE session_id IN (SELECT id FROM agent_sessions WHERE status != 'running')")
+        .execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(result.rows_affected())
+}
+
 /// Records a session's terminal outcome. Requires the session to still be `running` — a
 /// finished session's record does not change after the fact, the same invariant
 /// [`crate::domain::card::update`]'s history keeps for a card's fields.
@@ -499,6 +521,60 @@ mod tests {
         );
         assert!(session.result_text.is_none());
         assert!(session.ended_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn startup_recovery_marks_only_abandoned_runs_failed_and_is_idempotent() {
+        let (db, _temp, card_id, user_id) = fixture().await;
+        let mut tx = db.begin_write().await.unwrap();
+        let abandoned = insert(
+            &mut tx,
+            &NewAgentSession {
+                card_id: &card_id,
+                claude_session_id: "abandoned",
+                prompt: "task",
+                started_by: Some(&user_id),
+            },
+            now(),
+        )
+        .await
+        .unwrap();
+        let finished = insert(
+            &mut tx,
+            &NewAgentSession {
+                card_id: &card_id,
+                claude_session_id: "finished",
+                prompt: "task",
+                started_by: Some(&user_id),
+            },
+            now(),
+        )
+        .await
+        .unwrap();
+        finish(
+            &mut tx,
+            &finished,
+            &SessionOutcome {
+                status: AgentSessionStatus::Completed,
+                result_text: Some("done"),
+                total_cost_usd: None,
+                num_turns: None,
+                error_message: None,
+            },
+            now(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(recover_interrupted(&db, now()).await.unwrap(), 1);
+        let recovered = find_by_id(&db, &abandoned.id).await.unwrap().unwrap();
+        assert_eq!(recovered.status, AgentSessionStatus::Failed);
+        assert!(recovered.ended_at.is_some());
+        assert_eq!(
+            find_by_id(&db, &finished.id).await.unwrap().unwrap().status,
+            AgentSessionStatus::Completed
+        );
+        assert_eq!(recover_interrupted(&db, now()).await.unwrap(), 0);
     }
 
     #[tokio::test]

@@ -1,10 +1,12 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { jsonResponse, problemResponse, stubFetch } from '@/features/auth/test-support'
 
 import { AgentSessions } from './AgentSessions'
+import { cardKeys } from './queries'
+import { boardKeys } from '@/features/board/queries'
 import { makeAgentSession, makeCard, renderWithClient } from './test-support'
 
 afterEach(() => {
@@ -14,6 +16,83 @@ afterEach(() => {
 const CARD = makeCard({ key: 'ATLAS-1', summary: 'Add login' })
 
 describe('AgentSessions', () => {
+  it('refreshes the card and board after a running session finishes', async () => {
+    const session = makeAgentSession()
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([session]),
+    })
+    const { queryClient } = renderWithClient(<AgentSessions card={CARD} />)
+    await screen.findByText('Running')
+    queryClient.setQueryData(cardKeys.comments(CARD.key), [])
+    const boardKey = boardKeys.data('ATLAS', {})
+    queryClient.setQueryData(boardKey, { columns: [], swimlanes: [] })
+    await act(() => queryClient.setQueryData(cardKeys.agentSessions(CARD.key), [
+      { ...session, status: 'completed' },
+    ]))
+    await screen.findByText('Completed')
+    await waitFor(() => expect(queryClient.getQueryState(boardKey)?.isInvalidated).toBe(true))
+    expect(queryClient.getQueryState(cardKeys.comments(CARD.key))?.isInvalidated).toBe(true)
+  })
+
+  it('opens the live console and shows input requests while running', async () => {
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([makeAgentSession({ id: 'live' })]),
+      'GET /api/v1/agent-sessions/live/transcript': () => jsonResponse([
+        { line: '{"type":"input_required","question":"Which database should I use?"}' },
+        { line: '{"type":"atlas_console","stream":"stderr","text":"Compiler diagnostic"}' },
+      ]),
+    })
+    renderWithClient(<AgentSessions card={CARD} />)
+    expect(await screen.findByText('Agent needs attention')).toBeInTheDocument()
+    expect(screen.getByLabelText('Agent console')).toHaveTextContent('Which database should I use?')
+    expect(screen.getByLabelText('Agent console')).toHaveTextContent('[stderr] Compiler diagnostic')
+    expect(screen.getByText('Live console output').closest('details')).toHaveAttribute('open')
+  })
+
+  it('fetches the final output when a live run finishes', async () => {
+    const session = makeAgentSession({ id: 'live-finish' })
+    let finished = false
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([session]),
+      'GET /api/v1/agent-sessions/live-finish/transcript': () => jsonResponse([
+        { line: finished ? 'Final output received' : 'Working on files' },
+      ]),
+    })
+    const { queryClient } = renderWithClient(<AgentSessions card={CARD} />)
+    expect(await screen.findByText('Working on files')).toBeInTheDocument()
+    finished = true
+    await act(() => queryClient.setQueryData(cardKeys.agentSessions(CARD.key), [{ ...session, status: 'completed' }]))
+    await userEvent.setup().click(await screen.findByText('View transcript'))
+    expect(await screen.findByText('Final output received')).toBeInTheDocument()
+  })
+
+  it('sends the selected provider when starting a ticket', async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([]),
+      'POST /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse(makeAgentSession({ provider: 'codex' }), 201),
+    })
+    renderWithClient(<AgentSessions card={CARD} />)
+    await screen.findByText('No runs yet.')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Agent' }), 'codex')
+    await user.click(screen.getByRole('button', { name: 'Run with Codex' }))
+    await screen.findByText('Running')
+    const request = vi.mocked(fetch).mock.calls.map(([input]) => input)
+      .find((input): input is Request => input instanceof Request && input.method === 'POST')
+    expect(await request?.clone().json()).toEqual({ provider: 'codex' })
+  })
+
+  it('loads a finished session transcript on demand', async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      'GET /api/v1/cards/ATLAS-1/agent-sessions': () => jsonResponse([makeAgentSession({ status: 'completed', id: 'done' })]),
+      'GET /api/v1/agent-sessions/done/transcript': () => jsonResponse([{ line: '{"type":"result","result":"Tests pass"}' }]),
+    })
+    renderWithClient(<AgentSessions card={CARD} />)
+    await user.click(await screen.findByText('View transcript'))
+    expect(await screen.findByText(/Tests pass/)).toBeInTheDocument()
+  })
+
   it('shows an empty state and a working Run button when there is no history', async () => {
     const user = userEvent.setup()
     const { calls } = stubFetch({

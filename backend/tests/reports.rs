@@ -26,6 +26,9 @@ fn last(series: &Value, id: &str) -> f64 {
 }
 
 #[tokio::test]
+// These assert against exact small integer counts straight from the daily snapshot
+// aggregation, never accumulated float arithmetic, so exact comparison is the right check.
+#[allow(clippy::float_cmp)]
 async fn flow_reports_are_group_bys_over_the_daily_snapshot() {
     let app = App::new().await;
     let admin = admin_past_the_gate(&app).await;

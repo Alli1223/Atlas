@@ -26,6 +26,7 @@ pub const ALLOWED_TOOLS: &[&str] = &[
     "mcp__atlas__atlas_set_status",
     "mcp__atlas__atlas_create_card",
     "mcp__atlas__atlas_add_tag",
+    "mcp__atlas__atlas_block_card",
 ];
 
 /// Builds the inline `--mcp-config` JSON that points a session at this binary's `mcp`

@@ -23,13 +23,19 @@ import { defineConfig, devices } from '@playwright/test'
  * 8080/5173 can stay up beside it.
  */
 
-const API_PORT = 8091
+const staticDir = process.env.ATLAS_E2E_STATIC_DIR
+const API_PORT = staticDir ? 5174 : 8091
 const WEB_PORT = 5174
 const WEB_ORIGIN = `http://localhost:${WEB_PORT}`
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 // Under test-results/, which .gitignore already covers.
 const DATA_DIR = fileURLToPath(new URL('./test-results/e2e-data', import.meta.url))
+// Reuse an already-built binary on hosts where the compiler lives in a build container.
+const backendBinary = process.env.ATLAS_E2E_BACKEND_BIN
+const backendCommand = backendBinary
+  ? `'${backendBinary.replaceAll("'", "'\\''")}'`
+  : 'cargo run --quiet'
 
 export default defineConfig({
   testDir: './e2e',
@@ -50,7 +56,7 @@ export default defineConfig({
       // `rm -rf` first: a fresh database is the entire point, and `ensure_dirs` recreates
       // the directory on boot. Without this the seeded admin survives from the previous
       // run with a password the test does not know.
-      command: `rm -rf '${DATA_DIR}' && cargo run --quiet`,
+      command: `rm -rf '${DATA_DIR}' && ${backendCommand}`,
       cwd: REPO_ROOT,
       env: {
         ATLAS_BIND_ADDR: `127.0.0.1:${API_PORT}`,
@@ -66,6 +72,7 @@ export default defineConfig({
         // leave the user signed out.
         ATLAS_ENV: 'dev',
         ATLAS_LOG_LEVEL: 'warn,atlas=info',
+        ...(staticDir ? { ATLAS_STATIC_DIR: staticDir } : {}),
       },
       // /healthz pings the database, so this waits for a *migrated* backend rather than
       // just an open port.
@@ -76,12 +83,12 @@ export default defineConfig({
       stdout: 'pipe',
       stderr: 'pipe',
     },
-    {
+    ...(staticDir ? [] : [{
       command: `npm run dev -- --port ${WEB_PORT} --strictPort`,
       env: { ATLAS_API_TARGET: `http://127.0.0.1:${API_PORT}` },
       url: WEB_ORIGIN,
       reuseExistingServer: false,
       timeout: 60_000,
-    },
+    }]),
   ],
 })

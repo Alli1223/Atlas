@@ -10,7 +10,7 @@ use crate::auth::role::Role;
 use crate::auth::to_sql_timestamp;
 use crate::auth::user::User;
 use crate::db::Db;
-use crate::domain::EstimationUnit;
+use crate::domain::{EstimationUnit, StatusCategory};
 use crate::error::{AppError, AppResult};
 
 /// Longest accepted project key, in characters.
@@ -54,6 +54,11 @@ pub struct Project {
     pub cycles_enabled: bool,
     /// How this project's `estimate` field is interpreted.
     pub estimation_unit: EstimationUnit,
+    /// Where a Claude Code run moves a card once it finishes successfully — the status
+    /// category to move into, not a specific status (there may be several in the category;
+    /// `agent::orchestrator`'s on-completion step picks the first one, the same substitution
+    /// [`StatusCategory`] itself documents for "In Review").
+    pub agent_completion_category: StatusCategory,
     /// When the project was archived. `None` = live.
     pub archived_at: Option<DateTime<Utc>>,
     /// When the project was created.
@@ -97,6 +102,8 @@ pub struct ProjectDto {
     pub cycles_enabled: bool,
     /// How the `estimate` field is interpreted.
     pub estimation_unit: EstimationUnit,
+    /// Where a successful Claude Code run moves a card.
+    pub agent_completion_category: StatusCategory,
     /// When the project was archived, if it is.
     pub archived_at: Option<DateTime<Utc>>,
     /// When the project was created.
@@ -119,6 +126,7 @@ impl From<&Project> for ProjectDto {
             card_counter: project.card_counter,
             cycles_enabled: project.cycles_enabled,
             estimation_unit: project.estimation_unit,
+            agent_completion_category: project.agent_completion_category,
             archived_at: project.archived_at,
             created_at: project.created_at,
             updated_at: project.updated_at,
@@ -141,7 +149,8 @@ impl From<Project> for ProjectDto {
 macro_rules! project_columns {
     () => {
         "id, key, name, description, lead_id, avatar_url, cover_image_url, template, \
-         card_counter, cycles_enabled, estimation_unit, archived_at, created_at, updated_at"
+         card_counter, cycles_enabled, estimation_unit, agent_completion_category, \
+         archived_at, created_at, updated_at"
     };
 }
 
@@ -250,8 +259,8 @@ pub async fn insert(
     sqlx::query(
         "INSERT INTO projects (id, key, name, description, lead_id, avatar_url, \
          cover_image_url, template, card_counter, cycles_enabled, estimation_unit, \
-         archived_at, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, 0, ?, ?, NULL, ?, ?)",
+         agent_completion_category, archived_at, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, 0, ?, ?, 'in_progress', NULL, ?, ?)",
     )
     .bind(&id)
     .bind(&new.key)
@@ -423,6 +432,8 @@ pub struct ProjectPatch {
     pub cycles_enabled: Option<bool>,
     /// The estimation unit, if it is changing.
     pub estimation_unit: Option<EstimationUnit>,
+    /// Where a successful Claude Code run moves a card, if it is changing.
+    pub agent_completion_category: Option<StatusCategory>,
 }
 
 impl ProjectPatch {
@@ -435,6 +446,7 @@ impl ProjectPatch {
             && self.cover_image_url.is_none()
             && self.cycles_enabled.is_none()
             && self.estimation_unit.is_none()
+            && self.agent_completion_category.is_none()
     }
 }
 
@@ -464,6 +476,7 @@ pub async fn apply_patch(
            cover_image_url = CASE WHEN ? THEN ? ELSE cover_image_url END, \
            cycles_enabled  = COALESCE(?, cycles_enabled), \
            estimation_unit = COALESCE(?, estimation_unit), \
+           agent_completion_category = COALESCE(?, agent_completion_category), \
            updated_at      = ? \
          WHERE id = ?",
     )
@@ -478,6 +491,7 @@ pub async fn apply_patch(
     .bind(patch.cover_image_url.clone().flatten())
     .bind(patch.cycles_enabled)
     .bind(patch.estimation_unit)
+    .bind(patch.agent_completion_category)
     .bind(to_sql_timestamp(now))
     .bind(id)
     .execute(&mut *tx)

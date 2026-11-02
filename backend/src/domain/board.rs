@@ -998,6 +998,7 @@ mod tests {
             card_counter: 0,
             cycles_enabled: false,
             estimation_unit: crate::domain::EstimationUnit::None,
+            agent_completion_category: StatusCategory::InProgress,
             archived_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),

@@ -6,6 +6,7 @@ pub mod attachments;
 pub mod auth;
 pub mod automation;
 pub mod board;
+pub mod board_auto;
 pub mod cards;
 pub mod collab;
 pub mod comments;
@@ -128,11 +129,16 @@ impl AppState {
     pub fn new(db: Db, config: Config) -> Self {
         let vault = Vault::from_config(&config).map(Arc::new);
         let agent_runner: Arc<dyn AgentRunner> = Arc::new(crate::agent::runner::LocalRunner::new());
-        let workspace_preparer: Arc<dyn WorkspacePreparer> =
-            Arc::new(crate::agent::workspace::GitWorkspacePreparer::new(
+        let workspace_preparer: Arc<dyn WorkspacePreparer> = Arc::new(
+            crate::agent::workspace::GitWorkspacePreparer::new(
                 config.workspace_dir.clone(),
                 config.workspace_quota_mb,
-            ));
+            )
+            .with_local_repository(
+                config.local_repository.clone(),
+                config.local_project_key.clone(),
+            ),
+        );
         Self {
             db,
             config: Arc::new(config),
@@ -281,6 +287,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(credentials::routes())
         .merge(github::routes())
         .merge(agent_sessions::routes())
+        .merge(board_auto::routes())
         .merge(admin::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -338,7 +345,7 @@ pub fn router(state: AppState) -> Router {
     // for client-side routes. In dev the Vite server handles this instead.
     let router = if let Some(ref static_dir) = state.config.static_dir {
         let index = static_dir.join("index.html");
-        router.fallback_service(ServeDir::new(static_dir).not_found_service(ServeFile::new(index)))
+        router.fallback_service(ServeDir::new(static_dir).fallback(ServeFile::new(index)))
     } else {
         router.fallback(not_found)
     };
@@ -378,5 +385,35 @@ mod tests {
         migrate::run(&db).await.unwrap();
         let _router = router(AppState::new(db.clone(), temp.config()));
         db.close().await;
+    }
+
+    #[tokio::test]
+    async fn frontend_deep_links_serve_the_spa_with_a_success_status() {
+        use axum::body::{Body, to_bytes};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let temp = TempDb::new();
+        let mut config = temp.config();
+        let directory =
+            std::env::temp_dir().join(format!("atlas-spa-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join("index.html"), "<html>Atlas SPA</html>").unwrap();
+        config.static_dir = Some(directory.clone());
+        let db = Db::connect(&config).await.unwrap();
+        migrate::run(&db).await.unwrap();
+        let app = router(AppState::new(db.clone(), config));
+        for path in ["/", "/projects/ATLAS/board", "/cards/ATLAS-1"] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            let body = to_bytes(response.into_body(), 1024).await.unwrap();
+            assert_eq!(body.as_ref(), b"<html>Atlas SPA</html>");
+        }
+        db.close().await;
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

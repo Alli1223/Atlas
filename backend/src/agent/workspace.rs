@@ -10,10 +10,10 @@
 //! # One workspace per project, not per card or session
 //!
 //! `TODO.md`'s own naming (`~/.atlas/workspaces/{project}`) is followed literally here.
-//! Concurrent agent runs against the same project sharing one workspace is a real hazard
-//! this module does not guard against — that is what Phase 13's later "concurrency cap;
-//! queue when saturated" item is for, matching how Atlas's SQLite pool already serializes
-//! writers rather than trying to make concurrent writes safe.
+//! The orchestrator reserves the checkout before preparation and holds it until completion
+//! actions finish. A second run on the same project is rejected before fetch/reset/clean can
+//! touch the first run's files. A configurable global concurrency cap and queue remain later
+//! work; this reservation protects the shared checkout in this process.
 //!
 //! # Credentials never touch argv or the stored git config
 //!
@@ -38,7 +38,7 @@ use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::integrations::github::store;
 use crate::secrets::vault::Vault;
-use crate::secrets::{self, Provider};
+use crate::secrets::{self, Provider, Secret};
 
 /// Preparing a project's workspace, behind a trait for the same reason
 /// [`crate::agent::runner::AgentRunner`] is one: object-safe (a boxed future rather than
@@ -61,12 +61,26 @@ pub trait WorkspacePreparer: Send + Sync {
 pub struct GitWorkspacePreparer {
     root: PathBuf,
     quota_mb: u64,
+    local_repository: Option<PathBuf>,
+    local_project_key: String,
 }
 
 impl GitWorkspacePreparer {
     #[must_use]
     pub fn new(root: PathBuf, quota_mb: u64) -> Self {
-        Self { root, quota_mb }
+        Self {
+            root,
+            quota_mb,
+            local_repository: None,
+            local_project_key: "ATLAS".to_owned(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_local_repository(mut self, path: Option<PathBuf>, project_key: String) -> Self {
+        self.local_repository = path;
+        self.local_project_key = project_key;
+        self
     }
 }
 
@@ -77,7 +91,17 @@ impl WorkspacePreparer for GitWorkspacePreparer {
         vault: &'a Vault,
         project_id: &'a str,
     ) -> BoxFuture<'a, AppResult<PathBuf>> {
-        Box::pin(async move { prepare(db, vault, &self.root, self.quota_mb, project_id).await })
+        Box::pin(async move {
+            if let Some(source) = &self.local_repository {
+                let project = crate::domain::project::find_by_id(db, project_id)
+                    .await?
+                    .ok_or(AppError::NotFound)?;
+                if project.key == self.local_project_key {
+                    return prepare_local(&self.root, self.quota_mb, project_id, source).await;
+                }
+            }
+            prepare(db, vault, &self.root, self.quota_mb, project_id).await
+        })
     }
 }
 
@@ -85,6 +109,68 @@ impl WorkspacePreparer for GitWorkspacePreparer {
 #[must_use]
 pub fn workspace_path(root: &Path, project_id: &str) -> PathBuf {
     root.join(project_id)
+}
+
+async fn prepare_local(
+    root: &Path,
+    quota_mb: u64,
+    project_id: &str,
+    source: &Path,
+) -> AppResult<PathBuf> {
+    let source = source.canonicalize().map_err(AppError::internal)?;
+    if !source.join(".git").exists() {
+        return Err(AppError::Validation(
+            "ATLAS_LOCAL_REPOSITORY must name a Git repository".to_owned(),
+        ));
+    }
+    let path = workspace_path(root, project_id);
+    tokio::fs::create_dir_all(root)
+        .await
+        .map_err(AppError::internal)?;
+    if path.join(".git").exists() {
+        run_git(
+            Some(&path),
+            ["fetch", &source.to_string_lossy(), "HEAD"],
+            None,
+        )
+        .await?;
+        run_git(Some(&path), ["checkout", "--detach"], None).await?;
+        run_git(Some(&path), ["reset", "--hard", "FETCH_HEAD"], None).await?;
+        run_git(Some(&path), ["clean", "-fd"], None).await?;
+    } else {
+        ensure_quota(root, quota_mb)?;
+        run_git(
+            None,
+            [
+                "clone",
+                "--no-hardlinks",
+                &source.to_string_lossy(),
+                &path.to_string_lossy(),
+            ],
+            None,
+        )
+        .await?;
+    }
+    run_git(Some(&path), ["update-ref", "refs/atlas/base", "HEAD"], None).await?;
+    Ok(path)
+}
+
+/// Preserve local agent work on a named branch without pushing or changing the source repo.
+pub(crate) async fn save_local_branch(path: &Path, branch: &str, message: &str) -> AppResult<bool> {
+    if !path.join(".git").exists() {
+        return Ok(false);
+    }
+    commit_run_changes(path, message).await?;
+    if !has_run_commits(path).await? {
+        return Ok(false);
+    }
+    run_git(
+        Some(path),
+        ["update-ref", &format!("refs/heads/{branch}"), "HEAD"],
+        None,
+    )
+    .await?;
+    Ok(true)
 }
 
 /// Clones (first use) or refreshes (every use after) a project's linked repo to a clean copy
@@ -107,6 +193,52 @@ pub async fn prepare(
     quota_mb: u64,
     project_id: &str,
 ) -> AppResult<PathBuf> {
+    let auth = resolve_repo_auth(db, vault, project_id).await?;
+    let path = workspace_path(root, project_id);
+
+    if path.join(".git").is_dir() {
+        refresh(
+            &path,
+            &auth.url,
+            &auth.repo.default_branch,
+            &auth.auth_header,
+        )
+        .await?;
+    } else {
+        ensure_quota(root, quota_mb)?;
+        clone(
+            &path,
+            &auth.url,
+            &auth.repo.default_branch,
+            &auth.auth_header,
+        )
+        .await?;
+    }
+
+    // Keep the starting commit separate from mutable HEAD: the agent may make commits
+    // itself, leaving a clean working tree that still needs to be published.
+    run_git(Some(&path), ["update-ref", "refs/atlas/base", "HEAD"], None).await?;
+    Ok(path)
+}
+
+/// A project's linked repo, resolved to the push/fetch URL and the one-shot credential header
+/// [`prepare`] itself uses — exposed so [`crate::agent::completion`] can commit an agent run's
+/// own workspace changes using the exact same credential path, without duplicating the
+/// credential-opening and HTTP Basic encoding here.
+pub(crate) struct RepoAuth {
+    pub repo: store::ProjectRepo,
+    pub url: String,
+    pub auth_header: String,
+    /// The bare PAT, for building a [`crate::integrations::github::client::GithubClient`] —
+    /// `auth_header` above is only useful to `git` itself.
+    pub token: Secret<String>,
+}
+
+pub(crate) async fn resolve_repo_auth(
+    db: &Db,
+    vault: &Vault,
+    project_id: &str,
+) -> AppResult<RepoAuth> {
     let Some(repo) = store::find_project_repo(db, project_id).await? else {
         return Err(AppError::Conflict(
             "this project has no repository linked".to_owned(),
@@ -132,16 +264,12 @@ pub async fn prepare(
     );
     let url = format!("https://github.com/{}/{}.git", repo.owner, repo.repo);
 
-    let path = workspace_path(root, project_id);
-
-    if path.join(".git").is_dir() {
-        refresh(&path, &url, &repo.default_branch, &auth_header).await?;
-    } else {
-        ensure_quota(root, quota_mb)?;
-        clone(&path, &url, &repo.default_branch, &auth_header).await?;
-    }
-
-    Ok(path)
+    Ok(RepoAuth {
+        repo,
+        url,
+        auth_header,
+        token,
+    })
 }
 
 async fn clone(path: &Path, url: &str, default_branch: &str, auth_header: &str) -> AppResult<()> {
@@ -179,6 +307,95 @@ async fn refresh(path: &Path, url: &str, default_branch: &str, auth_header: &str
     // gitignored build caches (`target/`, `node_modules/`), punishing every run with a
     // from-scratch rebuild for a hazard `-fd` alone already closes.
     run_git(Some(path), ["clean", "-fd"], None).await
+}
+
+/// Commits every uncommitted change in `path` under the repository owner's identity and
+/// pushes the result to a new branch on the remote — see `agent::completion`'s module doc for
+/// why an agent run's own
+/// workspace changes need this at all (the one-shot clone credential above never reaches the
+/// agent's own Bash tool, so whatever it wrote stays local until something pushes it).
+///
+/// Returns `false` when there are neither uncommitted changes nor commits since preparation.
+///
+/// Pushes `HEAD:refs/heads/{branch}` rather than checking out a local branch of that name
+/// first: the shared, one-per-project workspace's local branch stays exactly where `refresh`
+/// always puts it (the default branch), so the next run's hard reset has nothing
+/// branch-shaped to clean up — it just discards the now-pushed commit like any other local
+/// change `refresh` already expects to blow away.
+pub(crate) async fn commit_and_push(
+    path: &Path,
+    auth: &RepoAuth,
+    branch: &str,
+    message: &str,
+) -> AppResult<bool> {
+    commit_run_changes(path, message).await?;
+    if !has_run_commits(path).await? {
+        return Ok(false);
+    }
+    let refspec = format!("HEAD:refs/heads/{branch}");
+    run_git(
+        Some(path),
+        ["push", auth.url.as_str(), refspec.as_str()],
+        Some(&auth.auth_header),
+    )
+    .await?;
+    Ok(true)
+}
+
+async fn commit_run_changes(path: &Path, message: &str) -> AppResult<()> {
+    if has_changes(path).await? {
+        run_git(Some(path), ["add", "-A"], None).await?;
+        run_git(
+            Some(path),
+            [
+                "-c",
+                "user.name=Alastair Rayner",
+                "-c",
+                "user.email=alli0@me.com",
+                "commit",
+                "-m",
+                message,
+            ],
+            None,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn has_run_commits(path: &Path) -> AppResult<bool> {
+    let output = Command::new("git")
+        .args(["rev-list", "--count", "refs/atlas/base..HEAD"])
+        .current_dir(path)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(AppError::internal)?;
+    if !output.status.success() {
+        return Err(AppError::internal(anyhow::anyhow!(
+            "could not determine commits made during the agent run"
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim() != "0")
+}
+
+/// Whether `path` has anything uncommitted — staged, unstaged, or untracked.
+async fn has_changes(path: &Path) -> AppResult<bool> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(path)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(AppError::internal)?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::internal(anyhow::anyhow!(
+            "git status failed: {stderr}"
+        )));
+    }
+    Ok(!output.stdout.is_empty())
 }
 
 /// Runs `git` to completion, treating a non-zero exit as an error.
@@ -336,5 +553,116 @@ mod tests {
             .await
             .unwrap();
         assert!(dir.0.join(".git").is_dir());
+    }
+
+    async fn publication_fixture() -> (TempDir, PathBuf, RepoAuth) {
+        let dir = TempDir::new();
+        let remote = dir.0.join("remote.git");
+        let work = dir.0.join("work");
+        run_git(None, ["init", "--bare", &remote.to_string_lossy()], None)
+            .await
+            .unwrap();
+        run_git(None, ["init", "-b", "main", &work.to_string_lossy()], None)
+            .await
+            .unwrap();
+        run_git(
+            Some(&work),
+            ["config", "user.name", "Alastair Rayner"],
+            None,
+        )
+        .await
+        .unwrap();
+        run_git(Some(&work), ["config", "user.email", "alli0@me.com"], None)
+            .await
+            .unwrap();
+        std::fs::write(work.join("file.txt"), "original").unwrap();
+        run_git(Some(&work), ["add", "-A"], None).await.unwrap();
+        run_git(Some(&work), ["commit", "-m", "Initial"], None)
+            .await
+            .unwrap();
+        run_git(Some(&work), ["update-ref", "refs/atlas/base", "HEAD"], None)
+            .await
+            .unwrap();
+        let now = crate::auth::now();
+        let auth = RepoAuth {
+            repo: store::ProjectRepo {
+                id: "repo".to_owned(),
+                project_id: "project".to_owned(),
+                credential_id: None,
+                owner: "owner".to_owned(),
+                repo: "repo".to_owned(),
+                repo_id: 1,
+                default_branch: "main".to_owned(),
+                branch_prefix: "feature".to_owned(),
+                webhook_id: None,
+                created_at: now,
+                updated_at: now,
+                sync_status: "unchecked".to_owned(),
+                sync_detail: None,
+                sync_checked_at: None,
+            },
+            url: remote.to_string_lossy().into_owned(),
+            auth_header: "Authorization: Basic test".to_owned(),
+            token: Secret::new("test".to_owned()),
+        };
+        (dir, work, auth)
+    }
+
+    async fn published_file(auth: &RepoAuth, branch: &str) -> String {
+        let output = Command::new("git")
+            .args([
+                "--git-dir",
+                &auth.url,
+                "show",
+                &format!("{branch}:file.txt"),
+            ])
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    #[tokio::test]
+    async fn publication_skips_an_unchanged_workspace() {
+        let (_dir, work, auth) = publication_fixture().await;
+        assert!(
+            !commit_and_push(&work, &auth, "feature/TEST-1", "Finished")
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn publication_commits_and_pushes_uncommitted_changes() {
+        let (_dir, work, auth) = publication_fixture().await;
+        std::fs::write(work.join("file.txt"), "updated").unwrap();
+        assert!(
+            commit_and_push(&work, &auth, "feature/TEST-1", "Finished")
+                .await
+                .unwrap()
+        );
+        assert_eq!(published_file(&auth, "feature/TEST-1").await, "updated");
+        assert!(!has_changes(&work).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn publication_pushes_changes_already_committed_by_the_agent() {
+        let (_dir, work, auth) = publication_fixture().await;
+        std::fs::write(work.join("file.txt"), "agent commit").unwrap();
+        run_git(Some(&work), ["add", "-A"], None).await.unwrap();
+        run_git(Some(&work), ["commit", "-m", "Agent changes"], None)
+            .await
+            .unwrap();
+        assert!(!has_changes(&work).await.unwrap());
+        assert!(
+            commit_and_push(&work, &auth, "feature/TEST-1", "Finished")
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            published_file(&auth, "feature/TEST-1").await,
+            "agent commit"
+        );
     }
 }

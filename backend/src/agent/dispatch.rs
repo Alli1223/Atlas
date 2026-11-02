@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::agent::orchestrator::{self, AfterRun, Launch, RunOptions, StartRequest};
+use crate::agent::providers::AgentProvider;
 use crate::agent::runner::RunLimits;
 use crate::api::AppState;
 use crate::domain::agent_session::{self, AgentSession, NewAgentSession};
@@ -25,6 +26,8 @@ use crate::secrets::{self, Provider, Secret};
 /// re-opened from the vault by credential id when the run actually launches.
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredLaunch {
+    #[serde(default)]
+    provider: AgentProvider,
     allowed_tools: Vec<String>,
     disallowed_tools: Vec<String>,
     permission_mode: String,
@@ -37,6 +40,8 @@ struct StoredLaunch {
 /// What to run.
 #[derive(Debug)]
 pub struct Submission<'a> {
+    /// The CLI to run: Claude, Codex or Antigravity.
+    pub provider: AgentProvider,
     /// The card.
     pub card: &'a Card,
     /// The prompt.
@@ -105,8 +110,13 @@ async fn api_key(
     Ok(Some(vault.open(&credential)?))
 }
 
-fn stored(settings: &AgentSettings, resume: Option<String>) -> StoredLaunch {
+fn stored(
+    provider: AgentProvider,
+    settings: &AgentSettings,
+    resume: Option<String>,
+) -> StoredLaunch {
     StoredLaunch {
+        provider,
         allowed_tools: settings.effective_allowed_tools(),
         disallowed_tools: settings.disallowed_tools.clone(),
         permission_mode: settings.permission_mode.clone(),
@@ -122,14 +132,18 @@ fn stored(settings: &AgentSettings, resume: Option<String>) -> StoredLaunch {
 
 /// Starts a run now, or queues it if the instance is at its concurrency cap.
 pub async fn submit(state: &AppState, submission: Submission<'_>) -> AppResult<AgentSession> {
-    let vault = state.vault.as_deref().ok_or_else(|| {
+    let vault = state.vault.as_ref().ok_or_else(|| {
         AppError::internal(anyhow::anyhow!(
             "the secrets vault is not configured: set ATLAS_MASTER_KEY"
         ))
     })?;
     let card = submission.card;
     let settings = agent_settings::get(&state.db, &card.project_id).await?;
-    let launch = stored(&settings, submission.resume_session_id.clone());
+    let launch = stored(
+        submission.provider,
+        &settings,
+        submission.resume_session_id.clone(),
+    );
 
     let executing = agent_session::executing_count(&state.db).await?;
     let cap = i64::try_from(state.config.agent_max_concurrent).unwrap_or(i64::MAX);
@@ -150,6 +164,11 @@ pub async fn submit(state: &AppState, submission: Submission<'_>) -> AppResult<A
             crate::auth::now(),
         )
         .await?;
+        sqlx::query("UPDATE agent_sessions SET provider = ? WHERE id = ?")
+            .bind(submission.provider.as_str())
+            .bind(&session.id)
+            .execute(&mut *tx)
+            .await?;
         agent_session::mark_queued(
             &mut tx,
             &session.id,
@@ -174,6 +193,7 @@ pub async fn submit(state: &AppState, submission: Submission<'_>) -> AppResult<A
         state.workspace_preparer.as_ref(),
         &state.cancel_registry,
         StartRequest {
+            provider: submission.provider,
             card,
             prompt: submission.prompt,
             allowed_tools: launch.allowed_tools,
@@ -198,7 +218,7 @@ pub async fn submit(state: &AppState, submission: Submission<'_>) -> AppResult<A
 
 /// Launches queued sessions, oldest first, while there are free slots. Returns how many.
 pub async fn dispatch_queued(state: &AppState) -> AppResult<usize> {
-    let Some(vault) = state.vault.as_deref() else {
+    let Some(vault) = state.vault.as_ref() else {
         return Ok(0);
     };
     let cap = i64::try_from(state.config.agent_max_concurrent).unwrap_or(i64::MAX);
@@ -207,12 +227,26 @@ pub async fn dispatch_queued(state: &AppState) -> AppResult<usize> {
         let Some((session, raw)) = agent_session::claim_queued(&state.db).await? else {
             break;
         };
+        let card = crate::domain::card::find_by_id(&state.db, &session.card_id).await?;
+        // The project's checkout may still be reserved by a run that only just finished
+        // (completion actions release it, see `orchestrator::spawn_drain`'s own comment) —
+        // busy, not broken. Put the claim back rather than failing a run that never got the
+        // chance to start; the next tick retries it.
+        let guard = card
+            .as_ref()
+            .map(|card| orchestrator::reserve_workspace(&card.project_id));
+        if matches!(guard, Some(Err(_))) {
+            sqlx::query("UPDATE agent_sessions SET queued = 1 WHERE id = ?")
+                .bind(&session.id)
+                .execute(state.db.writer())
+                .await?;
+            continue;
+        }
         let result = async {
             let launch: StoredLaunch = serde_json::from_str(&raw).map_err(AppError::internal)?;
-            let card = crate::domain::card::find_by_id(&state.db, &session.card_id)
-                .await?
-                .ok_or(AppError::NotFound)?;
+            let card = card.ok_or(AppError::NotFound)?;
             let settings = agent_settings::get(&state.db, &card.project_id).await?;
+            let workspace_guard = guard.ok_or(AppError::NotFound)??;
             let working_dir = state
                 .workspace_preparer
                 .prepare(&state.db, vault, &card.project_id)
@@ -221,11 +255,17 @@ pub async fn dispatch_queued(state: &AppState) -> AppResult<usize> {
             let after = after_run(state, &card.project_id, &settings).await?;
             orchestrator::launch_prepared(
                 &state.db,
+                vault,
                 state.agent_runner.as_ref(),
                 &state.cancel_registry,
                 &session,
-                working_dir,
+                orchestrator::Prepared {
+                    card,
+                    working_dir,
+                    workspace_guard,
+                },
                 Launch {
+                    provider: launch.provider,
                     prompt: session.prompt.clone(),
                     claude_session_id: session.claude_session_id.clone().unwrap_or_default(),
                     allowed_tools: launch.allowed_tools,

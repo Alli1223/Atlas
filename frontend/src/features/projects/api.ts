@@ -10,11 +10,19 @@ export type ProjectTemplate = components['schemas']['TemplateDto']
 /** The template identifier a new project is seeded from. */
 export type Template = components['schemas']['Template']
 
+/** Where a successful Claude Code run moves a card. Mirrors `domain::StatusCategory`. */
+export type StatusCategory = components['schemas']['StatusCategory']
+
 export interface CreateProjectInput {
   key: string
   name: string
   description?: string
   template?: Template
+}
+
+/** The fields a PATCH may carry. Mirrors the settable half of `UpdateProjectRequest`. */
+export interface ProjectPatch {
+  agentCompletionCategory?: StatusCategory
 }
 
 /**
@@ -52,5 +60,12 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
         ...(input.template !== undefined && { template: input.template }),
       },
     }),
+  )
+}
+
+/** Edits a project. */
+export async function patchProject(key: string, patch: ProjectPatch): Promise<Project> {
+  return unwrap(
+    await api.PATCH('/api/v1/projects/{key}', { params: { path: { key } }, body: patch }),
   )
 }

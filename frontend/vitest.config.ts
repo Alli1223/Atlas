@@ -13,6 +13,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Bound worker memory and CPU so tests and the local app can share a modest host.
+    maxWorkers: 2,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: true,

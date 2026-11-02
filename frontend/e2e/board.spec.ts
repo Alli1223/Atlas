@@ -174,3 +174,32 @@ test('clicking a card on the board opens its detail modal', async ({ page }) => 
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page).not.toHaveURL(/card=/)
 })
+
+test('Auto activity and provider usage are readable in the browser', async ({ page }) => {
+  await login(page)
+  const { projectKey } = await seedProject(page)
+  await page.route(`**/api/v1/projects/${projectKey}/auto`, route => route.fulfill({json: {
+    id:'preview',projectId:'preview',provider:'claude',status:'running',maxTasks:3,
+    completedTasks:0,currentCardKey:`${projectKey}-1`,currentSessionId:'preview-worker',
+    message:'Codex is implementing the ticket',console:'',startedAt:new Date().toISOString(),updatedAt:new Date().toISOString(),
+  }}))
+  await page.route(`**/api/v1/projects/${projectKey}/auto/activity`, route => route.fulfill({json: [{
+    id:'assignment',provider:'codex',cardKey:`${projectKey}-1`,sessionId:'preview-worker',
+    message:'Codex is best for this implementation and its regression tests.',createdAt:new Date().toISOString(),
+  }]}))
+  await page.route(`**/api/v1/cards/${projectKey}-1/agent-sessions`, route => route.fulfill({json: [{id:'preview-worker',status:'running'}]}))
+  await page.route('**/api/v1/agent-sessions/preview-worker/transcript', route => route.fulfill({json: [{
+    id:'output',line:'{"type":"item.completed","item":{"type":"command_execution","command":"cargo test","aggregated_output":"All checks passed","status":"completed","exit_code":0}}',
+  }]}))
+  await page.goto(`/projects/${projectKey}/board`)
+  await page.getByText(/Auto · running/, {exact:false}).click()
+  await expect(page.getByRole('combobox', {name:'Coordinator'})).toHaveValue('claude')
+  await expect(page.getByRole('region', {name:'Agent activity'})).toBeVisible()
+  await expect(page.getByText('Codex is best for this implementation and its regression tests.')).toBeVisible()
+  await page.getByText('Worker console', {exact:true}).click()
+  await expect(page.getByRole('log')).toContainText('All checks passed')
+  await page.getByText('AI usage', {exact:false}).click()
+  await expect(page.getByText('Your Atlas usage · last 24 hours')).toBeVisible()
+  await expect(page.getByText('Not reported').first()).toBeVisible()
+  await page.screenshot({path:'test-results/agent-activity-usage.png',fullPage:true})
+})
