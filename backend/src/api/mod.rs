@@ -19,6 +19,7 @@ pub mod middleware;
 pub mod notifications;
 pub mod project_config;
 pub mod projects;
+pub mod reports;
 pub mod search;
 pub mod serde_ext;
 pub mod tags;
@@ -163,6 +164,7 @@ impl AppState {
         (name = "custom-fields", description = "The global custom field registry, per-project layouts, and card values"),
         (name = "notifications", description = "The caller's bell and notification preferences"),
         (name = "live", description = "The WebSocket channel: board sync, notifications, agent output"),
+        (name = "reports", description = "Reports (cumulative flow, burndown, velocity, …), gadget aggregates, and dashboards"),
         (name = "automation", description = "Rules (one trigger, conditions, actions), their audit log, dry runs and webhooks"),
         (name = "tags", description = "Free-text labels on cards, their presets, and merging"),
         (name = "workflows", description = "Workflows, transitions, their gates, and taking a transition"),
@@ -262,6 +264,7 @@ fn api_v1(state: &AppState) -> OpenApiRouter<AppState> {
         .merge(notifications::routes())
         .merge(live::routes())
         .merge(automation::routes())
+        .merge(reports::routes())
         .merge(tags::routes())
         .merge(search::routes())
         .merge(workflow::routes())

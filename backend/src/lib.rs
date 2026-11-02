@@ -23,6 +23,7 @@
 //! - [`notify`] — the bell, preferences, email and the daily digest.
 //! - [`automation`] — rules: one trigger, conditions, actions (`TODO.md` Phase 15).
 //! - [`jobs`] — the background jobs [`scheduler`] runs.
+//! - [`reports`] — every Phase 16 report, as a query over the daily snapshot.
 //! - [`storage`] — uploaded bytes on disk (attachments, avatars, generated images), at paths
 //!   built only from server-generated ids.
 
@@ -40,6 +41,7 @@ pub mod integrations;
 pub mod jobs;
 pub mod notify;
 pub mod rank;
+pub mod reports;
 pub mod scheduler;
 pub mod secrets;
 pub mod storage;

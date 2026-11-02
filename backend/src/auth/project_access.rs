@@ -1075,6 +1075,56 @@ pub(crate) const SCOPES: &[(Method, &str, Scope)] = &[
         "/api/v1/automation/rules/{id}/webhook-token",
         Scope::Owned(OwnedTable::Rules, ProjectRole::Owner),
     ),
+    // --- reports: project reports are reads (Viewer); the AQL-driven ones and the cost
+    // dashboard compile/filter by the caller's own access, like /search; dashboards are
+    // personal (owner-checked in the handler, like saved filters) ---
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/reports/cumulative-flow",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/reports/created-vs-resolved",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/reports/average-age",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/reports/control-chart",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/projects/{key}/reports/velocity",
+        Scope::Project(ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cycles/{id}/burndown",
+        Scope::Cycle(ProjectRole::Viewer),
+    ),
+    (
+        Method::GET,
+        "/api/v1/cycles/{id}/report",
+        Scope::Cycle(ProjectRole::Viewer),
+    ),
+    (Method::POST, "/api/v1/reports/aggregate", Scope::Unscoped),
+    (
+        Method::POST,
+        "/api/v1/reports/two-dimensional",
+        Scope::Unscoped,
+    ),
+    (Method::GET, "/api/v1/reports/agent-costs", Scope::Unscoped),
+    (Method::GET, "/api/v1/dashboards", Scope::Unscoped),
+    (Method::POST, "/api/v1/dashboards", Scope::Unscoped),
+    (Method::GET, "/api/v1/dashboards/{id}", Scope::Unscoped),
+    (Method::PUT, "/api/v1/dashboards/{id}", Scope::Unscoped),
+    (Method::DELETE, "/api/v1/dashboards/{id}", Scope::Unscoped),
     // --- the live channel: the socket filters every frame by the caller's own access ---
     (Method::GET, "/api/v1/ws", Scope::Unscoped),
     // --- avatars: the caller's own (auth), and anyone's image (any signed-in user) ---

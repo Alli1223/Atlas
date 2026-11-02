@@ -65,12 +65,26 @@ pub async fn take(db: &Db, now: DateTime<Utc>) -> AppResult<usize> {
         return Ok(0);
     }
 
-    let taken_at = to_sql_timestamp(start_of_day(now));
+    // One daily row per card per day: today's earlier daily rows are replaced, and the new
+    // ones carry the real instant so they order against the same day's commitment/completion
+    // snapshots.
+    let day = to_sql_timestamp(start_of_day(now));
+    let day = &day[..10];
+    let taken_at = to_sql_timestamp(now);
     let mut tx = db.begin_write().await?;
     for row in &rows {
         sqlx::query(
-            "INSERT INTO cycle_snapshot (id, cycle_id, taken_at, card_id, estimate, status_category) \
-             VALUES (?, ?, ?, ?, ?, ?) \
+            "DELETE FROM cycle_snapshot WHERE kind = 'daily' AND cycle_id = ? AND card_id = ? \
+               AND substr(taken_at, 1, 10) = ?",
+        )
+        .bind(&row.cycle_id)
+        .bind(&row.card_id)
+        .bind(day)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO cycle_snapshot (id, cycle_id, taken_at, card_id, estimate, \
+             status_category, kind) VALUES (?, ?, ?, ?, ?, ?, 'daily') \
              ON CONFLICT (cycle_id, taken_at, card_id) DO UPDATE SET \
                 estimate        = excluded.estimate, \
                 status_category = excluded.status_category",
@@ -87,6 +101,37 @@ pub async fn take(db: &Db, now: DateTime<Utc>) -> AppResult<usize> {
     tx.commit().await?;
 
     Ok(rows.len())
+}
+
+/// Snapshots one cycle's in-scope cards at exactly `at`, inside the caller's transaction.
+///
+/// The commitment snapshot (taken by [`crate::domain::cycle::start`]) and the completion
+/// snapshot (taken by [`crate::domain::cycle::complete`], *before* incomplete cards are carried
+/// out) — the two moments a cycle report needs and that could never be reconstructed later.
+/// Stamped with the exact instant rather than the day, so they never collide with that day's
+/// daily row.
+pub async fn take_cycle_tx(
+    tx: &mut sqlx::SqliteConnection,
+    cycle_id: &str,
+    at: DateTime<Utc>,
+    kind: &'static str,
+) -> AppResult<()> {
+    sqlx::query(
+        "INSERT INTO cycle_snapshot (id, cycle_id, taken_at, card_id, estimate, status_category, \
+         kind) \
+         SELECT lower(hex(randomblob(16))), cc.cycle_id, ?, cc.card_id, c.estimate, s.category, ? \
+           FROM card_cycle cc \
+           JOIN cards c ON c.id = cc.card_id \
+           JOIN statuses s ON s.id = c.status_id \
+          WHERE cc.cycle_id = ? AND cc.removed_at IS NULL \
+         ON CONFLICT (cycle_id, taken_at, card_id) DO NOTHING",
+    )
+    .bind(to_sql_timestamp(at))
+    .bind(kind)
+    .bind(cycle_id)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
 }
 
 /// Truncates to the start of `now`'s UTC calendar day — the bucket a snapshot dedupes on.
@@ -211,7 +256,7 @@ mod tests {
         assert_eq!(written, 1);
 
         let row: (Option<f64>, String) = sqlx::query_as(
-            "SELECT estimate, status_category FROM cycle_snapshot WHERE card_id = ?",
+            "SELECT estimate, status_category FROM cycle_snapshot WHERE card_id = ? AND kind = 'daily'",
         )
         .bind(&card_id)
         .fetch_one(db.reader())
@@ -241,12 +286,13 @@ mod tests {
         let written_again = take(&db, now()).await.unwrap();
         assert_eq!(written_again, 1);
 
-        let rows: Vec<(Option<f64>,)> =
-            sqlx::query_as("SELECT estimate FROM cycle_snapshot WHERE card_id = ?")
-                .bind(&card_id)
-                .fetch_all(db.reader())
-                .await
-                .unwrap();
+        let rows: Vec<(Option<f64>,)> = sqlx::query_as(
+            "SELECT estimate FROM cycle_snapshot WHERE card_id = ? AND kind = 'daily'",
+        )
+        .bind(&card_id)
+        .fetch_all(db.reader())
+        .await
+        .unwrap();
         assert_eq!(rows.len(), 1, "must still be exactly one row for today");
         assert_eq!(rows[0].0, Some(5.0), "must hold the latest estimate");
     }

@@ -1408,6 +1408,16 @@ const NOT_PROJECT_SCOPED: &[&str] = &[
     "DELETE /api/v1/admin/smtp",
     "POST /api/v1/admin/smtp/test",
     "GET /api/v1/ws",
+    // AQL-driven reports scope themselves in the compiled query, like /search; the cost
+    // report filters to the caller's projects; dashboards are personal, like filters.
+    "POST /api/v1/reports/aggregate",
+    "POST /api/v1/reports/two-dimensional",
+    "GET /api/v1/reports/agent-costs",
+    "GET /api/v1/dashboards",
+    "POST /api/v1/dashboards",
+    "GET /api/v1/dashboards/{id}",
+    "PUT /api/v1/dashboards/{id}",
+    "DELETE /api/v1/dashboards/{id}",
     // Avatars: the caller's own (auth), and any user's image to any signed-in user.
     "PUT /api/v1/auth/me/avatar",
     "DELETE /api/v1/auth/me/avatar",

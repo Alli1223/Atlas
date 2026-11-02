@@ -29,6 +29,7 @@
 //!   generalised).
 //! - [`attachment`] — files on a card, versioned by name. Bytes live in [`crate::storage`].
 //! - [`custom_field`] — the global field registry, per-project layouts, and typed values.
+//! - [`snapshot`] — `daily_snapshot`, one row per card per day: what reports group over.
 //! - [`tag`] — free-text labels, and the presets each template seeds.
 //! - [`template`] — the four project templates' seed data.
 //! - [`workflow`] — the workflow engine: transitions and their conditions,
@@ -72,6 +73,7 @@ pub mod links;
 pub mod member;
 pub mod planning;
 pub mod project;
+pub mod snapshot;
 pub mod tag;
 pub mod template;
 pub mod workflow;

@@ -326,6 +326,14 @@ pub async fn start(
     .execute(&mut *tx)
     .await?;
 
+    // The commitment: what was in scope, at what estimate, the instant it started.
+    sqlx::query("UPDATE cycles SET started_at = ?, completed_at = NULL WHERE id = ?")
+        .bind(to_sql_timestamp(now))
+        .bind(&cycle.id)
+        .execute(&mut *tx)
+        .await?;
+    crate::domain::cycle_snapshot::take_cycle_tx(&mut *tx, &cycle.id, now, "commitment").await?;
+
     find_by_id_tx(&mut *tx, &cycle.id)
         .await?
         .ok_or_else(|| AppError::internal(anyhow::anyhow!("the cycle just started is missing")))
@@ -346,6 +354,15 @@ pub async fn complete(
             cycle.state
         )));
     }
+
+    // The completion: every card still in scope and where it stood, taken *before* the
+    // incomplete ones are carried out — afterwards, "what did this cycle finish" is gone.
+    crate::domain::cycle_snapshot::take_cycle_tx(&mut *tx, &cycle.id, now, "completion").await?;
+    sqlx::query("UPDATE cycles SET completed_at = ? WHERE id = ?")
+        .bind(to_sql_timestamp(now))
+        .bind(&cycle.id)
+        .execute(&mut *tx)
+        .await?;
 
     let incomplete: Vec<String> = sqlx::query_scalar(
         "SELECT cc.card_id FROM card_cycle cc \

@@ -125,6 +125,19 @@ pub fn all(state: &AppState) -> Vec<Job> {
             },
         ),
         job(
+            "daily-snapshot",
+            Duration::from_hours(1),
+            state,
+            |state| async move {
+                // Hourly but idempotent within a day: today's rows are rewritten in place, so
+                // the last run of the day is the day's snapshot, and a restart loses nothing.
+                if let Err(err) = crate::domain::snapshot::take(&state.db, crate::auth::now()).await
+                {
+                    tracing::warn!(error = %err, "daily snapshot failed");
+                }
+            },
+        ),
+        job(
             "session-purge",
             Duration::from_hours(6),
             state,
