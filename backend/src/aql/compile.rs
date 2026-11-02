@@ -1087,6 +1087,18 @@ fn scalar_binds(field: Field, values: &[Value], ctx: &CompileCtx) -> Result<Vec<
 
 /// The text form of a value in a scalar position.
 fn scalar_text(field: Field, value: &Value, ctx: &CompileCtx) -> Result<String, AqlError> {
+    // `updated <= -7d`: a relative offset in a date position is an instant relative to now.
+    // Without this the literal text `-7d` was compared against the column, which no stored
+    // timestamp ever sorts below — so every such query silently matched nothing.
+    if field.is_date()
+        && let Some(at) = functions::relative_instant(value, ctx.now)
+    {
+        return Ok(match field {
+            // Calendar-date columns store `YYYY-MM-DD`.
+            Field::Due | Field::Started => at.date_naive().to_string(),
+            _ => crate::auth::to_sql_timestamp(at),
+        });
+    }
     let text = match value {
         Value::Str { text, .. } => text.clone(),
         Value::Num { raw, .. } => raw.clone(),
@@ -1108,6 +1120,11 @@ fn scalar_text(field: Field, value: &Value, ctx: &CompileCtx) -> Result<String, 
 
 /// Resolves a value used in a history modifier — always text.
 fn text_bind(value: &Value, ctx: &CompileCtx) -> Result<Bind, AqlError> {
+    // `CHANGED AFTER -7d`: history modifiers compare against `card_history.created_at`, so a
+    // relative offset is an instant, exactly as in `scalar_text`.
+    if let Some(at) = functions::relative_instant(value, ctx.now) {
+        return Ok(Bind::Text(crate::auth::to_sql_timestamp(at)));
+    }
     // History mod values are not key-shaped, so no uppercasing.
     let text = match value {
         Value::Str { text, .. } => text.clone(),

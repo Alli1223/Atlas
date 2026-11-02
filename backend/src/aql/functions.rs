@@ -190,6 +190,31 @@ fn add_one_month(start: DateTime<Utc>) -> Option<DateTime<Utc>> {
     Some(Utc.from_utc_datetime(&naive))
 }
 
+/// A literal relative offset (`-7d`, `+1w`, `-30m`) resolved against `now`, or `None` when the
+/// value is not shaped like one — an absolute date such as `2026-01-01` is left alone.
+///
+/// Only a value with a sign or a unit counts: a bare `7` in a date position is ambiguous, and
+/// guessing "days" for it would silently change what an existing query means.
+pub fn relative_instant(value: &super::ast::Value, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    let raw = match value {
+        super::ast::Value::Str { text, .. } => text.trim(),
+        super::ast::Value::Num { raw, .. } => raw.trim(),
+        super::ast::Value::Func(_) => return None,
+    };
+    let signed = raw.starts_with('-') || raw.starts_with('+');
+    let digits = raw.trim_start_matches(['-', '+']);
+    let unit = digits.chars().last().filter(char::is_ascii_alphabetic);
+    let number = unit.map_or(digits, |u| &digits[..digits.len() - u.len_utf8()]);
+    if number.is_empty()
+        || !number.bytes().all(|b| b.is_ascii_digit())
+        || !(signed || unit.is_some())
+    {
+        return None;
+    }
+    let offset = parse_offset(value).ok()?;
+    now.checked_add_signed(offset)
+}
+
 /// Parses a relative offset like `-1w`, `+3d`, `2h`, `-30m` into a duration.
 ///
 /// Units: `w` weeks, `d` days, `h` hours, `m` minutes. A bare number is days.
