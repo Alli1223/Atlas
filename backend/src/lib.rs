@@ -35,6 +35,7 @@ pub mod aql;
 pub mod auth;
 pub mod automation;
 pub mod backup;
+pub mod bootstrap;
 pub mod config;
 pub mod db;
 pub mod domain;

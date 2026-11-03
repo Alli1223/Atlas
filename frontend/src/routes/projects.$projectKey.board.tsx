@@ -17,6 +17,7 @@ import {
   useSavedBoards,
 } from '@/features/board'
 import { CardDetailModal } from '@/features/card-detail'
+import { AutoBoard } from '@/features/automation/AutoBoard'
 import { useProject } from '@/features/projects'
 
 import { ProjectTabs } from '@/features/project-tools'
@@ -168,6 +169,13 @@ function BoardRoute() {
                 Cycles
               </Link>
             )}
+            <Link
+              to="/projects/$projectKey/settings"
+              params={{ projectKey }}
+              className={styles.cyclesLink}
+            >
+              Settings
+            </Link>
             <div className={styles.swimlaneControl}>
               <Select
                 aria-label="Swimlanes"
@@ -180,6 +188,7 @@ function BoardRoute() {
         </div>
       </header>
 
+      {search.parent === undefined && <AutoBoard projectKey={projectKey} />}
       {board.isError ? (
         <div className={styles.state}>
           <Banner appearance="error">

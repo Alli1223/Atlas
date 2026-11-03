@@ -370,3 +370,5 @@ mod tests {
         assert!("story-points".parse::<EstimationUnit>().is_err());
     }
 }
+
+pub mod automation;

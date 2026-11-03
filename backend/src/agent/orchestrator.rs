@@ -15,22 +15,11 @@
 //! uses. A caller sees progress by polling `GET /agent-sessions/{id}` (or, later, subscribing
 //! over WebSocket); nothing here blocks a request thread for the run's lifetime.
 //!
-//! # What happens if Atlas restarts mid-run
-//!
-//! The detached task dies with the process, and the session is left `running` forever with
-//! no error recorded — a known, narrow gap (worth a stale-session sweep on startup later),
-//! not silent data loss: the CLI's own child process is not orphaned regardless
-//! ([`crate::agent::runner`]'s `KillOnDrop` + process-group kill), so nothing keeps spending
-//! after Atlas is gone.
-//!
 //! # Transcript persistence
 //!
-//! Every raw line the CLI wrote — not just the terminal `result` — is written to
-//! [`crate::domain::agent_session_transcript`] once the run ends, in one transaction, rather
-//! than one row per line as they arrive: a run's lines live only in memory for its duration
-//! (bounded by how long a run itself is), and batching means a transcript write can never
-//! race the outcome write that follows it. A restart mid-run loses the in-flight lines the
-//! same way it loses the outcome (see above) — there is nothing to batch-write yet.
+//! Output is persisted as it arrives, before recording the terminal outcome. Ticket
+//! consoles can poll it while a run is active, and startup recovery retains output from
+//! interrupted runs. Each append uses a short transaction, preserving arrival order.
 //!
 //! # Cancelling a run
 //!
@@ -51,12 +40,14 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use tokio::sync::oneshot;
 
 use crate::agent::claude_code::{self, Event, Outcome, ResultEvent};
+use crate::agent::completion;
 use crate::agent::mcp;
+use crate::agent::providers::AgentProvider;
 use crate::agent::runner::{AgentRunner, RunEvent, RunHandle, RunLimits, RunRequest};
 use crate::agent::workspace::WorkspacePreparer;
 use crate::auth::now;
@@ -121,6 +112,32 @@ pub struct AfterRun {
 /// Live runs' cancel signals, keyed by agent session id. See the module doc.
 pub type CancelRegistry = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
 
+/// Hold the project's shared checkout through preparation, execution and publication.
+/// Weak entries let idle projects disappear instead of growing this map forever.
+pub(crate) fn reserve_workspace(project_id: &str) -> AppResult<tokio::sync::OwnedMutexGuard<()>> {
+    type WorkspaceLocks = Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>;
+    static WORKSPACES: OnceLock<WorkspaceLocks> = OnceLock::new();
+    let workspace = {
+        let mut locks = WORKSPACES
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        let workspace = locks
+            .get(project_id)
+            .and_then(Weak::upgrade)
+            .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(())));
+        locks.insert(project_id.to_owned(), Arc::downgrade(&workspace));
+        workspace
+    };
+    workspace.try_lock_owned().map_err(|_| {
+        AppError::Conflict(
+            "another agent run is using this project's workspace; try again when it finishes"
+                .to_owned(),
+        )
+    })
+}
+
 /// A poisoned lock still holds a perfectly usable `HashMap` — the panic that poisoned it
 /// happened in an unrelated request's critical section, not in this one, and refusing to look
 /// at cancel registrations forever after is a worse outcome than reading through the
@@ -136,6 +153,7 @@ fn lock(
 /// forget to pass the prompt it actually means to send.
 #[derive(Debug)]
 pub struct StartRequest<'a> {
+    pub provider: AgentProvider,
     pub card: &'a Card,
     pub prompt: String,
     pub allowed_tools: Vec<String>,
@@ -154,6 +172,7 @@ pub struct StartRequest<'a> {
 /// What [`launch_prepared`] needs to spawn a run whose session row already exists.
 #[derive(Debug)]
 pub struct Launch {
+    pub provider: AgentProvider,
     pub prompt: String,
     pub claude_session_id: String,
     pub allowed_tools: Vec<String>,
@@ -169,12 +188,14 @@ pub struct Launch {
 /// that.
 pub async fn start(
     db: &Db,
-    vault: &Vault,
+    vault: &Arc<Vault>,
     runner: &dyn AgentRunner,
     preparer: &dyn WorkspacePreparer,
     registry: &CancelRegistry,
     request: StartRequest<'_>,
 ) -> AppResult<AgentSession> {
+    let workspace_guard = reserve_workspace(&request.card.project_id)?;
+    let card = request.card.clone();
     let working_dir = preparer
         .prepare(db, vault, &request.card.project_id)
         .await?;
@@ -202,6 +223,11 @@ pub async fn start(
         now(),
     )
     .await?;
+    sqlx::query("UPDATE agent_sessions SET provider = ? WHERE id = ?")
+        .bind(request.provider.as_str())
+        .bind(&session.id)
+        .execute(&mut *tx)
+        .await?;
     if let Some(rerun_of) = &request.options.rerun_of {
         agent_session::set_rerun_of(&mut tx, &session.id, rerun_of).await?;
     }
@@ -214,11 +240,17 @@ pub async fn start(
 
     launch_prepared(
         db,
+        vault,
         runner,
         registry,
         &session,
-        working_dir,
+        Prepared {
+            card,
+            working_dir,
+            workspace_guard,
+        },
         Launch {
+            provider: request.provider,
             prompt: request.prompt,
             claude_session_id,
             allowed_tools: request.allowed_tools,
@@ -232,17 +264,32 @@ pub async fn start(
     Ok(session)
 }
 
+/// A card's workspace, reserved and cloned/refreshed — [`start`]'s own work, or the queue
+/// dispatcher's equivalent for a session that waited for a free slot.
+#[derive(Debug)]
+pub struct Prepared {
+    pub card: Card,
+    pub working_dir: PathBuf,
+    pub workspace_guard: tokio::sync::OwnedMutexGuard<()>,
+}
+
 /// Spawns a run for a session that already has a row and a prepared workspace: mints its MCP
 /// capability, spawns the CLI, registers it for cancellation, and starts draining it. Used by
 /// [`start`] and by the queue dispatcher for a session that waited for a free slot.
 pub async fn launch_prepared(
     db: &Db,
+    vault: &Arc<Vault>,
     runner: &dyn AgentRunner,
     registry: &CancelRegistry,
     session: &AgentSession,
-    working_dir: PathBuf,
+    prepared: Prepared,
     launch: Launch,
 ) -> AppResult<()> {
+    let Prepared {
+        card,
+        working_dir,
+        workspace_guard,
+    } = prepared;
     let minted = {
         let mut tx = db.begin_write().await?;
         let minted = mcp::capability::mint(&mut tx, &session.id, now()).await?;
@@ -266,6 +313,7 @@ pub async fn launch_prepared(
     let resuming = launch.options.resume_session_id.is_some();
     let handle = match runner
         .spawn(RunRequest {
+            provider: launch.provider,
             prompt: launch.prompt.clone(),
             working_dir: working_dir.clone(),
             resume_session_id: launch.options.resume_session_id.clone(),
@@ -292,17 +340,35 @@ pub async fn launch_prepared(
         }
     };
 
+    if let Some(actor) = &session.started_by
+        && let Err(err) = crate::integrations::github::smart_commit::move_to_category(
+            db,
+            &card,
+            crate::domain::StatusCategory::InProgress,
+            actor,
+            now(),
+        )
+        .await
+    {
+        tracing::warn!(session = %session.id, error = %err, "could not move running ticket into progress");
+    }
+
     let (cancel_tx, cancel_rx) = oneshot::channel();
     lock(registry).insert(session.id.clone(), cancel_tx);
 
     spawn_drain(
-        db.clone(),
-        session.clone(),
+        DrainContext {
+            db: db.clone(),
+            vault: vault.clone(),
+            working_dir,
+            card,
+            session: session.clone(),
+            workspace_guard,
+        },
         handle,
         registry.clone(),
         cancel_rx,
         launch.after,
-        working_dir,
     );
 
     Ok(())
@@ -377,6 +443,18 @@ pub async fn cancel(db: &Db, registry: &CancelRegistry, session_id: &str) -> App
     Ok(())
 }
 
+/// What [`spawn_drain`]'s detached task needs once the run itself is over: everything
+/// [`completion::run`] needs to attribute and attach its on-completion actions, alongside the
+/// `db`/`session` the drain and the outcome write already needed on their own.
+struct DrainContext {
+    db: Db,
+    vault: Arc<Vault>,
+    working_dir: PathBuf,
+    card: Card,
+    session: AgentSession,
+    workspace_guard: tokio::sync::OwnedMutexGuard<()>,
+}
+
 /// Drains a run's events to its terminal `result` event (if any), persists every raw line as
 /// the session's transcript, and records the outcome.
 ///
@@ -384,34 +462,36 @@ pub async fn cancel(db: &Db, registry: &CancelRegistry, session_id: &str) -> App
 /// recording the outcome is logged, not surfaced — there is no request left to answer by the
 /// time a detached task's own write fails.
 fn spawn_drain(
-    db: Db,
-    session: AgentSession,
+    ctx: DrainContext,
     handle: RunHandle,
     registry: CancelRegistry,
     cancel_rx: oneshot::Receiver<()>,
     after: Option<AfterRun>,
-    working_dir: PathBuf,
 ) {
+    let DrainContext {
+        db,
+        vault,
+        working_dir,
+        card,
+        session,
+        workspace_guard,
+    } = ctx;
     tokio::spawn(async move {
         if let Some(after) = &after {
             lock_live(&after.live).insert(session.id.clone(), VecDeque::new());
         }
-        let drained = drain_to_result(handle, cancel_rx, &session.id, after.as_ref()).await;
+        let drained = drain_to_result(handle, cancel_rx, &db, &session, after.as_ref()).await;
 
         // The run is over one way or another; nothing can cancel it any more, so its entry
         // (if the session was not already cancelled, which removes it itself) has no further
         // reason to exist.
         lock(&registry).remove(&session.id);
 
-        if let Err(err) = persist_transcript(&db, &session.id, &drained.lines).await {
-            tracing::error!(
-                session = %session.id,
-                error = %err,
-                "failed to persist an agent session's transcript"
-            );
+        let mut outcome = outcome_for_drain(&drained);
+        if session.provider != "claude" {
+            // These CLIs report token usage, but do not provide an actual dollar cost.
+            outcome.total_cost_usd = None;
         }
-
-        let outcome = outcome_for_drain(&drained);
         if let Err(err) = finish(&db, &session, &outcome).await {
             tracing::error!(
                 session = %session.id,
@@ -420,15 +500,52 @@ fn spawn_drain(
             );
         }
 
+        // On-completion actions (comment, branch/PR, card move) run after the outcome is
+        // durably recorded, so a crash partway through them never leaves the session itself
+        // looking unfinished — see `agent::completion`'s module doc for why each of its three
+        // steps is independently best-effort.
+        completion::run(
+            &db,
+            &vault,
+            &working_dir,
+            &session,
+            &card,
+            &completion::Summary {
+                status: outcome.status,
+                result_text: outcome.result_text.as_deref(),
+                total_cost_usd: outcome.total_cost_usd,
+                num_turns: outcome.num_turns,
+                destination_status_id: after
+                    .as_ref()
+                    .and_then(|a| a.destination_status_id.as_deref()),
+            },
+            now(),
+        )
+        .await;
+
         // The run is over: revoke its MCP capability so the token cannot be reused. Ordered
         // after `finish` so the session is already non-`running` — a tool call racing this is
         // refused by the status check regardless.
         revoke_capability(&db, &session.id).await;
 
         record_details(&db, &session.id, &drained, &working_dir).await;
+        // Nothing past this point touches the checkout — `completion::run` above (branch/PR)
+        // and `record_details` just above (current branch) were the last readers of it — so
+        // the project's shared workspace is free the moment this drops, rather than staying
+        // reserved through bookkeeping (notify, hub publish) that never looks at it.
+        drop(workspace_guard);
         if let Some(after) = &after {
             lock_live(&after.live).remove(&session.id);
-            completion_actions(&db, &session, &outcome, after).await;
+            completion_actions(&db, &session, &card, &outcome, after).await;
+        }
+
+        if let Err(err) = sqlx::query("UPDATE agent_sessions SET finalized_at = ? WHERE id = ?")
+            .bind(crate::auth::to_sql_timestamp(now()))
+            .bind(&session.id)
+            .execute(db.writer())
+            .await
+        {
+            tracing::error!(session = %session.id, error = %err, "failed to finalize agent session");
         }
     });
 }
@@ -484,102 +601,18 @@ async fn record_details(
     }
 }
 
-/// The summary comment a finished run posts: its status, its result, and the numbers.
-fn summary_body(outcome: &OutcomeFields, branch: Option<&str>) -> String {
-    let mut body = format!("🤖 **Claude Code {}**", outcome.status);
-    if let Some(text) = outcome
-        .result_text
-        .as_deref()
-        .filter(|t| !t.trim().is_empty())
-    {
-        let text: String = text.chars().take(8000).collect();
-        body.push_str("\n\n");
-        body.push_str(&text);
-    }
-    if let Some(error) = &outcome.error_message {
-        body.push_str("\n\n> ");
-        body.push_str(error);
-    }
-    let mut facts = Vec::new();
-    if let Some(cost) = outcome.total_cost_usd {
-        facts.push(format!("${cost:.2}"));
-    }
-    if let Some(turns) = outcome.num_turns {
-        facts.push(format!("{turns} turns"));
-    }
-    if let Some(branch) = branch {
-        facts.push(format!("branch `{branch}`"));
-    }
-    if !facts.is_empty() {
-        body.push_str("\n\n_");
-        body.push_str(&facts.join(" · "));
-        body.push('_');
-    }
-    body
-}
-
-/// What happens when a run ends: the result as a comment, the card moved to the project's
-/// destination (only on a clean completion), and the starter told. Every write is attributed
-/// to the starter with an `agent:<session>` actor tag. Best-effort throughout: the run is
-/// already recorded, and one failed follow-up must not hide the others.
+/// What happens when a run ends beyond [`completion::run`]'s own comment/branch/PR/move
+/// actions: notifying the starter, and publishing an `agent.finished` hub message for any
+/// open live-session view. Best-effort throughout: the run is already recorded, and one
+/// failed follow-up must not hide the others.
 async fn completion_actions(
     db: &Db,
     session: &AgentSession,
+    card: &Card,
     outcome: &OutcomeFields,
     after: &AfterRun,
 ) {
-    let Ok(Some(fresh)) = agent_session::find_by_id(db, &session.id).await else {
-        return;
-    };
-    let Ok(Some(card)) = crate::domain::card::find_by_id(db, &session.card_id).await else {
-        return;
-    };
     let completed = outcome.status == AgentSessionStatus::Completed;
-    let actor = format!("agent:{}", session.id);
-
-    if after.post_summary
-        && let Some(author) = &session.started_by
-    {
-        let body = summary_body(outcome, fresh.branch.as_deref());
-        let result: AppResult<()> = crate::activity::with_actor(actor.clone(), async {
-            let mut tx = db.begin_write().await?;
-            crate::domain::comment::insert(&mut tx, &card.id, author, &body, now()).await?;
-            tx.commit().await?;
-            Ok(())
-        })
-        .await;
-        if let Err(err) = result {
-            tracing::warn!(session = %session.id, error = %err, "failed to post the run summary");
-        }
-    }
-
-    if completed
-        && let Some(destination) = &after.destination_status_id
-        && *destination != card.status_id
-    {
-        let result: AppResult<()> = crate::activity::with_actor(actor.clone(), async {
-            let mut tx = db.begin_write().await?;
-            crate::domain::card::update(
-                &mut tx,
-                &card,
-                &crate::domain::card::CardPatch {
-                    status_id: Some(destination.clone()),
-                    ..crate::domain::card::CardPatch::default()
-                },
-                session.started_by.as_deref(),
-                now(),
-            )
-            .await?;
-            tx.commit().await?;
-            Ok(())
-        })
-        .await;
-        if let Err(err) = result {
-            // A workflow may refuse the move (a validator, a missing field). The run still
-            // succeeded; the card simply stays where it is, and the reason is logged.
-            tracing::info!(session = %session.id, error = %err, "the completed run's card could not be moved");
-        }
-    }
 
     if let Some(starter) = &session.started_by {
         let title = if completed {
@@ -617,16 +650,15 @@ async fn completion_actions(
     });
 }
 
-/// What draining a run's events to completion produced: every raw line, in arrival order, the
+/// What draining a run's events to completion produced: the
 /// terminal `result` event if the run reached one, and whether an external [`cancel`] request
 /// landed during the drain.
 struct Drained {
-    lines: Vec<String>,
     result: Option<ResultEvent>,
     cancelled: bool,
 }
 
-/// Reads every event until the channel closes, collecting each raw line and keeping the last
+/// Reads every event until the channel closes, persisting each raw line and keeping the last
 /// (only) `result` event seen — and, once `cancel_rx` fires, calling [`RunHandle::cancel`] and
 /// continuing to drain (rather than stopping immediately), so whatever the process managed to
 /// say before it actually died still ends up in the transcript.
@@ -643,10 +675,11 @@ struct Drained {
 async fn drain_to_result(
     mut handle: RunHandle,
     mut cancel_rx: oneshot::Receiver<()>,
-    session_id: &str,
+    db: &Db,
+    session: &AgentSession,
     after: Option<&AfterRun>,
 ) -> Drained {
-    let mut lines = Vec::new();
+    let mut seq = 0;
     let mut result_event = None;
     let mut cancelled = false;
     loop {
@@ -662,24 +695,24 @@ async fn drain_to_result(
             }
             event = handle.events.recv() => {
                 let Some(event) = event else { break };
-                let line = match event {
-                    RunEvent::Parsed(line, event) => {
-                        if let Event::Result(result) = *event {
-                            result_event = Some(result);
-                        }
-                        line
-                    }
-                    RunEvent::Unparseable(line) => line,
+                let line = match &event {
+                    RunEvent::Parsed(line, _) | RunEvent::Unparseable(line) => line,
                 };
                 if let Some(after) = after {
-                    publish_line(after, session_id, &line);
+                    publish_line(after, &session.id, line);
                 }
-                lines.push(line);
+                if let Err(err) = persist_line(db, session, seq, line).await {
+                    tracing::error!(session = %session.id, error = %err, "failed to persist agent output");
+                }
+                seq += 1;
+                if let RunEvent::Parsed(_, event) = event
+                    && let Event::Result(result) = *event {
+                    result_event = Some(result);
+                }
             }
         }
     }
     Drained {
-        lines,
         result: result_event,
         cancelled,
     }
@@ -703,20 +736,76 @@ fn publish_line(after: &AfterRun, session_id: &str, line: &str) {
     });
 }
 
-/// Writes a run's whole transcript in one transaction — see the module doc for why this is
-/// batched rather than appended line-by-line as events arrive.
-async fn persist_transcript(db: &Db, session_id: &str, lines: &[String]) -> AppResult<()> {
-    if lines.is_empty() {
-        return Ok(());
-    }
+/// Saves output and explicit requests for user input together.
+async fn persist_line(db: &Db, session: &AgentSession, seq: usize, line: &str) -> AppResult<()> {
     let mut tx = db.begin_write().await?;
-    for (seq, line) in lines.iter().enumerate() {
-        let seq =
-            i64::try_from(seq).expect("a transcript will never remotely approach i64::MAX lines");
-        agent_session_transcript::append(&mut tx, session_id, seq, line, now()).await?;
+    let seq = i64::try_from(seq).expect("a transcript fits in i64");
+    agent_session_transcript::append(&mut tx, &session.id, seq, line, now()).await?;
+    if let (Some(actor), Some(question)) = (&session.started_by, input_request(line)) {
+        let body = format!(
+            "**Agent needs your input** ({} run `{}`)\n\n{}\n\nThis run uses a non-interactive CLI. Add your answer to the ticket description and rerun after this run ends, or cancel it first.",
+            session.provider, session.id, question
+        );
+        crate::domain::comment::insert(&mut tx, &session.card_id, actor, &body, now()).await?;
     }
     tx.commit().await?;
+    if let Some(actor) = &session.started_by {
+        super::usage::record(db, &session.id, actor, &session.provider, line).await?;
+    }
     Ok(())
+}
+
+/// Recognize explicit CLI request events, not question marks in ordinary prose.
+fn input_request(line: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if matches!(
+        value["type"].as_str().or(value["event"].as_str()),
+        Some("input_required" | "user_input_required" | "permission_request")
+    ) {
+        return Some(
+            value["question"]
+                .as_str()
+                .or(value["message"].as_str())
+                .unwrap_or("The CLI requested input or permission. See its console output.")
+                .to_owned(),
+        );
+    }
+    let step = &value["step_update"];
+    if step["state"] == "ACTIVE"
+        && matches!(
+            step["tool_name"].as_str(),
+            Some("ask_question" | "ask_permission" | "ask_custom_permission")
+        )
+    {
+        return Some(step["tool_info"]["parameters"].to_string());
+    }
+    let blocks = value["message"]["content"].as_array()?;
+    let questions: Vec<String> = blocks
+        .iter()
+        .filter(|block| block["type"] == "tool_use" && block["name"] == "AskUserQuestion")
+        .filter_map(|block| block["input"]["questions"].as_array())
+        .flatten()
+        .filter_map(|q| {
+            q["question"].as_str().map(|text| {
+                let options = q["options"]
+                    .as_array()
+                    .map(|options| {
+                        options
+                            .iter()
+                            .filter_map(|option| option["label"].as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                if options.is_empty() {
+                    text.to_owned()
+                } else {
+                    format!("{text}\nOptions: {options}")
+                }
+            })
+        })
+        .collect();
+    (!questions.is_empty()).then(|| questions.join("\n\n"))
 }
 
 /// The status/outcome fields to record, as owned values — kept alive in the caller's scope so
@@ -852,10 +941,10 @@ mod tests {
         }
     }
 
-    fn test_vault() -> Vault {
-        Vault::new(
+    fn test_vault() -> Arc<Vault> {
+        Arc::new(Vault::new(
             Crypto::from_master_b64("dGhpcy1pcy1hLTMyLWJ5dGUtdGVzdC1tYXN0ZXIta2V5MDA=").unwrap(),
-        )
+        ))
     }
 
     fn fake_program(dir: &Path, body: &str) -> PathBuf {
@@ -934,6 +1023,7 @@ mod tests {
 
     fn request<'a>(card: &'a Card, prompt: &str) -> StartRequest<'a> {
         StartRequest {
+            provider: AgentProvider::Claude,
             card,
             prompt: prompt.to_owned(),
             allowed_tools: vec!["Read".to_owned()],
@@ -946,6 +1036,25 @@ mod tests {
             options: RunOptions::default(),
             after: None,
         }
+    }
+
+    #[test]
+    fn workspace_reservation_rejects_a_second_run_and_releases_after_drop() {
+        let project = Uuid::new_v4().to_string();
+        let first = reserve_workspace(&project).unwrap();
+        assert!(matches!(
+            reserve_workspace(&project),
+            Err(AppError::Conflict(_))
+        ));
+        drop(first);
+        assert!(reserve_workspace(&project).is_ok());
+    }
+
+    #[test]
+    fn workspace_reservations_allow_different_projects() {
+        let first = reserve_workspace(&Uuid::new_v4().to_string()).unwrap();
+        let second = reserve_workspace(&Uuid::new_v4().to_string()).unwrap();
+        drop((first, second));
     }
 
     #[tokio::test]
@@ -982,6 +1091,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_second_run_on_the_project_is_rejected_without_creating_a_session() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        let program = fake_program(&scripts.0, "sleep 60");
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let preparer = FixedWorkspace(std::env::temp_dir());
+        let registry = CancelRegistry::default();
+        let first = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "first"),
+        )
+        .await
+        .unwrap();
+        let second = start(
+            &db,
+            &vault,
+            &runner,
+            &preparer,
+            &registry,
+            request(&card, "second"),
+        )
+        .await;
+        assert!(matches!(second, Err(AppError::Conflict(_))));
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM agent_sessions WHERE card_id = ?")
+                .bind(&card.id)
+                .fetch_one(db.reader())
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+        cancel(&db, &registry, &first.id).await.unwrap();
+        wait_for_finish(&db, &first.id).await;
+    }
+
+    #[tokio::test]
     async fn a_clean_run_finishes_completed_with_its_result_text_and_cost() {
         let (db, _temp, card) = fixture().await;
         let vault = test_vault();
@@ -1012,6 +1161,85 @@ mod tests {
         assert_eq!(finished.num_turns, Some(2));
         assert!(finished.error_message.is_none());
         assert!(finished.ended_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn output_and_input_requests_are_visible_before_the_run_finishes() {
+        let (db, _temp, card) = fixture().await;
+        let vault = test_vault();
+        let scripts = TempDir::new();
+        let program = fake_program(
+            &scripts.0,
+            r#"
+            echo '{"type":"input_required","question":"Which database should I use?"}'
+            echo 'Compiler diagnostic' >&2
+            sleep 60
+            echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"session_id":"test","total_cost_usd":0,"terminal_reason":"completed"}'
+        "#,
+        );
+        let runner = LocalRunner::with_program(program.to_string_lossy());
+        let actor: String = sqlx::query_scalar("SELECT id FROM users WHERE username = 'pm'")
+            .fetch_one(db.reader())
+            .await
+            .unwrap();
+        let registry = CancelRegistry::default();
+        let mut run_request = request(&card, "do it");
+        run_request.started_by = Some(&actor);
+        let session = start(
+            &db,
+            &vault,
+            &runner,
+            &FixedWorkspace(std::env::temp_dir()),
+            &registry,
+            run_request,
+        )
+        .await
+        .unwrap();
+        timeout(Duration::from_secs(3), async {
+            loop {
+                let lines = agent_session_transcript::list_for_session(&db, &session.id)
+                    .await
+                    .unwrap();
+                if lines.len() >= 2 {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let active = agent_session::find_by_id(&db, &session.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(active.status, AgentSessionStatus::Running);
+        let comments = crate::domain::comment::list(&db, &card.id).await.unwrap();
+        assert!(
+            comments
+                .iter()
+                .any(|comment| comment.body.contains("Which database should I use?"))
+        );
+        let lines = agent_session_transcript::list_for_session(&db, &session.id)
+            .await
+            .unwrap();
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.line.contains("Compiler diagnostic"))
+        );
+        cancel(&db, &registry, &session.id).await.unwrap();
+        wait_for_finish(&db, &session.id).await;
+    }
+
+    #[test]
+    fn questions_are_recognized_without_treating_ordinary_output_as_a_request() {
+        assert_eq!(
+            input_request(r#"{"type":"input_required","question":"Pick a database"}"#).as_deref(),
+            Some("Pick a database")
+        );
+        assert!(input_request(r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Tests pass? Yes."}]}}"#).is_none());
+        let question = input_request(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"AskUserQuestion","input":{"questions":[{"question":"Which database?","options":[{"label":"SQLite"}]}]}}]}}"#).unwrap();
+        assert!(question.contains("SQLite"));
     }
 
     #[tokio::test]

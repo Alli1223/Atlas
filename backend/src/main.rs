@@ -30,6 +30,30 @@ fn main() -> ExitCode {
 }
 
 fn run() -> anyhow::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("import-todo") {
+        let config = Config::load()?;
+        let path = std::env::args()
+            .nth(2)
+            .unwrap_or_else(|| "TODO.md".to_owned());
+        let include_completed = std::env::args().any(|arg| arg == "--include-completed");
+        return tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?
+            .block_on(async {
+                let source = std::fs::read_to_string(path)?;
+                config.ensure_dirs()?;
+                let db = Db::connect(&config).await?;
+                db::migrate::run(&db).await?;
+                seed::ensure_default_admin(&db).await?;
+                let report = atlas::bootstrap::import(&db, &source, include_completed).await?;
+                println!(
+                    "Atlas backlog: {} cards created, {} existing items skipped",
+                    report.created, report.skipped
+                );
+                db.close().await;
+                Ok(())
+            });
+    }
     // The `mcp` subcommand is a different program sharing one binary: the stdio MCP server a
     // Claude Code session drives (spawned by the CLI via --mcp-config). It must NOT init
     // telemetry — every byte of its stdout is JSON-RPC, and a stray log line would corrupt
@@ -116,6 +140,17 @@ async fn serve(config: Config) -> anyhow::Result<()> {
     seed::ensure_default_admin(&db)
         .await
         .context("failed to seed the default administrator")?;
+
+    let recovered =
+        atlas::domain::agent_session::recover_interrupted(&db, chrono::Utc::now()).await?;
+    if recovered > 0 {
+        tracing::warn!(
+            recovered,
+            "marked interrupted agent sessions as failed after restart"
+        );
+    }
+
+    atlas::agent::board_auto::recover(&db).await?;
 
     let listener = TcpListener::bind(config.bind_addr)
         .await

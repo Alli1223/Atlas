@@ -1,4 +1,4 @@
--- Atlas schema, migration 0016: the rest of the card's collaboration surface.
+-- Atlas schema, migration 0022: the rest of the card's collaboration surface.
 --
 -- STRICT, matching 0001-0015.
 --

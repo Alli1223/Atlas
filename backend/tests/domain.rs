@@ -2282,6 +2282,39 @@ async fn the_forced_reset_gate_covers_the_domain_routes() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+async fn agent_completion_destination_is_saved_and_survives_unrelated_project_edits() {
+    let app = App::new().await;
+    let admin = admin_past_the_gate(&app).await;
+    project(&app, &admin, "ART", "blank").await;
+    let initial = app.send(get("/api/v1/projects/ART", Some(&admin))).await;
+    assert_eq!(initial.json()["agentCompletionCategory"], "in_progress");
+
+    for category in ["todo", "done", "in_progress"] {
+        let reply = app
+            .send(patch(
+                "/api/v1/projects/ART",
+                Some(&admin),
+                json!({ "agentCompletionCategory": category }),
+            ))
+            .await;
+        assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+        assert_eq!(reply.json()["agentCompletionCategory"], category);
+    }
+
+    let reply = app
+        .send(patch(
+            "/api/v1/projects/ART",
+            Some(&admin),
+            json!({ "name": "Artwork" }),
+        ))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.raw_body);
+    assert_eq!(reply.json()["agentCompletionCategory"], "in_progress");
+    let saved = app.send(get("/api/v1/projects/ART", Some(&admin))).await;
+    assert_eq!(saved.json()["agentCompletionCategory"], "in_progress");
+}
+
+#[tokio::test]
 // Long because it walks an application through all nine columns of the seeded
 // workflow. The length is the workflow's, not the test's.
 #[allow(clippy::too_many_lines)]

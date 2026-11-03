@@ -1,4 +1,4 @@
--- Atlas schema, migration 0017: custom fields.
+-- Atlas schema, migration 0023: custom fields.
 --
 -- STRICT, matching 0001-0016.
 --

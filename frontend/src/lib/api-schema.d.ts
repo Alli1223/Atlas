@@ -240,6 +240,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/attachments/{id}": {
         parameters: {
             query?: never;
@@ -712,6 +728,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{key}/automation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_card_automation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{key}/branch": {
         parameters: {
             query?: never;
@@ -819,6 +851,38 @@ export interface paths {
         post: operations["add_card_to_cycle"];
         /** Removes a card from its current cycle. A no-op (still `204`) if it was not in one. */
         delete: operations["remove_card_from_cycle"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/dependencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["add_dependency"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{key}/dependencies/{blockerKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_dependency"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1852,6 +1916,54 @@ export interface paths {
          *     still resolves.
          */
         post: operations["archive_project"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/auto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_auto"];
+        put?: never;
+        post: operations["start_auto"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/auto/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{key}/auto/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stop_auto"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3040,6 +3152,14 @@ export interface components {
             /** @enum {string} */
             type: "ifElse";
         };
+        Activity: {
+            cardKey?: string | null;
+            createdAt: string;
+            id: string;
+            message: string;
+            provider: string;
+            sessionId?: string | null;
+        };
         /** @description The body of `POST /cards/{key}/cycle`. */
         AddCardToCycleRequest: {
             /** @description The cycle to add this card to. Must belong to the card's project. */
@@ -3080,6 +3200,8 @@ export interface components {
              */
             totalUsd: number;
         };
+        /** @enum {string} */
+        AgentProvider: "claude" | "codex" | "antigravity";
         /** @description A row of `agent_sessions`. */
         AgentSession: {
             /** @description The workspace branch the run left its work on. */
@@ -3111,6 +3233,8 @@ export interface components {
              *     get edited and a session's record of what it was asked must not drift with them.
              */
             prompt: string;
+            /** @description The CLI used for this run: claude, codex or antigravity. */
+            provider: string;
             /** @description Waiting for a free run slot (still `running`, not yet spawned). */
             queued: boolean;
             /** @description The session this one re-ran or continued. */
@@ -3206,6 +3330,10 @@ export interface components {
             /** @description Human-readable message for the admin. */
             message: string;
         };
+        Assignment: {
+            provider: string;
+            reason: string;
+        };
         /** @description The body of `POST /cards/{key}/tags`. */
         AttachTagRequest: {
             /** @description The tag to put on the card. Must be the card's project's, or global. */
@@ -3271,6 +3399,27 @@ export interface components {
              * @description 1, 2, 3…
              */
             version: number;
+        };
+        AutoRequest: {
+            /** Format: int64 */
+            maxTasks?: number;
+            provider?: components["schemas"]["AgentProvider"];
+        };
+        AutoRun: {
+            /** Format: int64 */
+            completedTasks: number;
+            console: string;
+            currentCardKey?: string | null;
+            currentSessionId?: string | null;
+            id: string;
+            /** Format: int64 */
+            maxTasks: number;
+            message: string;
+            projectId: string;
+            provider: string;
+            startedAt: string;
+            status: string;
+            updatedAt: string;
         };
         /** @description A transition a card may currently take. */
         AvailableTransition: {
@@ -3685,6 +3834,10 @@ export interface components {
              */
             mergeable?: boolean | null;
             reviewState?: null | components["schemas"]["ReviewState"];
+        };
+        CardAutomation: {
+            assignment?: null | components["schemas"]["Assignment"];
+            blockedBy: components["schemas"]["Dependency"][];
         };
         /** @description A card as the API describes it. */
         CardDto: {
@@ -4599,6 +4752,16 @@ export interface components {
             /** @description Share it. */
             shared?: boolean;
         };
+        Dependency: {
+            done: boolean;
+            key: string;
+            reason: string;
+            summary: string;
+        };
+        DependencyRequest: {
+            blockedBy: string;
+            reason: string;
+        };
         /** @description The body of `POST /projects/{key}/automation/dry-run`. */
         DryRunRequest: {
             /** @description A card to evaluate it against. */
@@ -5319,6 +5482,8 @@ export interface components {
         };
         /** @description A project as the API describes it. */
         ProjectDto: {
+            /** @description Where a successful Claude Code run moves a card. */
+            agentCompletionCategory: components["schemas"]["StatusCategory"];
             /**
              * Format: date-time
              * @description When the project was archived, if it is.
@@ -5467,6 +5632,23 @@ export interface components {
          * @enum {string}
          */
         Provider: "github" | "anthropic" | "gemini" | "smtp";
+        ProviderUsage: {
+            /** Format: int64 */
+            activeRuns: number;
+            /** Format: int64 */
+            cachedTokens?: number | null;
+            /** Format: double */
+            costUsd?: number | null;
+            /** Format: int64 */
+            inputTokens?: number | null;
+            /** Format: int64 */
+            measuredRuns: number;
+            /** Format: int64 */
+            outputTokens?: number | null;
+            provider: string;
+            /** Format: int64 */
+            runs: number;
+        };
         /** @description A URL attached to a card. */
         RemoteLink: {
             /** @description The card. */
@@ -5812,6 +5994,15 @@ export interface components {
             tls: components["schemas"]["TlsMode"];
             /** @description The login, if the server wants one. */
             username?: string | null;
+        };
+        /**
+         * @description The body of `POST /cards/{key}/agent-sessions`. The project's [`AgentSettings`] (tools,
+         *     permission mode, turns/budget, destination, API-key opt-in) drive everything else — this
+         *     is the one per-run choice the caller still makes, since the same card can be run with
+         *     whichever CLI is actually signed in.
+         */
+        StartAgentSessionRequest: {
+            provider?: components["schemas"]["AgentProvider"];
         };
         /** @description The body of `POST /cycles/{id}/start`. */
         StartCycleRequest: {
@@ -6242,6 +6433,7 @@ export interface components {
          *     card key under it. That is a bulk move, not a field edit.
          */
         UpdateProjectRequest: {
+            agentCompletionCategory?: null | components["schemas"]["StatusCategory"];
             /** @description Absent leaves it, `null` clears it, a value sets it. */
             avatarUrl?: string | null;
             /** @description Absent leaves it, `null` clears it, a value sets it. */
@@ -7119,6 +7311,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_usage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderUsage"][];
                 };
             };
         };
@@ -8283,7 +8494,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["StartAgentSessionRequest"];
+            };
+        };
         responses: {
             /** @description The run, recorded as running (and `queued` when the instance is at its concurrency cap) */
             201: {
@@ -8407,6 +8622,35 @@ export interface operations {
             };
             /** @description Larger than ATLAS_MAX_UPLOAD_MB */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_card_automation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardAutomation"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8878,6 +9122,67 @@ export interface operations {
                 };
             };
             /** @description No such card */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    add_dependency: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DependencyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardAutomation"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    remove_dependency: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                blockerKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -12223,6 +12528,116 @@ export interface operations {
                 };
             };
             /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_auto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": null | components["schemas"]["AutoRun"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    start_auto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoRun"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_activity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Activity"][];
+                };
+            };
+        };
+    };
+    stop_auto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             404: {
                 headers: {
                     [name: string]: unknown;

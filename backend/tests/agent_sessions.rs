@@ -333,6 +333,88 @@ async fn starting_a_run_without_a_linked_repo_is_a_conflict() {
 }
 
 #[tokio::test]
+async fn selecting_codex_persists_the_provider_and_interprets_its_terminal_event() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+    let type_id = create_project(&app, &router, &admin, "ATLAS").await;
+    let card = create_card(&app, &router, &admin, "ATLAS", &type_id, "Task", None).await;
+    let scripts = TempDir::new();
+    let program = fake_program(
+        &scripts.0,
+        r#"
+        echo '{"type":"item.completed","item":{"type":"agent_message","text":"Implemented."}}'
+        echo '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
+    "#,
+    );
+    let router = app.router_with_fakes(
+        Arc::new(LocalRunner::with_program(program.to_string_lossy())),
+        scripts.0.clone(),
+    );
+    let reply = app
+        .send(
+            &router,
+            post(
+                &format!("/api/v1/cards/{card}/agent-sessions"),
+                Some(&admin),
+                json!({"provider":"codex"}),
+            ),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.raw_body);
+    assert_eq!(reply.json()["provider"], "codex");
+    let id = reply.json()["id"].as_str().unwrap().to_owned();
+    let finished = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let reply = app
+                .send(
+                    &router,
+                    get(&format!("/api/v1/agent-sessions/{id}"), Some(&admin)),
+                )
+                .await;
+            if reply.json()["status"] != "running" {
+                break reply.json();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(finished["status"], "completed");
+    assert_eq!(finished["resultText"], "Implemented.");
+    assert_eq!(
+        finished["totalCostUsd"],
+        Value::Null,
+        "Do not invent costs for CLI subscriptions"
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_provider_is_rejected_instead_of_starting_claude() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+    let type_id = create_project(&app, &router, &admin, "ATLAS").await;
+    let card = create_card(&app, &router, &admin, "ATLAS", &type_id, "Task", None).await;
+    let reply = app
+        .send(
+            &router,
+            post(
+                &format!("/api/v1/cards/{card}/agent-sessions"),
+                Some(&admin),
+                json!({"provider":"not-a-provider"}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.raw_body
+    );
+}
+
+#[tokio::test]
 async fn a_fresh_cards_agent_sessions_are_an_empty_list() {
     let app = App::new().await;
     let router = app.router();
@@ -727,5 +809,385 @@ async fn cancelling_a_session_that_already_finished_is_a_conflict() {
         .await;
     assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.raw_body);
 
+    app.db.close().await;
+}
+
+async fn auto_fixture() -> (App, TempDir, Router, String) {
+    let app = App::new().await;
+    let scripts = TempDir::new();
+    let program = fake_program(
+        &scripts.0,
+        r#"
+        case "$*" in
+          *"You manage this project board"*)
+            echo '{"type":"result","subtype":"success","is_error":false,"result":"{\"cardKey\":\"ATLAS-1\",\"provider\":\"codex\",\"reason\":\"Build the foundation first\",\"blocked\":[{\"cardKey\":\"ATLAS-2\",\"blockedBy\":\"ATLAS-1\",\"reason\":\"Requires the foundation\"}]}","num_turns":1,"session_id":"plan","total_cost_usd":0,"terminal_reason":"completed"}'
+            ;;
+          *)
+            sleep 3
+            echo '{"type":"item.completed","item":{"type":"agent_message","text":"Implemented and checked"}}'
+            echo '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":80}}'
+            ;;
+        esac
+    "#,
+    );
+    let router = app.router_with_fakes(
+        Arc::new(LocalRunner::with_program(program.to_string_lossy())),
+        scripts.0.clone(),
+    );
+    let admin = admin_past_the_gate(&app, &router).await;
+    let type_id = create_project(&app, &router, &admin, "ATLAS").await;
+    create_card(&app, &router, &admin, "ATLAS", &type_id, "Foundation", None).await;
+    create_card(
+        &app,
+        &router,
+        &admin,
+        "ATLAS",
+        &type_id,
+        "Dependent feature",
+        None,
+    )
+    .await;
+    create_card(
+        &app,
+        &router,
+        &admin,
+        "ATLAS",
+        &type_id,
+        "Independent",
+        None,
+    )
+    .await;
+    (app, scripts, router, admin)
+}
+
+async fn wait_for_auto_field(
+    app: &App,
+    router: &Router,
+    admin: &str,
+    field: &str,
+    value: &str,
+) -> Value {
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            let job = app
+                .send(router, get("/api/v1/projects/ATLAS/auto", Some(admin)))
+                .await
+                .json();
+            assert!(job["status"] != "failed", "coordinator failed: {job}");
+            if job[field] == value {
+                return job;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("Auto must reach the requested state")
+}
+
+#[tokio::test]
+async fn auto_assigns_a_worker_and_tracks_blockers_and_review() {
+    let (app, _scripts, router, admin) = auto_fixture().await;
+    let response = app
+        .send(
+            &router,
+            post(
+                "/api/v1/projects/ATLAS/auto",
+                Some(&admin),
+                json!({"provider":"claude", "maxTasks":3}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::CREATED,
+        "{}",
+        response.raw_body
+    );
+    let duplicate = app
+        .send(
+            &router,
+            post(
+                "/api/v1/projects/ATLAS/auto",
+                Some(&admin),
+                json!({"provider":"claude", "maxTasks":1}),
+            ),
+        )
+        .await;
+    assert_eq!(duplicate.status, StatusCode::CONFLICT);
+    wait_for_auto_field(&app, &router, &admin, "currentCardKey", "ATLAS-1").await;
+    let active_lane: String = sqlx::query_scalar(
+        "SELECT s.name FROM cards c JOIN statuses s ON s.id = c.status_id WHERE c.key = 'ATLAS-1'",
+    )
+    .fetch_one(app.db.reader())
+    .await
+    .unwrap();
+    assert_eq!(active_lane, "In Progress");
+    assert_eq!(
+        app.send(
+            &router,
+            post("/api/v1/projects/ATLAS/auto/stop", Some(&admin), json!({}))
+        )
+        .await
+        .status,
+        StatusCode::NO_CONTENT
+    );
+    let job = wait_for_auto_field(&app, &router, &admin, "status", "stopped").await;
+    assert_eq!(job["completedTasks"], 1);
+    assert_auto_ticket_effects(&app, &router, &admin).await;
+    let activity = app
+        .send(
+            &router,
+            get("/api/v1/projects/ATLAS/auto/activity", Some(&admin)),
+        )
+        .await;
+    assert_eq!(activity.status, StatusCode::OK);
+    assert!(
+        activity
+            .json()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["provider"] == "codex" && event["sessionId"].is_string())
+    );
+    let usage = app
+        .send(&router, get("/api/v1/agent-usage", Some(&admin)))
+        .await;
+    assert_eq!(usage.status, StatusCode::OK);
+    assert!(
+        usage
+            .json()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|usage| usage["provider"] == "codex" && usage["inputTokens"] == 100)
+    );
+
+    app.db.close().await;
+}
+
+async fn assert_auto_ticket_effects(app: &App, router: &Router, admin: &str) {
+    let first = app
+        .send(router, get("/api/v1/cards/ATLAS-1/automation", Some(admin)))
+        .await
+        .json();
+    assert_eq!(first["assignment"]["provider"], "codex");
+    let second = app
+        .send(router, get("/api/v1/cards/ATLAS-2/automation", Some(admin)))
+        .await
+        .json();
+    assert_eq!(second["blockedBy"][0]["key"], "ATLAS-1");
+    assert_eq!(second["blockedBy"][0]["done"], false);
+    let lanes: Vec<(String, String)> = sqlx::query_as(
+        "SELECT c.key, s.name FROM cards c JOIN statuses s ON s.id = c.status_id ORDER BY c.key",
+    )
+    .fetch_all(app.db.reader())
+    .await
+    .expect("failed to read ticket lanes");
+    assert!(lanes.contains(&("ATLAS-1".to_owned(), "In Review".to_owned())));
+    assert!(lanes.contains(&("ATLAS-2".to_owned(), "Blocked".to_owned())));
+    let blocked_run = app
+        .send(
+            router,
+            post(
+                "/api/v1/cards/ATLAS-2/agent-sessions",
+                Some(admin),
+                json!({"provider":"claude"}),
+            ),
+        )
+        .await;
+    assert_eq!(blocked_run.status, StatusCode::CONFLICT);
+    let cycle = app
+        .send(
+            router,
+            post(
+                "/api/v1/cards/ATLAS-1/dependencies",
+                Some(admin),
+                json!({"blockedBy":"ATLAS-2", "reason":"Circular"}),
+            ),
+        )
+        .await;
+    assert_eq!(cycle.status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_dependency_cannot_reference_another_projects_ticket() {
+    let app = App::new().await;
+    let router = app.router();
+    let admin = admin_past_the_gate(&app, &router).await;
+    let first_type = create_project(&app, &router, &admin, "FIRST").await;
+    let second_type = create_project(&app, &router, &admin, "OTHER").await;
+    create_card(&app, &router, &admin, "FIRST", &first_type, "Task", None).await;
+    create_card(
+        &app,
+        &router,
+        &admin,
+        "OTHER",
+        &second_type,
+        "Private task",
+        None,
+    )
+    .await;
+    let response = app
+        .send(
+            &router,
+            post(
+                "/api/v1/cards/FIRST-1/dependencies",
+                Some(&admin),
+                json!({"blockedBy":"OTHER-1", "reason":"Must not cross scope"}),
+            ),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM card_dependencies")
+        .fetch_one(app.db.reader())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn a_worker_reported_blocker_is_attached_to_its_ticket() {
+    let (app, scripts, _router, admin) = auto_fixture().await;
+    let program = fake_program(
+        &scripts.0,
+        r#"
+        echo '{"type":"result","subtype":"success","is_error":false,"result":"ATLAS_BLOCKED_BY: ATLAS-2 | Need its implementation first","num_turns":1,"session_id":"blocked","total_cost_usd":0,"terminal_reason":"completed"}'
+    "#,
+    );
+    let router = app.router_with_fakes(
+        Arc::new(LocalRunner::with_program(program.to_string_lossy())),
+        scripts.0.clone(),
+    );
+    let response = app
+        .send(
+            &router,
+            post(
+                "/api/v1/cards/ATLAS-1/agent-sessions",
+                Some(&admin),
+                json!({"provider":"claude"}),
+            ),
+        )
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::CREATED,
+        "{}",
+        response.raw_body
+    );
+    let id = response.json()["id"].as_str().unwrap().to_owned();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let finalized: bool = sqlx::query_scalar(
+                "SELECT finalized_at IS NOT NULL FROM agent_sessions WHERE id = ?",
+            )
+            .bind(&id)
+            .fetch_one(app.db.reader())
+            .await
+            .unwrap();
+            if finalized {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let info = app
+        .send(
+            &router,
+            get("/api/v1/cards/ATLAS-1/automation", Some(&admin)),
+        )
+        .await
+        .json();
+    assert_eq!(info["blockedBy"][0]["key"], "ATLAS-2");
+    let lane: String = sqlx::query_scalar(
+        "SELECT s.name FROM cards c JOIN statuses s ON s.id = c.status_id WHERE c.key = 'ATLAS-1'",
+    )
+    .fetch_one(app.db.reader())
+    .await
+    .unwrap();
+    assert_eq!(lane, "Blocked");
+    app.db.close().await;
+}
+
+#[tokio::test]
+async fn auto_stops_when_workflow_rules_prevent_the_review_move() {
+    let (app, scripts, _router, admin) = auto_fixture().await;
+    let program = fake_program(
+        &scripts.0,
+        r#"
+        case "$*" in
+          *"You manage this project board"*)
+            echo '{"type":"result","subtype":"success","is_error":false,"result":"{\"cardKey\":\"ATLAS-1\",\"provider\":\"claude\",\"reason\":\"Ready task\",\"blocked\":[]}","num_turns":1,"session_id":"plan","total_cost_usd":0,"terminal_reason":"completed"}' ;;
+          *)
+            echo '{"type":"result","subtype":"success","is_error":false,"result":"Checked","num_turns":1,"session_id":"worker","total_cost_usd":0,"terminal_reason":"completed"}' ;;
+        esac
+    "#,
+    );
+    let router = app.router_with_fakes(
+        Arc::new(LocalRunner::with_program(program.to_string_lossy())),
+        scripts.0.clone(),
+    );
+    let card = atlas::domain::card::find_by_key(&app.db, "ATLAS-1")
+        .await
+        .unwrap()
+        .unwrap();
+    let statuses = atlas::domain::config::statuses(&app.db, &card.project_id)
+        .await
+        .unwrap();
+    let ids: Vec<String> = statuses.iter().map(|status| status.id.clone()).collect();
+    let mut tx = app.db.begin_write().await.unwrap();
+    let strict = atlas::domain::workflow::insert(
+        &mut tx,
+        &card.project_id,
+        "Strict workflow",
+        false,
+        &ids,
+        chrono::Utc::now(),
+    )
+    .await
+    .unwrap();
+    atlas::domain::workflow::assign_card_types(
+        &mut tx,
+        &strict.id,
+        &card.project_id,
+        std::slice::from_ref(&card.type_id),
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    let response = app
+        .send(
+            &router,
+            post(
+                "/api/v1/projects/ATLAS/auto",
+                Some(&admin),
+                json!({"provider":"claude", "maxTasks":0}),
+            ),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::CREATED);
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            let job = app
+                .send(&router, get("/api/v1/projects/ATLAS/auto", Some(&admin)))
+                .await
+                .json();
+            if job["status"] == "failed" {
+                assert!(job["message"].as_str().unwrap().contains("workflow"));
+                assert_eq!(job["completedTasks"], 0);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let attempts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_sessions")
+        .fetch_one(app.db.reader())
+        .await
+        .unwrap();
+    assert_eq!(attempts, 1);
     app.db.close().await;
 }

@@ -30,6 +30,7 @@ use utoipa_axum::routes;
 
 use crate::agent::dispatch::{self, Submission};
 use crate::agent::orchestrator;
+use crate::agent::providers::AgentProvider;
 use crate::api::AppState;
 use crate::auth::extract::RequireMember;
 use crate::auth::{CurrentUser, now};
@@ -39,6 +40,17 @@ use crate::domain::agent_settings::{self, AgentSettings};
 use crate::domain::card;
 use crate::domain::project;
 use crate::error::{AppError, AppResult, Problem};
+
+/// The body of `POST /cards/{key}/agent-sessions`. The project's [`AgentSettings`] (tools,
+/// permission mode, turns/budget, destination, API-key opt-in) drive everything else — this
+/// is the one per-run choice the caller still makes, since the same card can be run with
+/// whichever CLI is actually signed in.
+#[derive(Debug, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StartAgentSessionRequest {
+    #[serde(default)]
+    pub provider: AgentProvider,
+}
 
 /// Builds the prompt Atlas sends: the card's summary, and its description if it has one and
 /// it is not blank.
@@ -59,6 +71,7 @@ fn build_prompt(summary: &str, description: Option<&str>) -> String {
     post,
     path = "/cards/{key}/agent-sessions",
     tag = "agent-sessions",
+    request_body = Option<StartAgentSessionRequest>,
     params(("key" = String, Path, description = "The card key, e.g. ATLAS-42")),
     responses(
         (status = 201, description = "The run, recorded as running (and `queued` when the instance is at its concurrency cap)", body = AgentSession),
@@ -71,14 +84,29 @@ async fn start_agent_session(
     State(state): State<AppState>,
     current: CurrentUser,
     Path(key): Path<String>,
+    request: Option<Json<StartAgentSessionRequest>>,
 ) -> AppResult<(StatusCode, Json<AgentSession>)> {
     let card = card::find_by_key(&state.db, &key)
         .await?
         .ok_or(AppError::NotFound)?;
+    if crate::domain::automation::info(&state.db, &card.id)
+        .await?
+        .blocked_by
+        .iter()
+        .any(|dependency| !dependency.done)
+    {
+        return Err(AppError::Conflict(
+            "This ticket has unfinished blocking dependencies. Finish them before starting work."
+                .to_owned(),
+        ));
+    }
     let prompt = build_prompt(&card.summary, card.description.as_deref());
     let session = dispatch::submit(
         &state,
         Submission {
+            provider: request
+                .map(|Json(request)| request.provider)
+                .unwrap_or_default(),
             card: &card,
             prompt,
             started_by: current.id(),
@@ -244,6 +272,7 @@ async fn rerun_agent_session(
     let session = dispatch::submit(
         &state,
         Submission {
+            provider: previous.provider.parse().unwrap_or_default(),
             card: &card,
             prompt: previous.prompt.clone(),
             started_by: member.0.id(),
@@ -291,6 +320,7 @@ async fn continue_agent_session(
     let session = dispatch::submit(
         &state,
         Submission {
+            provider: previous.provider.parse().unwrap_or_default(),
             card: &card,
             prompt: prompt.to_owned(),
             started_by: member.0.id(),

@@ -1,4 +1,4 @@
--- Atlas schema, migration 0018: the activity feed, and notifications.
+-- Atlas schema, migration 0024: the activity feed, and notifications.
 --
 -- STRICT, matching 0001-0017.
 --

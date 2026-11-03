@@ -1,4 +1,4 @@
--- Atlas schema, migration 0022: card templates.
+-- Atlas schema, migration 0028: card templates.
 --
 -- STRICT, matching 0001-0021.
 --

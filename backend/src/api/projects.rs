@@ -18,10 +18,10 @@ use crate::api::serde_ext::double_option;
 use crate::auth::extract::{RequireAdmin, RequireMember};
 use crate::auth::{now, user};
 use crate::db::Db;
-use crate::domain::EstimationUnit;
 use crate::domain::member::{self, ProjectRole};
 use crate::domain::project::{self, Project, ProjectDto, ProjectPatch};
 use crate::domain::template::{self, Template};
+use crate::domain::{EstimationUnit, StatusCategory};
 use crate::error::{AppError, AppResult, Problem};
 
 /// Loads a project by key, or 404s.
@@ -95,6 +95,9 @@ pub struct UpdateProjectRequest {
     /// How the project's single `estimate` field is interpreted.
     #[serde(default)]
     pub estimation_unit: Option<EstimationUnit>,
+    /// Where a successful Claude Code run moves a card, if it is changing.
+    #[serde(default)]
+    pub agent_completion_category: Option<StatusCategory>,
 }
 
 /// One template, as the picker describes it.
@@ -346,6 +349,7 @@ async fn update_project(
         cover_image_url: body.cover_image_url,
         cycles_enabled: body.cycles_enabled,
         estimation_unit: body.estimation_unit,
+        agent_completion_category: body.agent_completion_category,
     };
 
     if patch.is_empty() {

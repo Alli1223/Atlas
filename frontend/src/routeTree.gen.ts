@@ -23,6 +23,7 @@ import { Route as ProjectsProjectKeyBoardRouteImport } from './routes/projects.$
 import { Route as ProjectsProjectKeyCyclesRouteImport } from './routes/projects.$projectKey.cycles'
 import { Route as ProjectsProjectKeyImportRouteImport } from './routes/projects.$projectKey.import'
 import { Route as ProjectsProjectKeyReportsRouteImport } from './routes/projects.$projectKey.reports'
+import { Route as ProjectsProjectKeySettingsRouteImport } from './routes/projects.$projectKey.settings'
 import { Route as ProjectsProjectKeyTrashRouteImport } from './routes/projects.$projectKey.trash'
 
 const IndexRoute = IndexRouteImport.update({
@@ -99,6 +100,12 @@ const ProjectsProjectKeyReportsRoute =
     path: '/projects/$projectKey/reports',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ProjectsProjectKeySettingsRoute =
+  ProjectsProjectKeySettingsRouteImport.update({
+    id: '/projects/$projectKey/settings',
+    path: '/projects/$projectKey/settings',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ProjectsProjectKeyTrashRoute = ProjectsProjectKeyTrashRouteImport.update({
   id: '/projects/$projectKey/trash',
   path: '/projects/$projectKey/trash',
@@ -120,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
   '/projects/$projectKey/import': typeof ProjectsProjectKeyImportRoute
   '/projects/$projectKey/reports': typeof ProjectsProjectKeyReportsRoute
+  '/projects/$projectKey/settings': typeof ProjectsProjectKeySettingsRoute
   '/projects/$projectKey/trash': typeof ProjectsProjectKeyTrashRoute
 }
 export interface FileRoutesByTo {
@@ -137,6 +145,7 @@ export interface FileRoutesByTo {
   '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
   '/projects/$projectKey/import': typeof ProjectsProjectKeyImportRoute
   '/projects/$projectKey/reports': typeof ProjectsProjectKeyReportsRoute
+  '/projects/$projectKey/settings': typeof ProjectsProjectKeySettingsRoute
   '/projects/$projectKey/trash': typeof ProjectsProjectKeyTrashRoute
 }
 export interface FileRoutesById {
@@ -155,6 +164,7 @@ export interface FileRoutesById {
   '/projects/$projectKey/cycles': typeof ProjectsProjectKeyCyclesRoute
   '/projects/$projectKey/import': typeof ProjectsProjectKeyImportRoute
   '/projects/$projectKey/reports': typeof ProjectsProjectKeyReportsRoute
+  '/projects/$projectKey/settings': typeof ProjectsProjectKeySettingsRoute
   '/projects/$projectKey/trash': typeof ProjectsProjectKeyTrashRoute
 }
 export interface FileRouteTypes {
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
     | '/projects/$projectKey/cycles'
     | '/projects/$projectKey/import'
     | '/projects/$projectKey/reports'
+    | '/projects/$projectKey/settings'
     | '/projects/$projectKey/trash'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/projects/$projectKey/cycles'
     | '/projects/$projectKey/import'
     | '/projects/$projectKey/reports'
+    | '/projects/$projectKey/settings'
     | '/projects/$projectKey/trash'
   id:
     | '__root__'
@@ -208,6 +220,7 @@ export interface FileRouteTypes {
     | '/projects/$projectKey/cycles'
     | '/projects/$projectKey/import'
     | '/projects/$projectKey/reports'
+    | '/projects/$projectKey/settings'
     | '/projects/$projectKey/trash'
   fileRoutesById: FileRoutesById
 }
@@ -226,6 +239,7 @@ export interface RootRouteChildren {
   ProjectsProjectKeyCyclesRoute: typeof ProjectsProjectKeyCyclesRoute
   ProjectsProjectKeyImportRoute: typeof ProjectsProjectKeyImportRoute
   ProjectsProjectKeyReportsRoute: typeof ProjectsProjectKeyReportsRoute
+  ProjectsProjectKeySettingsRoute: typeof ProjectsProjectKeySettingsRoute
   ProjectsProjectKeyTrashRoute: typeof ProjectsProjectKeyTrashRoute
 }
 
@@ -329,6 +343,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectKeyReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/projects/$projectKey/settings': {
+      id: '/projects/$projectKey/settings'
+      path: '/projects/$projectKey/settings'
+      fullPath: '/projects/$projectKey/settings'
+      preLoaderRoute: typeof ProjectsProjectKeySettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projects/$projectKey/trash': {
       id: '/projects/$projectKey/trash'
       path: '/projects/$projectKey/trash'
@@ -354,6 +375,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProjectsProjectKeyCyclesRoute: ProjectsProjectKeyCyclesRoute,
   ProjectsProjectKeyImportRoute: ProjectsProjectKeyImportRoute,
   ProjectsProjectKeyReportsRoute: ProjectsProjectKeyReportsRoute,
+  ProjectsProjectKeySettingsRoute: ProjectsProjectKeySettingsRoute,
   ProjectsProjectKeyTrashRoute: ProjectsProjectKeyTrashRoute,
 }
 export const routeTree = rootRouteImport

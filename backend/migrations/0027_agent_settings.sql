@@ -1,4 +1,4 @@
--- Atlas schema, migration 0021: per-project agent settings, the run queue, usage capture.
+-- Atlas schema, migration 0027: per-project agent settings, the run queue, usage capture.
 --
 -- STRICT, matching 0001-0020.
 

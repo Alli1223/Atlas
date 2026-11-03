@@ -82,3 +82,22 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
+
+.transcript {
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--ds-font-body-small);
+}
+
+.session > details { width: 100%; min-width: 0; }
+.session summary { cursor: pointer; }
+.transcript {
+  padding: var(--ds-space-150);
+  background: var(--ds-background-neutral);
+  border: var(--ds-border-width) solid var(--ds-border);
+  border-radius: var(--ds-radius-small);
+  font-family: monospace;
+}
+.request { white-space: pre-wrap; overflow-wrap: anywhere; }
